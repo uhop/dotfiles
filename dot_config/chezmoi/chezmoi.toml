@@ -1,5 +1,9 @@
 [diff]
-    command = "meld"
-    args = ["--diff", "{{ .Destination }}", "{{ .Target }}"]
+#    command = "meld"
+#    args = ["--diff", "{{ .Destination }}", "{{ .Target }}"]
     pager = "diff-so-fancy"
+[[textconv]]
+pattern = "**/*.plist"
+command = "plutil"
+args = ["-convert", "xml1", "-o", "-", "-"]
 
