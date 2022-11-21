@@ -1,0 +1,5 @@
+[diff]
+    command = "meld"
+    args = ["--diff", "{{ .Destination }}", "{{ .Target }}"]
+    pager = "diff-so-fancy"
+
