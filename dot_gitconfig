@@ -2,10 +2,14 @@
 [user]
 	name = Eugene Lazutkin
 	email = eugene.lazutkin@gmail.com
-[pager]
-	diff = diff-so-fancy | less --tabs=4 -RFX
-	show = diff-so-fancy | less --tabs=4 -RFX
 [core]
 	pager = diff-so-fancy | less --tabs=4 -RFX
+	editor = micro
+	autocrlf = input
+	whitespace = trailing-space,-space-before-tab,cr-at-eol
 [interactive]
 	diffFilter = diff-so-fancy --patch
+[init]
+	defaultBranch = main
+[includeIf "hasconfig:remote.*.url:git@github.com:Openmail/**"]
+	path = ~/.gitconfig-work
