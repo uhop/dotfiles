@@ -55,6 +55,14 @@ alias l='ls -CF'
 #   sleep 10; alert
 #alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
 
+# Better replacements
+
+alias cat='bat'
+alias ping='prettyping --nolegend'
+alias top="sudo htop"
+alias du="ncdu --color dark -rr -x --exclude .git --exclude node_modules"
+alias help='tldr'
+
 # My custom commands
 
 # no-globbing mode for bash functions, thanks to http://blog.edwards-research.com/2011/05/preventing-globbing/
