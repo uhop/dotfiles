@@ -13,3 +13,5 @@
 	defaultBranch = main
 [includeIf "hasconfig:remote.*.url:git@github.com:Openmail/**"]
 	path = ~/.gitconfig-work
+[pull]
+	rebase = false
