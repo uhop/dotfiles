@@ -1,59 +1,68 @@
-# commands from http://www.askapache.com/linux/bash_profile-functions-advanced-shell.html
+# commands from https://www.cyberciti.biz/tips/bash-aliases-mac-centos-linux-unix.html
 
-#alias chmod='command chmod -c'
-alias cpr='command cp -rpv'
-alias df='command df -kh'
-alias df1='command df -ia'
-alias diff='diff -up'
-alias dsiz='du -sk * | sort -n --'
-alias du='command du -kh'
-alias du1='echo *|tr " " "n" |xargs -iFF command du -hs FF|sort'
-alias env='command env | sort'
-alias h='history'
-alias inice='ionice -c3 -n7 nice'
-alias j='jobs -l'
-alias la='command ls -AlG'
-alias lc='command ls -lAcrG'
-#alias less='vless'
-#alias lessc='ccze -A |`type -P less` -R'
-alias lk='command ls -lASrG'
-alias llh='ll -h'
-alias lll='stat -c %a %N %G %U ${PWD}/*|sort'
-alias lr='command ls -lARG'
-alias lt='command ls -lAtrG'
-alias lu='command ls -lAurG'
-alias lx='command ls -lAXBG'
-#alias mann='command man -H'
-#alias n='/usr/bin/nano3'
-alias p='command ps -Acl | uniq -w3'
-alias path='echo -e ${PATH//:/\n}'
-#alias php='php -d report_memleaks=1 -d report_zend_debug=1 -d log_errors=0 -d ignore_repeated_errors=0 -d ignore_repeated_source=0 -d error_reporting=30719 -d display_startup_errors=1 -d display_errors$
-alias pp='command ps -Acl'
-alias ps1='command ps -lA'
-#alias ps2='command ps -H'
-alias resetw='echo $'''33[H33[2J''''
-#alias subash='sudo sh -c '''export HOME=/root; cd /root; exec bash -l''''
-#alias top='top -c'
-#alias tree='command tree -Csuflapi'
-#alias updatedb='( ( updatedb 2>/dev/null ) & )'
-#alias vim='command vim --noplugin'
-alias who='command who -ar -pld'
-#alias wtf='watch -n 1 w -hs'
-
-# enable color support of ls and also add handy aliases
-alias grep='grep --color=auto'
-alias fgrep='fgrep --color=auto'
-alias egrep='egrep --color=auto'
+## Colorize the ls output ##
+alias ls='command ls --color=auto'
+## Use a long listing format ##
+alias ll='command ls -la' 
+## Show hidden files ##
+alias l.='command ls -d .* --color=auto'
 
 # some more ls aliases
-alias ls='command ls -G'
-alias ll='ls -alF'
-alias la='ls -A'
-alias l='ls -CF'
+alias la='command ls -A'
+alias l='command ls -CF'
+ 
+## get rid of command not found ##
+alias cd..='command cd ..'
+## a quick way to get out of current directory ##
+alias ..='command cd ..'
+alias ...='command cd ../../'
+alias ....='command cd ../../../'
+alias .....='command cd ../../../../'
+alias .4='command cd ../../../../'
+alias .5='command cd ../../../../../'
 
-# Add an "alert" alias for long running commands.  Use like so:
-#   sleep 10; alert
-#alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
+## Colorize the grep command output for ease of use (good for log files)##
+alias grep='grep --color=auto'
+alias egrep='egrep --color=auto'
+alias fgrep='fgrep --color=auto'
+
+## Start calculator with math support
+alias bc='command bc -l'
+
+## Generate sha1 digest
+alias sha1='command openssl sha1'
+
+## Create parent directories on demand
+alias mkdir='command mkdir -pv'
+
+## Make mount command output pretty and human readable format
+alias mount='command mount | command column -t'
+
+## Command short cuts to save time
+alias h='command history'
+alias j='command jobs -l'
+
+## Add safety nets
+## do not delete / or prompt if deleting more than 3 files at a time #
+alias rm='command rm -I --preserve-root'
+## confirmation #
+#alias mv='command mv -i'
+#alias cp='command cp -i'
+#alias ln='command ln -i'
+## Parenting changing perms on / #
+alias chown='command chown --preserve-root'
+alias chmod='command chmod --preserve-root'
+alias chgrp='command chgrp --preserve-root'
+
+## Resume wget by default
+## this one saved my butt so many times ##
+alias wget='command wget -c'
+
+## set some other defaults ##
+alias df='command df -H'
+alias du='command du -ch'
+alias env='command env | sort'
+alias path='echo -e ${PATH//:/\\n}'
 
 # Better replacements
 
