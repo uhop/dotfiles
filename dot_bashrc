@@ -115,3 +115,4 @@ unset BP
 
 export BASH_SILENCE_DEPRECATION_WARNING=1
 
+test -e "${HOME}/.iterm2_shell_integration.bash" && LC_NUMERIC="en_US.UTF-8" source "${HOME}/.iterm2_shell_integration.bash"
