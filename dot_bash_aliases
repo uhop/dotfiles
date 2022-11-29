@@ -44,15 +44,16 @@ alias j='command jobs -l'
 
 ## Add safety nets
 ## do not delete / or prompt if deleting more than 3 files at a time #
-alias rm='command rm -I --preserve-root'
+#alias rm='command rm -I --preserve-root'
+alias rm='command rm -I'
 ## confirmation #
 #alias mv='command mv -i'
 #alias cp='command cp -i'
 #alias ln='command ln -i'
 ## Parenting changing perms on / #
-alias chown='command chown --preserve-root'
-alias chmod='command chmod --preserve-root'
-alias chgrp='command chgrp --preserve-root'
+#alias chown='command chown --preserve-root'
+#alias chmod='command chmod --preserve-root'
+#alias chgrp='command chgrp --preserve-root'
 
 ## Resume wget by default
 ## this one saved my butt so many times ##
