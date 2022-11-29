@@ -474,23 +474,10 @@ function iterm2_print_state_data() {
   iterm2_print_user_vars
 }
 
-function iterm2_base64() {
-  base64
-}
-if command -v sw_vers > /dev/null 2>&1; then
-  ver=$(printf "%.0f" $(sw_vers | awk -F'[:.]' '/ProductVersion/ {print $2}')) 
-  if (( $ver >= 13 )); then
-    unset -f iterm2_base64
-    function iterm2_base64() {
-      perl -MMIME::Base64 -e 'print encode_base64(join("", <>))'
-    }
-  fi
-fi
-
 # Usage: iterm2_set_user_var key value
 function iterm2_set_user_var() {
   iterm2_begin_osc
-  printf "1337;SetUserVar=%s=%s" "$1" $(printf "%s" "$2" | iterm2_base64 | tr -d '\n')
+  printf "1337;SetUserVar=%s=%s" "$1" $(printf "%s" "$2" | base64 | tr -d '\n')
   iterm2_end_osc
 }
 
@@ -524,7 +511,7 @@ function iterm2_prompt_suffix() {
 
 function iterm2_print_version_number() {
   iterm2_begin_osc
-  printf "1337;ShellIntegrationVersion=19;shell=bash"
+  printf "1337;ShellIntegrationVersion=18;shell=bash"
   iterm2_end_osc
 }
 
@@ -662,4 +649,5 @@ fi
 # -- END ITERM2 CUSTOMIZATIONS --
 
 
-alias imgcat=~/.iterm2/imgcat;alias imgls=~/.iterm2/imgls;alias it2api=~/.iterm2/it2api;alias it2attention=~/.iterm2/it2attention;alias it2check=~/.iterm2/it2check;alias it2copy=~/.iterm2/it2copy;alias it2dl=~/.iterm2/it2dl;alias it2getvar=~/.iterm2/it2getvar;alias it2git=~/.iterm2/it2git;alias it2setcolor=~/.iterm2/it2setcolor;alias it2setkeylabel=~/.iterm2/it2setkeylabel;alias it2tip=~/.iterm2/it2tip;alias it2ul=~/.iterm2/it2ul;alias it2universion=~/.iterm2/it2universion;alias it2profile=~/.iterm2/it2profile
+
+alias imgcat=~/.iterm2/imgcat;alias imgls=~/.iterm2/imgls;alias it2api=~/.iterm2/it2api;alias it2attention=~/.iterm2/it2attention;alias it2check=~/.iterm2/it2check;alias it2copy=~/.iterm2/it2copy;alias it2dl=~/.iterm2/it2dl;alias it2getvar=~/.iterm2/it2getvar;alias it2git=~/.iterm2/it2git;alias it2profile=~/.iterm2/it2profile;alias it2setcolor=~/.iterm2/it2setcolor;alias it2setkeylabel=~/.iterm2/it2setkeylabel;alias it2tip=~/.iterm2/it2tip;alias it2ul=~/.iterm2/it2ul;alias it2universion=~/.iterm2/it2universion
