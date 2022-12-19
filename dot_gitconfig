@@ -37,3 +37,7 @@
 [gui]
 	fontui = -family \"Hack Nerd Font Mono\" -size 14 -weight normal -slant roman -underline 0 -overstrike 0
 	fontdiff = -family \"Hack Nerd Font Mono\" -size 12 -weight normal -slant roman -underline 0 -overstrike 0
+[hub]
+	protocol = ssh
+[remote "origin"]
+	prune = true
