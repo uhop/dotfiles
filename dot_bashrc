@@ -113,7 +113,8 @@ if [ -f $BP/etc/bash_completion ]; then
 fi
 unset BP
 
+test -e ~/.iterm2_shell_integration.bash && source ~/.iterm2_shell_integration.bash || true
+
 export EDITOR=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
-
-test -e ~/.iterm2_shell_integration.bash && source ~/.iterm2_shell_integration.bash || true
+export GITHUB_USERNAME=uhop
