@@ -1,3 +1,5 @@
-{{ range gitHubKeys "$GITHUB_USERNAME" -}}
-{{   .Key }}
+{{ if env "GITHUB_USERNAME" -}}
+{{   range gitHubKeys env "GITHUB_USERNAME" -}}
+{{     .Key }}
+{{   end -}}
 {{ end -}}
