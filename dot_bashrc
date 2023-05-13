@@ -52,7 +52,12 @@ else
     PS1='\w \$ '
 fi
 
-eval "$(/opt/homebrew/bin/brew shellenv)"
+unameOut="$(uname -s)"
+case "${unameOut}" in
+    Linux*)     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)";;
+    Darwin*)    eval "$(/opt/homebrew/bin/brew shellenv)";;
+esac
+unset unameOut
 
 BGP="$(brew --prefix bash-git-prompt)"
 if [ -f "$BGP/share/gitprompt.sh" ]; then
@@ -90,7 +95,7 @@ esac
 # NVM for node.js
 export NVM_DIR="$HOME/.nvm"
 . "$(brew --prefix nvm)/nvm.sh"
-nvm use stable
+# nvm use stable
 
 # enable programmable completion features (you don't need to enable
 # this, if it's already enabled in /etc/bash.bashrc and /etc/profile
