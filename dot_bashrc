@@ -120,3 +120,7 @@ test -e ~/.iterm2_shell_integration.bash && source ~/.iterm2_shell_integration.b
 export EDITOR=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export GITHUB_USERNAME=uhop
+
+if [ "$SHLVL" == "1" ] && command -v neofetch &> /dev/null; then
+    neofetch
+fi
