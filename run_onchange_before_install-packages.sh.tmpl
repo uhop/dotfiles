@@ -1,8 +1,36 @@
 {{ if eq .chezmoi.os "linux" -}}
 #!/bin/sh
-sudo apt install ripgrep
+echo "Installing software with apt and snap: expect asking for a password."
+sudo apt install build-essential micro wget age meld tealdeer exa bat ncdu jq \
+  silversearcher-ag tig httpie prettyping htop parallel fzf brotli gh hub mc \
+  neofetch ripgrep nginx awscli golang rustc python3
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+brew bundle --no-lock --file=/dev/stdin <<EOF
+tap "homebrew/bundle"
+tap "homebrew/cask"
+tap "homebrew/cask-fonts"
+tap "homebrew/core"
+brew "aws-iam-authenticator"
+brew "awscli"
+brew "bash-completion"
+brew "bash-git-prompt"
+brew "broot"
+brew "diff-so-fancy"
+brew "dust"
+brew "fd"
+brew "helix"
+brew "helm"
+brew "kubernetes-cli"
+brew "nvm"
+brew "whalebrew"
+cask "font-fira-code-nerd-font"
+cask "font-hack-nerd-font"
+EOF
+. "$(brew --prefix nvm)/nvm.sh"
+nvm install stable
 {{ else if eq .chezmoi.os "darwin" -}}
 #!/bin/sh
+eval "$(/opt/homebrew/bin/brew shellenv)"
 brew bundle --no-lock --file=/dev/stdin <<EOF
 tap "homebrew/bundle"
 tap "homebrew/cask"
@@ -51,5 +79,6 @@ cask "font-fira-code-nerd-font"
 cask "font-hack-nerd-font"
 cask "meld"
 EOF
-npm install stable
+. "$(brew --prefix nvm)/nvm.sh"
+nvm install stable
 {{ end -}}
