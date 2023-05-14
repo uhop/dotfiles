@@ -1,4 +1,4 @@
-{{ if eq .chezmoi.os "linux" -}}
+{{- if eq .osid "linux-debian" -}}
 #!/bin/sh
 echo "Installing software with apt and snap: expect asking for a password."
 sudo apt install -y build-essential micro wget age meld tealdeer exa bat ncdu jq \
@@ -35,7 +35,7 @@ cask "font-hack-nerd-font"
 EOF
 . "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
-{{ else if eq .chezmoi.os "darwin" -}}
+{{- else if eq .osid "darwin" -}}
 #!/bin/sh
 eval "$(/opt/homebrew/bin/brew shellenv)"
 brew bundle --no-lock --file=/dev/stdin <<EOF
@@ -98,10 +98,4 @@ cask "meld"
 EOF
 . "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
-{{ end -}}
-
-# Install VIM Awesome
-if [ ! -d ~/.vim_runtime ]; then
-  git clone --depth=1 https://github.com/amix/vimrc.git ~/.vim_runtime
-  sh ~/.vim_runtime/install_awesome_vimrc.sh
-fi
+{{- end -}}
