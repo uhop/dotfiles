@@ -1,12 +1,17 @@
-{{- $osid := .chezmoi.os -}}
+{{- $osId := .chezmoi.os -}}
 {{- if hasKey .chezmoi.osRelease "id" -}}
-{{-   $osid = printf "%s-%s" .chezmoi.os .chezmoi.osRelease.id -}}
+{{-   $osId = printf "%s-%s" .chezmoi.os .chezmoi.osRelease.id -}}
+{{- end -}}
+{{- $osIdLike := $osId -}}
+{{- if hasKey .chezmoi.osRelease "idLike" -}}
+{{-   $osIdLike = printf "%s-%s" .chezmoi.os .chezmoi.osRelease.idLike -}}
 {{- end -}}
 {{- $wsl := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 {{- $codespaces:= env "CODESPACES" | not | not -}}
 
 [data]
-    osid = {{ $osid | quote }}
+    osId = {{ $osId | quote }}
+    osIdLike = {{ $osIdLike | quote }}
     wsl = {{ $wsl }}
     codespaces = {{ $codespaces }}
 

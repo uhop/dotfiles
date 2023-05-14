@@ -1,4 +1,4 @@
-{{- if eq .osid "linux-debian" -}}
+{{- if eq .osIdLike "linux-debian" -}}
 #!/bin/sh
 echo "Installing software with apt and snap: expect asking for a password."
 sudo apt install -y build-essential micro wget age meld tealdeer exa bat ncdu jq \
@@ -35,7 +35,7 @@ cask "font-hack-nerd-font"
 EOF
 . "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
-{{- else if eq .osid "darwin" -}}
+{{- else if eq .osIdLike "darwin" -}}
 #!/bin/sh
 eval "$(/opt/homebrew/bin/brew shellenv)"
 brew bundle --no-lock --file=/dev/stdin <<EOF
