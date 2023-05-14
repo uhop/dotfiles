@@ -1,9 +1,9 @@
 {{ if eq .chezmoi.os "linux" -}}
 #!/bin/sh
 echo "Installing software with apt and snap: expect asking for a password."
-sudo apt install build-essential micro wget age meld tealdeer exa bat ncdu jq \
+sudo apt install -y build-essential micro wget age meld tealdeer exa bat ncdu jq \
   silversearcher-ag tig httpie prettyping htop parallel fzf brotli gh hub mc \
-  neofetch ripgrep nginx awscli golang rustc python3
+  neofetch ripgrep alacritty nginx awscli golang rustc python3
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 brew bundle --no-lock --file=/dev/stdin <<EOF
 tap "homebrew/bundle"
@@ -23,7 +23,6 @@ brew "helm"
 brew "kubernetes-cli"
 brew "nvm"
 brew "whalebrew"
-cask "alacritty"
 cask "font-fira-code-nerd-font"
 cask "font-hack-nerd-font"
 EOF
