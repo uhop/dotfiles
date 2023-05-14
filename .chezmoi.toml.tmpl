@@ -1,0 +1,22 @@
+{{- $osid := .chezmoi.os -}}
+{{- if hasKey .chezmoi.osRelease "id" -}}
+{{-   $osid = printf "%s-%s" .chezmoi.os .chezmoi.osRelease.id -}}
+{{- end -}}
+{{- $wsl := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{- $codespaces:= env "CODESPACES" | not | not -}}
+
+[data]
+    osid = {{ $osid | quote }}
+    wsl = {{ $wsl }}
+    codespaces = {{ $codespaces }}
+
+[diff]
+    pager = "diff-so-fancy"
+
+[[textconv]]
+pattern = "**/*.plist"
+command = "plutil"
+args = ["-convert", "xml1", "-o", "-", "-"]
+
+[scriptEnv]
+    GITHUB_USERNAME = "uhop"
