@@ -97,6 +97,9 @@ export NVM_DIR="$HOME/.nvm"
 . "$(brew --prefix nvm)/nvm.sh"
 # nvm use stable
 
+command -v mcfly &> /dev/null && eval "$(mcfly init bash)" || true
+command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
+
 # enable programmable completion features (you don't need to enable
 # this, if it's already enabled in /etc/bash.bashrc and /etc/profile
 # sources /etc/bash.bashrc).
