@@ -10,13 +10,13 @@
 {{- $codespaces:= env "CODESPACES" | not | not -}}
 
 [data]
-    osId = {{ $osId | quote }}
-    osIdLike = {{ $osIdLike | quote }}
-    wsl = {{ $wsl }}
-    codespaces = {{ $codespaces }}
+osId = {{ $osId | quote }}
+osIdLike = {{ $osIdLike | quote }}
+wsl = {{ $wsl }}
+codespaces = {{ $codespaces }}
 
 [diff]
-    pager = "diff-so-fancy"
+pager = "diff-so-fancy"
 
 [[textconv]]
 pattern = "**/*.plist"
@@ -24,4 +24,4 @@ command = "plutil"
 args = ["-convert", "xml1", "-o", "-", "-"]
 
 [scriptEnv]
-    GITHUB_USERNAME = "uhop"
+GITHUB_USERNAME = "uhop"
