@@ -83,7 +83,9 @@ xterm*|rxvt*)
 esac
 
 # set PATH so it includes user's private bin if it exists
-[ -d /usr/local/bin ] && PATH="/usr/local/bin:$PATH" || true
+[ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH" || true
+[ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" || true
+
 
 # Alias definitions.
 # You may want to put all your additions into a separate file like
