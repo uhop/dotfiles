@@ -83,7 +83,7 @@ xterm*|rxvt*)
 esac
 
 # set PATH so it includes user's private bin if it exists
-[ -d "/usr/local/bin" ] && PATH="/usr/local/bin:$PATH" || true
+[ -d /usr/local/bin ] && PATH="/usr/local/bin:$PATH" || true
 
 # Alias definitions.
 # You may want to put all your additions into a separate file like
@@ -106,8 +106,22 @@ export NVM_DIR="$HOME/.nvm"
 # nvm use stable
 
 command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
-[ -f ~/.fzf.bash ] && source ~/.fzf.bash
-test -e ~/.iterm2_shell_integration.bash && source ~/.iterm2_shell_integration.bash || true
+
+if command -v fzf &> /dev/null; then
+  if [ -f /usr/share/doc/fzf/examples/key-bindings.bash ]; then
+  	. /usr/share/doc/fzf/examples/key-bindings.bash
+  	[ -f /usr/share/doc/fzf/examples/completion.bash ] && . /usr/share/doc/fzf/examples/completion.bash || true
+  elif [ ! -f ~/.fzf.bash ]; then
+  	FZF_INSTALL = "$(brew --prefix)/opt/fzf/install"
+  	if [ -f $FZF_INSTALL ]; then
+  	  $FZF_INSTALL
+  	fi
+  	unset FZF_INSTALL
+  	[ -f ~/.fzf.bash ] && . ~/.fzf.bash || true
+  fi
+fi
+
+test -e ~/.iterm2_shell_integration.bash && . ~/.iterm2_shell_integration.bash || true
 
 [ "$SHLVL" == "1" ] && command -v neofetch &> /dev/null && neofetch || true
 
