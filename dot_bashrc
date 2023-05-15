@@ -92,14 +92,6 @@ esac
 
 [ -f ~/.bash_aliases ] && . ~/.bash_aliases || true
 
-# NVM for node.js
-export NVM_DIR="$HOME/.nvm"
-. "$(brew --prefix nvm)/nvm.sh"
-# nvm use stable
-
-command -v mcfly &> /dev/null && eval "$(mcfly init bash)" || true
-command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
-
 # enable programmable completion features (you don't need to enable
 # this, if it's already enabled in /etc/bash.bashrc and /etc/profile
 # sources /etc/bash.bashrc).
@@ -108,6 +100,13 @@ BP="$(brew --prefix)"
 [ -f $BP/etc/bash_completion ] && . $BP/etc/bash_completion || true
 unset BP
 
+# NVM for node.js
+export NVM_DIR="$HOME/.nvm"
+. "$(brew --prefix nvm)/nvm.sh"
+# nvm use stable
+
+command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
+[ -f ~/.fzf.bash ] && source ~/.fzf.bash
 test -e ~/.iterm2_shell_integration.bash && source ~/.iterm2_shell_integration.bash || true
 
 [ "$SHLVL" == "1" ] && command -v neofetch &> /dev/null && neofetch || true
