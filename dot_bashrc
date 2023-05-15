@@ -55,7 +55,13 @@ fi
 unameOut="$(uname -s)"
 case "${unameOut}" in
     Linux*)     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)";;
-    Darwin*)    eval "$(/opt/homebrew/bin/brew shellenv)";;
+    Darwin*)
+      if [ -f /opt/homebrew/bin/brew ]; then
+      	eval "$(/opt/homebrew/bin/brew shellenv)"
+      elif [ -f /usr/local/bin/brew ]; then
+      	eval "$(/usr/local/bin/brew shellenv)"
+      fi
+    	;;
 esac
 unset unameOut
 
@@ -86,7 +92,6 @@ esac
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH" || true
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" || true
 
-
 # Alias definitions.
 # You may want to put all your additions into a separate file like
 # ~/.bash_aliases, instead of adding them here directly.
@@ -113,13 +118,13 @@ if command -v fzf &> /dev/null; then
   if [ -f /usr/share/doc/fzf/examples/key-bindings.bash ]; then
   	. /usr/share/doc/fzf/examples/key-bindings.bash
   	[ -f /usr/share/doc/fzf/examples/completion.bash ] && . /usr/share/doc/fzf/examples/completion.bash || true
-  elif [ ! -f ~/.fzf.bash ]; then
-  	FZF_INSTALL = "$(brew --prefix)/opt/fzf/install"
-  	if [ -f $FZF_INSTALL ]; then
-  	  $FZF_INSTALL
+  else
+  	if [ ! -f ~/.fzf.bash ]; then
+  	  FZF_INSTALL="$(brew --prefix)/opt/fzf/install"
+  	  [ -f $FZF_INSTALL ] && eval "$FZF_INSTALL" || true
+  	  unset FZF_INSTALL
   	fi
-  	unset FZF_INSTALL
-  	[ -f ~/.fzf.bash ] && . ~/.fzf.bash || true
+    [ -f ~/.fzf.bash ] && . ~/.fzf.bash || true
   fi
 fi
 
