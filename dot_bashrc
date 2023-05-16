@@ -88,6 +88,8 @@ xterm*|rxvt*)
     ;;
 esac
 
+command -v pyenv &> /dev/null && PATH="$(pyenv root)/shims:${PATH}" || true
+
 # set PATH so it includes user's private bin if it exists
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH" || true
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" || true
