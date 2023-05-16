@@ -88,8 +88,6 @@ xterm*|rxvt*)
     ;;
 esac
 
-command -v pyenv &> /dev/null && PATH="$(pyenv root)/shims:${PATH}" || true
-
 # set PATH so it includes user's private bin if it exists
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH" || true
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" || true
@@ -110,9 +108,18 @@ BP="$(brew --prefix)"
 unset BP
 
 # NVM for node.js
-export NVM_DIR="$HOME/.nvm"
-. "$(brew --prefix nvm)/nvm.sh"
-# nvm use stable
+if command -v nvm &> /dev/null; then
+  export NVM_DIR="$HOME/.nvm"
+  . "$(brew --prefix nvm)/nvm.sh"
+  # nvm use stable
+fi
+
+# pyenv
+if command -v pyenv &> /dev/null; then
+  export PYENV_ROOT="$HOME/.pyenv"
+  PATH="$PYENV_ROOT/bin:$(pyenv root)/shims:${PATH}"
+  eval "$(pyenv init -)"
+fi
 
 command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
 
