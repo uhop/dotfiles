@@ -104,15 +104,17 @@ esac
 # sources /etc/bash.bashrc).
 [ -f /etc/bash_completion ] && ! shopt -oq posix && . /etc/bash_completion || true
 BP="$(brew --prefix)"
-[ -f $BP/etc/bash_completion ] && . $BP/etc/bash_completion || true
+[ -f "$BP/etc/bash_completion" ] && . "$BP/etc/bash_completion" || true
 unset BP
 
 # NVM for node.js
-if command -v nvm &> /dev/null; then
+BPN="$(brew --prefix nvm)"
+if [ -f "$BPN/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
-  . "$(brew --prefix nvm)/nvm.sh"
+  . "$BPN/nvm.sh"
   # nvm use stable
 fi
+unset BPN
 
 # pyenv
 if command -v pyenv &> /dev/null; then
