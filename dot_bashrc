@@ -141,7 +141,14 @@ fi
 
 test -e ~/.iterm2_shell_integration.bash && . ~/.iterm2_shell_integration.bash || true
 
-[ "$SHLVL" == "1" ] && command -v neofetch &> /dev/null && neofetch || true
+# [ "$SHLVL" == "1" ] && command -v neofetch &> /dev/null && neofetch || true
+if command -v neofetch &> /dev/null; then
+  SPN=`ps -p $PPID | awk '{print substr($0, index($0, $4))}' | tail -1`
+  if [ "$SHLVL" == "2" ] && [[ "$SPN" == *tmux* ]] || [ "$SHLVL" == "1" ]; then
+  	neofetch
+  fi
+  unset SPN
+fi
 
 export EDITOR=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
