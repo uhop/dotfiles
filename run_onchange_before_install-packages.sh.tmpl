@@ -1,9 +1,10 @@
 {{- if eq .osIdLike "linux-debian" -}}
 #!/bin/sh
 echo "Installing software with apt and snap: expect asking for a password."
-sudo apt install -y build-essential micro wget age meld tealdeer exa bat ncdu jq \
-  tmux silversearcher-ag tig httpie prettyping htop parallel fzf brotli gh hub mc \
-  neofetch ripgrep alacritty duf hyperfine zoxide nginx awscli golang rustc python3
+sudo apt install -y build-essential bash-completion micro wget age meld tealdeer \
+  exa bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
+  brotli gh hub mc neofetch ripgrep alacritty duf hyperfine zoxide nginx awscli \
+  golang rustc python3
 # sudo snap install bottom
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 brew bundle --no-lock --file=/dev/stdin <<EOF
@@ -13,7 +14,6 @@ tap "homebrew/cask-fonts"
 tap "homebrew/core"
 brew "aws-iam-authenticator"
 brew "awscli"
-brew "bash-completion"
 brew "bash-git-prompt"
 brew "bottom"
 brew "broot"
