@@ -105,6 +105,7 @@ esac
 [ -f /etc/bash_completion ] && ! shopt -oq posix && . /etc/bash_completion || true
 BP="$(brew --prefix)"
 [ -f "$BP/etc/bash_completion" ] && . "$BP/etc/bash_completion" || true
+[ -f "$BP/etc/profile.d/bash_completion.sh" ] && . "$BP/etc/profile.d/bash_completion.sh" || true
 unset BP
 
 # NVM for node.js
