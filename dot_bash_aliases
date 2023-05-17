@@ -65,6 +65,8 @@ alias du='command du -ch'
 alias env='command env | sort'
 alias path='command echo -e ${PATH//:/\\n}'
 
+alias mic='micro'
+
 # Better replacements
 
 alias cat='bat'
