@@ -1,4 +1,5 @@
 {
     "clipboard": "terminal",
+    "mkparents": true,
     "tabsize": 2
 }
