@@ -9,7 +9,6 @@ sudo apt install -y build-essential bash-completion micro wget age meld tealdeer
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 brew bundle --no-lock --file=/dev/stdin <<EOF
 tap "homebrew/bundle"
-tap "homebrew/cask"
 tap "homebrew/cask-fonts"
 brew "aws-iam-authenticator"
 brew "awscli"
@@ -30,8 +29,6 @@ brew "nvm"
 brew "pyenv"
 brew "whalebrew"
 brew "xh"
-cask "font-fira-code-nerd-font"
-cask "font-hack-nerd-font"
 EOF
 . "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
