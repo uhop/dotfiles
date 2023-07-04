@@ -103,9 +103,17 @@ esac
 # this, if it's already enabled in /etc/bash.bashrc and /etc/profile
 # sources /etc/bash.bashrc).
 [ -f /etc/bash_completion ] && ! shopt -oq posix && . /etc/bash_completion || true
+
 BP="$(brew --prefix)"
-[ -f "$BP/etc/bash_completion" ] && . "$BP/etc/bash_completion" || true
-[ -f "$BP/etc/profile.d/bash_completion.sh" ] && . "$BP/etc/profile.d/bash_completion.sh" || true
+if [[ -r "$BP/etc/profile.d/bash_completion.sh" ]]
+then
+  . "$BP/etc/profile.d/bash_completion.sh"
+else
+  for COMPLETION in "$BP/etc/bash_completion.d/"*
+  do
+    [[ -r "${COMPLETION}" ]] && . "${COMPLETION}"
+  done
+fi
 unset BP
 
 # NVM for node.js

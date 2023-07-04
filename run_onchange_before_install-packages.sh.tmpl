@@ -30,6 +30,7 @@ brew "pyenv"
 brew "whalebrew"
 brew "xh"
 EOF
+brew completions link
 . "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
 {{- else if eq .osIdLike "darwin" -}}
