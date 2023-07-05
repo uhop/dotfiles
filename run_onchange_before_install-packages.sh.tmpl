@@ -4,7 +4,7 @@ echo "Installing software with apt and snap: expect asking for a password."
 sudo apt install -y build-essential bash-completion micro wget age meld tealdeer \
   exa bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
   brotli gh hub mc neofetch ripgrep alacritty duf hyperfine zoxide nginx awscli \
-  golang rustc python3 net-tools
+  golang rustc python3 net-tools flatpak gnome-software-plugin-flatpak
 # sudo snap install bottom
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 brew bundle --no-lock --file=/dev/stdin <<EOF
@@ -31,6 +31,7 @@ brew "whalebrew"
 brew "xh"
 EOF
 brew completions link
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 . "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
 {{- else if eq .osIdLike "darwin" -}}
