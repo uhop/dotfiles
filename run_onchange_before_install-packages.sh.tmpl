@@ -43,9 +43,7 @@ elif [ -f /usr/local/bin/brew ]; then
 fi
 brew bundle --no-lock --file=/dev/stdin <<EOF
 tap "homebrew/bundle"
-tap "homebrew/cask"
 tap "homebrew/cask-fonts"
-tap "homebrew/core"
 brew "aws-iam-authenticator"
 brew "awscli"
 brew "bash-completion"
