@@ -128,8 +128,14 @@ unset BPN
 # pyenv
 if command -v pyenv &> /dev/null; then
   export PYENV_ROOT="$HOME/.pyenv"
-  PATH="$PYENV_ROOT/bin:$(pyenv root)/shims:${PATH}"
+  export PATH="$PYENV_ROOT/bin:$(pyenv root)/shims:${PATH}"
   eval "$(pyenv init -)"
+fi
+
+# bun
+if command -v bun &> /dev/null; then
+  export BUN_INSTALL="$HOME/.bun"
+  export PATH=$BUN_INSTALL/bin:$PATH
 fi
 
 command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true

@@ -1,5 +1,6 @@
-{{- if eq .osIdLike "linux-debian" -}}
 #!/bin/sh
+
+{{ if eq .osIdLike "linux-debian" -}}
 echo "Installing software with apt and snap: expect asking for a password."
 sudo apt install -y build-essential bash-completion micro wget age meld tealdeer \
   exa bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
@@ -32,10 +33,8 @@ brew "xh"
 EOF
 brew completions link
 flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-. "$(brew --prefix nvm)/nvm.sh"
-nvm install stable
+
 {{- else if eq .osIdLike "darwin" -}}
-#!/bin/sh
 if [ -f /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
 elif [ -f /usr/local/bin/brew ]; then
@@ -99,6 +98,11 @@ cask "font-fira-code-nerd-font"
 cask "font-hack-nerd-font"
 cask "meld"
 EOF
+{{- end }}
+
 . "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
-{{- end -}}
+
+if ! command -v bun &> /dev/null; then
+  curl -fsSL https://bun.sh/install | bash
+fi
