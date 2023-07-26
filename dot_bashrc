@@ -133,7 +133,7 @@ if command -v pyenv &> /dev/null; then
 fi
 
 # bun
-if command -v bun &> /dev/null; then
+if [ -f "$HOME/.bun/bin/bun" ]; then
   export BUN_INSTALL="$HOME/.bun"
   export PATH=$BUN_INSTALL/bin:$PATH
 fi
