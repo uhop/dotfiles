@@ -138,6 +138,7 @@ if [ -f "$HOME/.bun/bin/bun" ]; then
   export PATH=$BUN_INSTALL/bin:$PATH
 fi
 
+command -v xc &> /dev/null && complete -C "$(brew --prefix xc)" xc || true
 command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
 
 if command -v fzf &> /dev/null; then
