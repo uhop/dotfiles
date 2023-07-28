@@ -31,13 +31,18 @@
 	new = green bold
 	whitespace = red reverse
 [pager]
-	diff = diff-so-fancy | less --tabs=4 -RFXS --pattern '^(Date|added|deleted|modified): '
+	diff = diff-so-fancy | less --tabs=2 -RFXS --pattern '^(Date|added|deleted|modified): '
 [alias]
 	patch = !git --no-pager diff --no-color
 [gui]
 	fontui = -family \"Hack Nerd Font Mono\" -size 14 -weight normal -slant roman -underline 0 -overstrike 0
-	fontdiff = -family \"Hack Nerd Font Mono\" -size 12 -weight normal -slant roman -underline 0 -overstrike 0
+	fontdiff = -family \"Hack Nerd Font Mono\" -size 14 -weight normal -slant roman -underline 0 -overstrike 0
 [hub]
 	protocol = ssh
 [remote "origin"]
 	prune = true
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
