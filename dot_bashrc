@@ -105,13 +105,12 @@ esac
 [ -f /etc/bash_completion ] && ! shopt -oq posix && . /etc/bash_completion || true
 
 BP="$(brew --prefix)"
-if [[ -r "$BP/etc/profile.d/bash_completion.sh" ]]
-then
+if [ -f "$BP/etc/profile.d/bash_completion.sh" ]; then
   . "$BP/etc/profile.d/bash_completion.sh"
 else
   for COMPLETION in "$BP/etc/bash_completion.d/"*
   do
-    [[ -r "${COMPLETION}" ]] && . "${COMPLETION}"
+    [ -f "${COMPLETION}" ] && . "${COMPLETION}"
   done
 fi
 unset BP
