@@ -69,7 +69,11 @@ alias mic='micro'
 
 # Better replacements
 
-alias cat='bat'
+if command -v bat &> /dev/null; then
+  alias cat='bat'
+elif command -v batcat &> /dev/null; then
+  alias cat='batcat'
+fi
 alias ping='prettyping --nolegend'
 alias top="sudo htop"
 alias du="ncdu --color dark -rr -x --exclude .git --exclude node_modules"
