@@ -139,6 +139,7 @@ fi
 
 command -v xc &> /dev/null && complete -C "$(brew --prefix xc)" xc || true
 command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
+test -e ~/.config/broot/launcher/bash/br && . ~/.config/broot/launcher/bash/br || true
 
 if command -v fzf &> /dev/null; then
   if [ -f /usr/share/doc/fzf/examples/key-bindings.bash ]; then
@@ -168,3 +169,4 @@ fi
 export EDITOR=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export GITHUB_USERNAME=uhop
+
