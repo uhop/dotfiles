@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 {{ if eq .osIdLike "linux-debian" -}}
 echo "Installing software with apt and snap: expect asking for a password."
@@ -109,9 +109,18 @@ cask "meld"
 EOF
 {{- end }}
 
+if command -v tmux &> /dev/null; then
+  if [ ! -f "$HOME/.config/tmux/plugins/tpm/tpm" ]; then
+    echo "Installing tmux plugin manager..."
+    git clone https://github.com/tmux-plugins/tpm "$HOME/.config/tmux/plugins/tpm"
+  fi
+fi
+
+echo "Installing the latest stable Node..."
 . "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
 
 if ! command -v bun &> /dev/null; then
+  echo "Installing Bun..."
   curl -fsSL https://bun.sh/install | bash
 fi
