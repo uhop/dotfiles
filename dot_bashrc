@@ -166,6 +166,8 @@ if command -v neofetch &> /dev/null; then
   unset SPN
 fi
 
+function ssht () { /usr/bin/ssh -t "$@" "tmux new -As ssh_tmux || bash";}
+
 export EDITOR=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export GITHUB_USERNAME=uhop
