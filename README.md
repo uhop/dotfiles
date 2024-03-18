@@ -19,6 +19,15 @@ Generic instructions (see platform-specific notes below):
   ```
 * Reboot.
 
+**Important!** If you are not me, change your name and email in the global `git` config:
+
+```bash
+git config --global user.name "Your Name"
+```
+```bash
+git config --global user.email "you@example.com"
+```
+
 ## Installed tools
 
 The choice of tools and aliases is influenced by:
@@ -38,20 +47,35 @@ The following tools are installed and aliased:
 * `age`, `gpg` &mdash; encryption utilities.
 * `meld` &mdash; a visual diff/merge utility.
 * `diff-so-fancy` &mdash; a nice `diff` pager.
-* `tealdeer` &mdash; a `man` replacement. Alternatives: `tldr`, `cheat`.
+* `tealdeer`, `cheat` &mdash; a `man` replacement. Alternatives: `tldr`.
 * `exa` &mdash; better `ls`.
 * `bat` &mdash; better `cat`.
 * `fd` &mdash; better `find`.
-* `ncdu` &mdash; better `du`. Alternatives: `dust`.
-* `ag` &mdash; better `ack`. Alternatives: `ripgrep`.
+* `ncdu`, `dust` &mdash; better `du`.
+* `ag`, `ripgrep` &mdash; better `ack`.
 * `tig`, `lazygit` &mdash; text interface for `git`.
 * `broot` &mdash; better `tree`.
-* `prettyping` &mdash; better `ping`.
+* `prettyping`, `gping` &mdash; better `ping`.
 * `htop` &mdash; better `top`.
-* `awscli`, `kubernetes-cli`, `nginx` &mdash; useful utilities for web development.
+* `awscli`, `aws-iam-authenticator`, `kubernetes-cli`, `helm`, `gh`, `hub`, `nginx`, `net-tools`, `xh` &mdash; useful utilities for web development.
 * `parallel` &mdash; shell parallelization.
 * `fzf` &mdash; a command-line fuzzy finder.
 * `micro` &mdash; an editor. Alternatives: `nano`.
+* `jq` &mdash; JSON manipulations.
+* `tmux` &mdash; the venerable terminal multiplexor.
+* `golang`, `rustc`, `python3`, `pyenv` &mdash; language environments we use and love.
+* `brotli` &mdash; better than `gzip`, used by HTTP.
+* `mc` &mdash; Midnight Commander for file minupulations.
+* `alacritty` &mdash; no-nonsense terminal.
+* `duf` &mdash; a disk utility.
+* `hyperfine` &mdash; benchmarking better than `time`.
+* `zoxide` &mdash; better `cd`.
+* `bottom` &mdash; a system monitor.
+* `node`, `nvm`, `deno`, `bun` &mdash; JavaScript environments.
+* `dog` &mdash; a DNS client.
+* `helix` &mdash; a modal text editor.
+* `whalebrew` &mdash; like `brew` but for Docker images.
+* `xc` &mdash; a task runner.
 
 Check `.bash_aliases` for a list of aliases.
 
@@ -108,12 +132,12 @@ These dotfiles assume that these fonts are preinstalled and use them as appropri
 
 Restricted soft on Ubuntu to play videos:
 
-* ```bash
-  sudo apt install ubuntu-restricted-extras vlc libdvd-pkg
-  ```
-* ```bash
-  sudo dpkg-reconfigure libdvd-pkg
-  ```
+```bash
+sudo apt install ubuntu-restricted-extras vlc libdvd-pkg
+```
+```bash
+sudo dpkg-reconfigure libdvd-pkg
+```
 
 More on videos: https://www.omgubuntu.co.uk/2022/08/watch-bluray-discs-in-vlc-on-ubuntu-with-makemkv
 
