@@ -2,16 +2,18 @@
 
 {{ if eq .osIdLike "linux-debian" -}}
 echo "Installing software with apt and snap: expect asking for a password."
-sudo apt install -y build-essential bash-completion micro wget age meld tealdeer \
+sudo apt install -y build-essential bash-completion micro wget age tealdeer \
   exa bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
-  brotli gh hub mc neofetch ripgrep alacritty duf hyperfine zoxide nginx awscli \
-  golang rustc python3 net-tools flatpak gnome-software-plugin-flatpak \
-  ttf-mscorefonts-installer
+  brotli gh hub mc neofetch ripgrep duf hyperfine zoxide nginx awscli \
+  golang rustc python3 net-tools
+{{ if .hasGui -}}
+sudo apt install -y meld alacritty flatpak gnome-software-plugin-flatpak ttf-mscorefonts-installer
+{{- end }}
 # sudo snap install bottom
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 brew bundle --no-lock --file=/dev/stdin <<EOF
 tap "homebrew/bundle"
-tap "homebrew/cask-fonts"
+{{ if .hasGui -}}tap "homebrew/cask-fonts"{{- end }}
 tap "joerdav/xc"
 brew "aws-iam-authenticator"
 brew "awscli"
@@ -37,7 +39,7 @@ brew "xc"
 brew "xh"
 EOF
 brew completions link
-flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+{{ if .hasGui -}}flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo{{- end }}
 
 {{- else if eq .osIdLike "darwin" -}}
 if [ -f /opt/homebrew/bin/brew ]; then
@@ -47,7 +49,7 @@ elif [ -f /usr/local/bin/brew ]; then
 fi
 brew bundle --no-lock --file=/dev/stdin <<EOF
 tap "homebrew/bundle"
-tap "homebrew/cask-fonts"
+{{ if .hasGui -}}tap "homebrew/cask-fonts"{{- end }}
 tap "joerdav/xc"
 brew "aws-iam-authenticator"
 brew "awscli"
@@ -68,7 +70,7 @@ brew "fd"
 brew "fzf"
 brew "gh"
 brew "git"
-brew "git-gui"
+{{ if .hasGui -}}brew "git-gui"{{- end }}
 brew "git-lfs"
 brew "go"
 brew "gping"
@@ -102,10 +104,10 @@ brew "whalebrew"
 brew "xc"
 brew "xh"
 brew "zoxide"
-cask "alacritty"
-cask "font-fira-code-nerd-font"
-cask "font-hack-nerd-font"
-cask "meld"
+{{ if .hasGui -}}cask "alacritty"{{- end }}
+{{ if .hasGui -}}cask "font-fira-code-nerd-font"{{- end }}
+{{ if .hasGui -}}cask "font-hack-nerd-font"{{- end }}
+{{ if .hasGui -}}cask "meld"{{- end }}
 EOF
 {{- end }}
 

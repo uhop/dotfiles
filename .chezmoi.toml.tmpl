@@ -7,13 +7,15 @@
 {{-   $osIdLike = printf "%s-%s" .chezmoi.os .chezmoi.osRelease.idLike -}}
 {{- end -}}
 {{- $wsl := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
-{{- $codespaces:= env "CODESPACES" | not | not -}}
+{{- $codespaces := env "CODESPACES" | not | not -}}
+{{- $hasGui := promptBoolOnce . "hasGui" "Does this machine have GUI" -}}
 
 [data]
 osId = {{ $osId | quote }}
 osIdLike = {{ $osIdLike | quote }}
 wsl = {{ $wsl }}
 codespaces = {{ $codespaces }}
+hasGui = {{ $hasGui }}
 
 [diff]
 pager = "diff-so-fancy"
