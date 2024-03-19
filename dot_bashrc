@@ -2,8 +2,8 @@
 # see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
 # for examples
 
-# If not running interactively, don't do anything
-[ -z "$PS1" ] && return
+VISUAL=yes
+[ -z "$PS1" ] && VISUAL=
 
 # don't put duplicate lines or lines starting with space in the history.
 # See bash(1) for more options
@@ -35,21 +35,22 @@ esac
 # should be on the output of commands, not on the prompt
 #force_color_prompt=yes
 
-if [ -n "$force_color_prompt" ]; then
-    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
-        # We have color support; assume it's compliant with Ecma-48
-        # (ISO/IEC-6429). (Lack of such support is extremely rare, and such
-        # a case would tend to support setf rather than setaf.)
-        color_prompt=yes
-    else
-        color_prompt=
-    fi
-fi
-
-if [ "$color_prompt" = yes ]; then
-    PS1='\[\033[01;33m\]\w\[\033[00m\] \$ '
-else
-    PS1='\w \$ '
+if [ "$VISUAL" = yes ]; then
+	if [ -n "$force_color_prompt" ]; then
+	    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
+	        # We have color support; assume it's compliant with Ecma-48
+	        # (ISO/IEC-6429). (Lack of such support is extremely rare, and such
+	        # a case would tend to support setf rather than setaf.)
+	        color_prompt=yes
+	    else
+	        color_prompt=
+	    fi
+	fi
+	if [ "$color_prompt" = yes ]; then
+	    PS1='\[\033[01;33m\]\w\[\033[00m\] \$ '
+	else
+	    PS1='\w \$ '
+	fi
 fi
 
 unameOut="$(uname -s)"
@@ -65,28 +66,32 @@ case "${unameOut}" in
 esac
 unset unameOut
 
-BGP="$(brew --prefix bash-git-prompt)"
-if [ -f "$BGP/share/gitprompt.sh" ]; then
-    #GIT_PROMPT_ONLY_IN_REPO=1
-    #GIT_PROMPT_FETCH_REMOTE_STATUS=0   # uncomment to avoid fetching remote status
-    #GIT_PROMPT_THEME=Default
-    #GIT_PROMPT_THEME=Single_line_Solarized
-    __GIT_PROMPT_DIR="$BGP/share"
-    GIT_PROMPT_THEME=Single_line
-    source "$BGP/share/gitprompt.sh"
+if [ "$VISUAL" = yes ]; then
+	BGP="$(brew --prefix bash-git-prompt)"
+	if [ -f "$BGP/share/gitprompt.sh" ]; then
+	    #GIT_PROMPT_ONLY_IN_REPO=1
+	    #GIT_PROMPT_FETCH_REMOTE_STATUS=0   # uncomment to avoid fetching remote status
+	    #GIT_PROMPT_THEME=Default
+	    #GIT_PROMPT_THEME=Single_line_Solarized
+	    __GIT_PROMPT_DIR="$BGP/share"
+	    GIT_PROMPT_THEME=Single_line
+	    source "$BGP/share/gitprompt.sh"
+	fi
+	unset BGP
 fi
-unset BGP
 
 unset color_prompt force_color_prompt
 
 # If this is an xterm set the title to user@host:dir
-case "$TERM" in
-xterm*|rxvt*)
-    PS1="\[\e]0;\u@\h: \w\a\]$PS1"
-    ;;
-*)
-    ;;
-esac
+if [ "$VISUAL" = yes ]; then
+	case "$TERM" in
+	xterm*|rxvt*)
+	    PS1="\[\e]0;\u@\h: \w\a\]$PS1"
+	    ;;
+	*)
+	    ;;
+	esac
+fi
 
 # set PATH so it includes user's private bin if it exists
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH" || true
@@ -157,16 +162,18 @@ fi
 
 test -e ~/.iterm2_shell_integration.bash && . ~/.iterm2_shell_integration.bash || true
 
-# [ "$SHLVL" == "1" ] && command -v neofetch &> /dev/null && neofetch || true
-if command -v neofetch &> /dev/null; then
-  SPN=`ps -p $PPID | awk '{print substr($0, index($0, $4))}' | tail -1`
-  if [ "$SHLVL" == "2" ] && [[ "$SPN" == *tmux* ]] || [ "$SHLVL" == "1" ]; then
-  	neofetch
-  fi
-  unset SPN
+if [ "$VISUAL" = yes ]; then
+	# [ "$SHLVL" == "1" ] && command -v neofetch &> /dev/null && neofetch || true
+	if command -v neofetch &> /dev/null; then
+	  SPN=`ps -p $PPID | awk '{print substr($0, index($0, $4))}' | tail -1`
+	  if [ "$SHLVL" == "2" ] && [[ "$SPN" == *tmux* ]] || [ "$SHLVL" == "1" ]; then
+	  	neofetch
+	  fi
+	  unset SPN
+	fi
 fi
 
-function ssht () { /usr/bin/ssh -t "$@" "tmux new -As ssh_tmux || bash";}
+unset VISUAL
 
 export EDITOR=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
