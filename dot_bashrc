@@ -179,5 +179,5 @@ export EDITOR=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export GITHUB_USERNAME=uhop
 
-# dedupe path
+# dedupe path (based on https://www.linuxjournal.com/content/removing-duplicate-path-entries)
 export PATH=$(echo -n $PATH | awk -v RS=: '!($0 in a) {a[$0]; printf("%s%s", length(a) > 1 ? ":" : "", $0)}')
