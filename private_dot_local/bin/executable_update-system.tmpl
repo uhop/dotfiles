@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 
+{{ if eq .osIdLike "linux-debian" -}}
 echo Run sudo apt...
 sudo apt update && sudo apt upgrade
+
 echo Run sudo snap...
 sudo snap refresh
+
 {{ if .hasGui -}}
 echo Run flatpak...
 flatpak update
+{{- end }}
 {{- end }}
 echo Run brew...
 brew update && brew upgrade
