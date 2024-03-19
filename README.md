@@ -28,7 +28,7 @@ git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 ```
 
-And update your GitHub user name in `.chezmoi.toml.tmpl`.
+And update your GitHub user name in `.chezmoi.toml.tmpl` and at the bottom of `.bashrc`.
 
 ## Installed tools
 
