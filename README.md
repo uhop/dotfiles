@@ -28,6 +28,8 @@ git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 ```
 
+And update your GitHub user name in `.chezmoi.toml.tmpl`.
+
 ## Installed tools
 
 The choice of tools and aliases is influenced by:
