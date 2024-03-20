@@ -78,6 +78,7 @@ The following tools are installed and aliased:
 * `helix` &mdash; a modal text editor.
 * `whalebrew` &mdash; like `brew` but for Docker images.
 * `xc` &mdash; a task runner.
+* `mosh` &mdash; mobile shell.
 
 Check `.bash_aliases` for a list of aliases.
 
