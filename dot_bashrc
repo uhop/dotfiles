@@ -160,7 +160,9 @@ if command -v fzf &> /dev/null; then
   fi
 fi
 
-test -e ~/.iterm2_shell_integration.bash && . ~/.iterm2_shell_integration.bash || true
+if [[ $TERM_PROGRAM != "WarpTerminal" ]]; then
+  test -e ~/.iterm2_shell_integration.bash && . ~/.iterm2_shell_integration.bash || true
+fi
 
 if [ "$VISUAL" = yes ]; then
 	# [ "$SHLVL" == "1" ] && command -v neofetch &> /dev/null && neofetch || true
