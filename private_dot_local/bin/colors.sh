@@ -30,8 +30,8 @@ BG_CYAN=$(tput setab 6)
 BG_WHITE=$(tput setab 7)
 BG_RESET=$(tput setab 9)
 
-color_fg () { return "$(tput setaf "$1")"; }
-color_bg () { return "$(tput setab "$1")"; }
+color_fg () { tput setaf "$1"; }
+color_bg () { tput setab "$1"; }
 
 BOLD=$(tput bold)
 DIM=$(tput dim)
@@ -72,20 +72,20 @@ CURSOR_CLEAR_BEGIN=$(tput el1)
 CURSOR_CLEAR_END=$(tput el)
 CURSOR_LAST=$(tput ll)
 
-cursor_pos    () { return "$(tput cup "$1" "$2")"; }
-cursor_left   () { return "$(tput cub "$1")"; }
-cursor_right  () { return "$(tput cuf "$1")"; }
-cursor_clear  () { return "$(tput ech "$1")"; }
-cursor_insert () { return "$(tput ich "$1")"; }
-cursor_insert_lines () { return "$(tput il "$1")"; }
+cursor_pos    () { tput cup "$1" "$2"; }
+cursor_left   () { tput cub "$1"; }
+cursor_right  () { tput cuf "$1"; }
+cursor_clear  () { tput ech "$1"; }
+cursor_insert () { tput ich "$1"; }
+cursor_insert_lines () { tput il "$1"; }
 
 SCREEN_SAVE=$(tput smcup)
 SCREEN_RESTORE=$(tput rmcup)
 SCREEN_CLEAR=$(tput clear)
 SCREEN_CLEAR_END=$(tput ed)
 
-screen_lines  () { return "$(tput lines)"; }
-screen_cols   () { return "$(tput cols)"; }
-screen_colors () { return "$(tput colors)"; }
+screen_lines  () { tput lines; }
+screen_cols   () { tput cols; }
+screen_colors () { tput colors; }
 
-terminal_name () { return "$(tput longname)"; }
+terminal_name () { tput longname; }
