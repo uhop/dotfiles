@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 
+. ~/.local/bin/colors.sh
+
 {{ if eq .osIdLike "linux-debian" -}}
-echo Run sudo apt...
+echo ${BOLD}${CYAN}Run sudo apt...${RESET}
 sudo apt update && sudo apt upgrade
 
-echo Run sudo snap...
+echo ${BOLD}${CYAN}Run sudo snap...${RESET}
 sudo snap refresh
 
 {{ if .hasGui -}}
-echo Run flatpak...
+echo ${BOLD}${CYAN}Run flatpak...${RESET}
 flatpak update
 {{- end }}
 {{- end }}
-echo Run brew...
+
+echo ${BOLD}${CYAN}Run brew...${RESET}
 brew update && brew upgrade
