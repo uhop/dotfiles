@@ -13,6 +13,9 @@ sudo snap refresh
 echo ${BOLD}${CYAN}Run flatpak...${RESET}
 flatpak update
 {{- end }}
+{{- else if eq .osIdLike "darwin" -}}
+echo ${BOLD}${CYAN}Run sudo softwareupdate...${RESET}
+sudo softwareupdate -i -a
 {{- end }}
 
 echo ${BOLD}${CYAN}Run brew...${RESET}
