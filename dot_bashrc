@@ -154,7 +154,7 @@ if command -v fzf &> /dev/null; then
   else
   	if [ ! -f ~/.fzf.bash ]; then
   	  FZF_INSTALL="$(brew --prefix)/opt/fzf/install"
-  	  [ -f $FZF_INSTALL ] && eval "$FZF_INSTALL" || true
+  	  [ -f "$FZF_INSTALL" ] && eval "$FZF_INSTALL" || true
   	  unset FZF_INSTALL
   	fi
     [ -f ~/.fzf.bash ] && . ~/.fzf.bash || true
@@ -168,7 +168,7 @@ fi
 if [ "$VISUAL" = yes ]; then
 	# [ "$SHLVL" == "1" ] && command -v neofetch &> /dev/null && neofetch || true
 	if command -v neofetch &> /dev/null; then
-	  SPN=`ps -p $PPID | awk '{print substr($0, index($0, $4))}' | tail -1`
+	  SPN=$(ps -p $PPID | awk '{print substr($0, index($0, $4))}' | tail -1)
 	  if [ "$SHLVL" == "2" ] && [[ "$SPN" == *tmux* ]] || [ "$SHLVL" == "1" ]; then
 	  	neofetch
 	  fi
@@ -183,4 +183,4 @@ export BASH_SILENCE_DEPRECATION_WARNING=1
 export GITHUB_USERNAME=uhop
 
 # dedupe path (based on https://www.linuxjournal.com/content/removing-duplicate-path-entries)
-export PATH=$(echo -n $PATH | awk -v RS=: '!($0 in a) {a[$0]; printf("%s%s", length(a) > 1 ? ":" : "", $0)}')
+export PATH=$(echo -n "$PATH" | awk -v RS=: '!($0 in a) {a[$0]; printf("%s%s", length(a) > 1 ? ":" : "", $0)}')

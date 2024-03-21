@@ -115,7 +115,7 @@ implWhere() {
         [ -z "$IN" ] && IN="."
         [ -z "$WSPEC" ] && WSPEC="*"
 
-        find "$IN" -type f -name "$WSPEC" -exec grep -EHn "$1" {} \;
+        find "$IN" -type f -name "$WSPEC" -exec grep --color=auto -EHn "$1" {} \;
     fi
 }
 
