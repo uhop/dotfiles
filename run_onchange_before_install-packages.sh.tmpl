@@ -2,7 +2,7 @@
 
 {{ if eq .osIdLike "linux-debian" -}}
 echo "Installing software with apt and snap: expect asking for a password."
-sudo apt install -y build-essential bash-completion micro wget age mosh \
+sudo apt install -y build-essential bash-completion micro wget age mosh dialog \
   exa bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
   brotli gh hub mc neofetch ripgrep duf hyperfine zoxide nginx awscli \
   golang rustc python3 net-tools
@@ -62,6 +62,7 @@ brew "broot"
 brew "brotli"
 brew "cheat"
 brew "deno"
+brew "dialog"
 brew "diff-so-fancy"
 brew "dog"
 brew "duf"
