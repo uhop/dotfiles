@@ -94,7 +94,7 @@ alias lla='exa --long --all --color auto --icons --sort=type'
 # no-globbing mode for bash functions, thanks to http://blog.edwards-research.com/2011/05/preventing-globbing/
 
 noGlobOff() {
-    CMD="$1"
+    local CMD="$1"
     shift
     $CMD "$@"
     set +f
@@ -108,8 +108,8 @@ implWhere() {
     if [ -z "$1" ]; then
         echo 'where "Context" [[Path/]WildcardSpec]'
     else
-        IN=""
-        WSPEC="${2##*/}"
+        local IN=""
+        local WSPEC="${2##*/}"
         [ "$WSPEC" != "$2" ] && IN="${2%/*}"
 
         [ -z "$IN" ] && IN="."
@@ -122,11 +122,11 @@ implWhere() {
 alias where='noGlob implWhere'
 
 ssht() {
-  TMUX="(command -v tmux &> /dev/null && tmux new -As ssh_tmux)"
+  local TMUX="(command -v tmux &> /dev/null && tmux new -As ssh_tmux)"
   ssh -t "$@" "$TMUX || bash"
 }
 
 mosht() {
-  TMUX="tmux new -As ssh_tmux"
+  local TMUX="tmux new -As ssh_tmux"
   mosh "$@" -- $TMUX
 }
