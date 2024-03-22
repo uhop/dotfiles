@@ -8,7 +8,15 @@ BLUE=$(tput setaf 4)
 MAGENTA=$(tput setaf 5)
 CYAN=$(tput setaf 6)
 WHITE=$(tput setaf 7)
-RESET_COLOR=$(tput setaf 9)
+
+LIGHT_BLACK=$(tput setaf 8)
+LIGHT_RED=$(tput setaf 9)
+LIGHT_GREEN=$(tput setaf 10)
+LIGHT_YELLOW=$(tput setaf 11)
+LIGHT_BLUE=$(tput setaf 12)
+LIGHT_MAGENTA=$(tput setaf 13)
+LIGHT_CYAN=$(tput setaf 14)
+LIGHT_WHITE=$(tput setaf 15)
 
 FG_BLACK=BLACK
 FG_RED=RED
@@ -18,7 +26,15 @@ FG_BLUE=BLUE
 FG_MAGENTA=MAGENTA
 FG_CYAN=CYAN
 FG_WHITE=WHITE
-FG_RESET=RESET_COLOR
+
+FG_LIGHT_BLACK=LIGHT_BLACK
+FG_LIGHT_RED=LIGHT_RED
+FG_LIGHT_GREEN=LIGHT_GREEN
+FG_LIGHT_YELLOW=LIGHT_YELLOW
+FG_LIGHT_BLUE=LIGHT_BLUE
+FG_LIGHT_MAGENTA=LIGHT_MAGENTA
+FG_LIGHT_CYAN=LIGHT_CYAN
+FG_LIGHT_WHITE=LIGHT_WHITE
 
 BG_BLACK=$(tput setab 0)
 BG_RED=$(tput setab 1)
@@ -28,7 +44,17 @@ BG_BLUE=$(tput setab 4)
 BG_MAGENTA=$(tput setab 5)
 BG_CYAN=$(tput setab 6)
 BG_WHITE=$(tput setab 7)
-BG_RESET=$(tput setab 9)
+
+BG_LIGHT_BLACK=$(tput setab 8)
+BG_LIGHT_RED=$(tput setab 9)
+BG_LIGHT_GREEN=$(tput setab 10)
+BG_LIGHT_YELLOW=$(tput setab 11)
+BG_LIGHT_BLUE=$(tput setab 12)
+BG_LIGHT_MAGENTA=$(tput setab 13)
+BG_LIGHT_CYAN=$(tput setab 14)
+BG_LIGHT_WHITE=$(tput setab 15)
+
+FG_BG_RESET=$(tput op)
 
 color_fg () { tput setaf "$1"; }
 color_bg () { tput setab "$1"; }
@@ -44,7 +70,12 @@ STANDOUT_ON=$(tput smso)
 STANDOUT_OFF=$(tput rmso)
 ITALIC_ON=$(tput sitm)
 ITALIC_OFF=$(tput ritm)
+STRIKE_ON=$(tput smxx)
+STRIKE_OFF=$(tput rmxx)
 RESET=$(tput sgr0)
+
+# params (bool): standout, underline, reverse, blink, dim, bold, invis, protect, altcharset
+sgr () { tput sgr $@; }
 
 TEXT_BOLD=BOLD
 TEXT_DIM=DIM
@@ -57,7 +88,11 @@ TEXT_STANDOUT_ON=STANDOUT_ON
 TEXT_STANDOUT_OFF=STANDOUT_OFF
 TEXT_ITALIC_ON=ITALIC_ON
 TEXT_ITALIC_OFF=ITALIC_OFF
+TEXT_STRIKE_ON=STRIKE_ON
+TEXT_STRIKE_OFF=STRIKE_OFF
 TEXT_RESET=RESET
+
+text_sgr=sgr
 
 CURSOR_SAVE=$(tput sc)
 CURSOR_RESTORE=$(tput rc)
@@ -67,25 +102,28 @@ CURSOR_UP1=$(tput cuu1)
 CURSOR_LEFT1=$(tput cub1)
 CURSOR_RIGHT1=$(tput cuf1)
 CURSOR_INVISIBLE=$(tput civis)
+CURSOR_HIGHLIGHT=$(tput cvvis)
 CURSOR_NORMAL=$(tput cnorm)
-CURSOR_CLEAR_BEGIN=$(tput el1)
-CURSOR_CLEAR_END=$(tput el)
 CURSOR_LAST=$(tput ll)
 
 cursor_pos    () { tput cup "$1" "$2"; }
 cursor_left   () { tput cub "$1"; }
 cursor_right  () { tput cuf "$1"; }
-cursor_clear  () { tput ech "$1"; }
 cursor_insert () { tput ich "$1"; }
 cursor_insert_lines () { tput il "$1"; }
 
 SCREEN_SAVE=$(tput smcup)
 SCREEN_RESTORE=$(tput rmcup)
-SCREEN_CLEAR=$(tput clear)
-SCREEN_CLEAR_END=$(tput ed)
 
 screen_lines  () { tput lines; }
 screen_cols   () { tput cols; }
 screen_colors () { tput colors; }
+
+CLEAR_BOL=$(tput el1)
+CLEAR_EOL=$(tput el)
+CLEAR_EOS=$(tput ed)
+CLEAR_SCREEN=$(tput clear)
+
+clear  () { tput ech "$1"; }
 
 terminal_name () { tput longname; }
