@@ -70,8 +70,8 @@ STANDOUT_ON=$(tput smso)
 STANDOUT_OFF=$(tput rmso)
 ITALIC_ON=$(tput sitm)
 ITALIC_OFF=$(tput ritm)
-STRIKE_ON=$(tput smxx)
-STRIKE_OFF=$(tput rmxx)
+# STRIKE_ON=$(tput smxx)
+# STRIKE_OFF=$(tput rmxx)
 RESET=$(tput sgr0)
 
 # params (bool): standout, underline, reverse, blink, dim, bold, invis, protect, altcharset
@@ -88,8 +88,8 @@ TEXT_STANDOUT_ON=STANDOUT_ON
 TEXT_STANDOUT_OFF=STANDOUT_OFF
 TEXT_ITALIC_ON=ITALIC_ON
 TEXT_ITALIC_OFF=ITALIC_OFF
-TEXT_STRIKE_ON=STRIKE_ON
-TEXT_STRIKE_OFF=STRIKE_OFF
+# TEXT_STRIKE_ON=STRIKE_ON
+# TEXT_STRIKE_OFF=STRIKE_OFF
 TEXT_RESET=RESET
 
 text_sgr=sgr
