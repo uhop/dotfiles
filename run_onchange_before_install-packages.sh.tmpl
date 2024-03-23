@@ -5,7 +5,7 @@ echo "Installing software with apt and snap: expect asking for a password."
 sudo apt install -y build-essential bash-completion micro wget age mosh dialog \
   exa bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
   brotli gh hub mc neofetch ripgrep duf hyperfine zoxide nginx awscli shellcheck \
-  golang rustc python3 net-tools
+  grc golang rustc python3 net-tools
 {{ if .hasGui -}}
 sudo apt install -y meld alacritty flatpak gnome-software-plugin-flatpak ttf-mscorefonts-installer
 {{- end }}
@@ -76,6 +76,7 @@ brew "git"
 brew "git-lfs"
 brew "go"
 brew "gping"
+brew "grc"
 brew "helix"
 brew "helm"
 brew "htop"
