@@ -2,21 +2,25 @@
 
 . ~/.local/bin/colors.sh
 
+PROMPT="$BOLD$BRIGHT_CYAN"
+
 {{ if eq .osIdLike "linux-debian" -}}
-echo ${BOLD}${CYAN}Run sudo apt...${RESET}
+echo "${RED}Both apt and snap require sudo: expect asking for the sudo password.${RESET}"
+echo "${PROMPT}Run sudo apt...${RESET}"
 sudo apt update && sudo apt upgrade
 
-echo ${BOLD}${CYAN}Run sudo snap...${RESET}
+echo "${PROMPT}Run sudo snap...${RESET}"
 sudo snap refresh
 
 {{ if .hasGui -}}
-echo ${BOLD}${CYAN}Run flatpak...${RESET}
+echo "${PROMPT}Run flatpak...${RESET}"
 flatpak update
 {{- end }}
 {{- else if eq .osIdLike "darwin" -}}
-echo ${BOLD}${CYAN}Run sudo softwareupdate...${RESET}
+echo "${RED}softwareupdate requires sudo: expect asking for the sudo password.${RESET}"
+echo "${PROMPT}Run sudo softwareupdate...${RESET}"
 sudo softwareupdate -i -a
 {{- end }}
 
-echo ${BOLD}${CYAN}Run brew...${RESET}
+echo "${PROMPT}Run brew...${RESET}"
 brew update && brew upgrade
