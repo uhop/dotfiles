@@ -1,16 +1,23 @@
 #!/bin/bash
 
+RED=$(tput setaf 1)
+CYAN=$(tput setaf 14)
+RESET=$(tput op)
+
 {{ if eq .osIdLike "linux-debian" -}}
-echo "Installing software with apt and snap: expect asking for a password."
+echo "${RED}Both apt and snap require sudo: expect asking for the sudo password.${RESET}"
+echo "${CYAN}Installing command line apps: sudo apt install...${RESET}"
 sudo apt install -y build-essential bash-completion micro wget age mosh dialog \
   exa bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
   brotli gh hub mc neofetch ripgrep duf hyperfine zoxide nginx awscli shellcheck \
   grc golang rustc python3 net-tools
 {{ if .hasGui -}}
+echo "${CYAN}Installing GUI apps: sudo apt install...${RESET}"
 sudo apt install -y meld alacritty flatpak gnome-software-plugin-flatpak ttf-mscorefonts-installer
 {{- end }}
 # sudo snap install bottom
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+echo "${CYAN}Installing brew packages...${RESET}"
 brew bundle --no-lock --file=/dev/stdin <<EOF
 tap "homebrew/bundle"
 {{ if .hasGui -}}tap "homebrew/cask-fonts"{{- end }}
@@ -48,6 +55,7 @@ if [ -f /opt/homebrew/bin/brew ]; then
 elif [ -f /usr/local/bin/brew ]; then
   eval "$(/usr/local/bin/brew shellenv)"
 fi
+echo "${CYAN}Installing brew packages...${RESET}"
 brew bundle --no-lock --file=/dev/stdin <<EOF
 tap "homebrew/bundle"
 {{ if .hasGui -}}tap "homebrew/cask-fonts"{{- end }}
@@ -118,16 +126,16 @@ EOF
 
 if command -v tmux &> /dev/null; then
   if [ ! -f "$HOME/.config/tmux/plugins/tpm/tpm" ]; then
-    echo "Installing tmux plugin manager..."
+    echo "${CYAN}Installing tmux plugin manager...${RESET}"
     git clone https://github.com/tmux-plugins/tpm "$HOME/.config/tmux/plugins/tpm"
   fi
 fi
 
-echo "Installing the latest stable Node..."
+echo "${CYAN}Installing the latest stable Node...${RESET}"
 . "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
 
 if ! command -v bun &> /dev/null; then
-  echo "Installing Bun..."
+  echo "${CYAN}Installing Bun...${RESET}"
   curl -fsSL https://bun.sh/install | bash
 fi
