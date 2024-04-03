@@ -169,7 +169,7 @@ To support cut-and-paste in the micro editor:
 
 ### Ubuntu on Mac
 
-For enabling <kbd>Fn</kbd> keys: https://unix.stackexchange.com/questions/121395/on-an-apple-keyboard-under-linux-how-do-i-make-the-function-keys-work-without-t 
+Enabling <kbd>Fn</kbd> keys: https://unix.stackexchange.com/questions/121395/on-an-apple-keyboard-under-linux-how-do-i-make-the-function-keys-work-without-t 
 
 ## GUI
 
