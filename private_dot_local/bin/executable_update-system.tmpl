@@ -2,10 +2,11 @@
 
 . ~/.local/bin/colors.sh
 
+WARN="$BOLD$BRIGHT_WHITE$BG_BLUE"
 PROMPT="$BOLD$BRIGHT_CYAN"
 
 {{ if eq .osIdLike "linux-debian" -}}
-echo "${RED}Both apt and snap require sudo: expect asking for the sudo password.${RESET}"
+echo "${WARN}Both apt and snap require sudo: expect asking for the sudo password.${RESET}"
 echo "${PROMPT}Run sudo apt...${RESET}"
 sudo apt update && sudo apt upgrade
 
@@ -17,7 +18,7 @@ echo "${PROMPT}Run flatpak...${RESET}"
 flatpak update
 {{- end }}
 {{- else if eq .osIdLike "darwin" -}}
-echo "${RED}softwareupdate requires sudo: expect asking for the sudo password.${RESET}"
+echo "${WARN}softwareupdate requires sudo: expect asking for the sudo password.${RESET}"
 echo "${PROMPT}Run sudo softwareupdate...${RESET}"
 sudo softwareupdate -i -a
 {{- end }}
