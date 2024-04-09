@@ -169,7 +169,14 @@ To support cut-and-paste in the micro editor:
 
 ### Ubuntu on Mac
 
-Enabling <kbd>Fn</kbd> keys: https://unix.stackexchange.com/questions/121395/on-an-apple-keyboard-under-linux-how-do-i-make-the-function-keys-work-without-t 
+Enabling <kbd>Fn</kbd> keys:
+
+* https://help.ubuntu.com/community/AppleKeyboard
+* https://askubuntu.com/questions/33514/use-function-keys-without-pressing-the-fn-button-in-the-mac-keyboard
+
+Video driver:
+
+* https://askubuntu.com/questions/1295423/ubuntu-20-04-on-imac-mid-2011-cant-adjust-brightness
 
 ## GUI
 
