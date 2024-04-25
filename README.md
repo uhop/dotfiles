@@ -65,7 +65,7 @@ The following tools are installed and aliased:
 * `micro` &mdash; an editor. Alternatives: `nano`.
 * `jq` &mdash; JSON manipulations.
 * `tmux` &mdash; the venerable terminal multiplexor.
-* `golang`, `rustc`, `python3`, `pyenv` &mdash; language environments we use and love.
+* `golang`, `rustc`, `python3`, `pyenv`, `zig` &mdash; language environments we use and love.
 * `brotli` &mdash; better than `gzip`, used by HTTP.
 * `mc` &mdash; Midnight Commander for file minupulations.
 * `alacritty` &mdash; no-nonsense terminal.
