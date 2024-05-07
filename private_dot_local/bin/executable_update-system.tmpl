@@ -26,6 +26,11 @@ sudo softwareupdate -i -a
 echo "${PROMPT}Run brew...${RESET}"
 brew update && brew upgrade
 
+if command -v bun &> /dev/null; then
+  echo "${PROMPT}Upgrade Bun...${RESET}"
+  bun upgrade
+fi
+
 {{ if eq .osIdLike "linux-debian" -}}
 if compgen -G "/run/reb*" > /dev/null; then
 	echo "${WARN}WARNING: reboot is ${BLINK}${STANDOUT_ON}required${RESET}${WARN}. To reboot run: ${ITALIC_ON}sudo shutdown -r now${RESET}"
