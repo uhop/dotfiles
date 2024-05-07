@@ -67,7 +67,7 @@ The following tools are installed and aliased:
 * `tmux` &mdash; the venerable terminal multiplexor.
 * `golang`, `rustc`, `python3`, `pyenv`, `zig` &mdash; language environments we use and love.
 * `brotli` &mdash; better than `gzip`, used by HTTP.
-* `mc` &mdash; Midnight Commander for file minupulations.
+* `mc` &mdash; Midnight Commander for file manipulations.
 * `alacritty` &mdash; no-nonsense terminal.
 * `duf` &mdash; a disk utility.
 * `hyperfine` &mdash; benchmarking better than `time`.
@@ -201,3 +201,4 @@ I use `apt`, `snap`, `flatpak`, and `brew`. Most GUI apps are installed with `fl
   * `code` &mdash; Visual Studio Code. 
   * `firefox` &mdash; a web browser (it comes preinstalled).
   * `postman` &mdash; a tool for debugging network services.
+    * It is available as a flatpak, but apparently it is completely unusable.
