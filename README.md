@@ -182,7 +182,8 @@ Video driver:
 
 ### Package managers
 
-I use `apt`, `snap`, `flatpak`, and `brew`. Most GUI apps are installed with `flatpak`. They are installed manually using Win-A (Cmd-A) from Gnome.
+I use `apt`, `snap`, `flatpak`, `brew` and `AppImageLauncher`. Most GUI apps are installed with `flatpak`.
+They are installed manually using Win-A (Cmd-A) from Gnome.
 
 * `flatpak`
   * `flatseal` &mdash; `flatpak` permission editor.
@@ -202,3 +203,5 @@ I use `apt`, `snap`, `flatpak`, and `brew`. Most GUI apps are installed with `fl
   * `firefox` &mdash; a web browser (it comes preinstalled).
   * `postman` &mdash; a tool for debugging network services.
     * It is available as a flatpak, but apparently it is completely unusable.
+* `AppImageLauncher`
+  * It is installed using the official `.deb` file or the PPA: https://github.com/TheAssassin/AppImageLauncher/wiki/Install-on-Ubuntu-or-Debian
