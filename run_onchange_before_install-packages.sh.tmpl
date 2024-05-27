@@ -17,7 +17,7 @@ echo "${PROMPT}Installing command line apps: sudo apt install...${RESET}"
 sudo apt install -y build-essential bash-completion micro wget age mosh dialog \
   exa bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
   brotli gh hub mc neofetch ripgrep duf hyperfine zoxide nginx shellcheck \
-  grc golang rustc python3 net-tools firejail
+  grc golang rustc python3 net-tools firejail waypipe
 {{ if .hasGui -}}
 echo "${PROMPT}Installing GUI apps: sudo apt install...${RESET}"
 sudo apt install -y meld alacritty flatpak gnome-software-plugin-flatpak ttf-mscorefonts-installer firetools
