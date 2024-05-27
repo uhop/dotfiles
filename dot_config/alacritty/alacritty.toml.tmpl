@@ -1,0 +1,175 @@
+# copied mostly from https://github.com/joshmedeski/dotfiles/blob/main/.config/alacritty/alacritty.yml
+# adapted for TOML and chezmoi templates
+
+live_config_reload = true
+
+[font]
+size = 12.0
+
+[font.normal]
+family = "Hack Nerd Font Mono"
+style = "Regular"
+
+{{ $Command := eq .osIdLike "darwin" | ternary "Command" "Control" }}
+
+# NOTE: helpful hex codes
+# \u001b = escape (useful for vim-related keybindings)
+# \u0002 = control-b (the default tmux prefix)
+
+# split tmux window vertically
+# [[keyboard.bindings]]
+# chars = "\u0002\""
+# key = "E"
+# mods = "{{ $Command }}"
+
+# split tmux window horizontally
+# [[keyboard.bindings]]
+# chars = "\u0002%"
+# key = "E"
+# mods = "{{ $Command }}|Shift"
+
+# open file manager midnight-commander
+# [[keyboard.bindings]]
+# chars = """
+# mc
+# """
+# key = "F"
+# mods = "{{ $Command }}"
+
+# start tmux search mode
+[[keyboard.bindings]]
+chars = "\u0002[/"
+key = "F"
+mods = "{{ $Command }}|Shift"
+
+# open interactive tmux session client
+[[keyboard.bindings]]
+chars = "\u0002s"
+key = "K"
+mods = "{{ $Command }}"
+
+# switch to the last tmux session
+[[keyboard.bindings]]
+chars = "\u0002L"
+key = "L"
+mods = "{{ $Command }}"
+
+# open URLs 'joshmedeski/tmux-fzf-url'
+# [[keyboard.bindings]]
+# chars = "\u0002u"
+# key = "O"
+# mods = "{{ $Command }}"
+
+# create a new tmux window
+[[keyboard.bindings]]
+chars = "\u0002c"
+key = "T"
+mods = "{{ $Command }}"
+
+# kill the current pane
+[[keyboard.bindings]]
+chars = "\u0002x"
+key = "W"
+mods = "{{ $Command }}"
+
+# toggle zoom state of the current tmux pane
+[[keyboard.bindings]]
+chars = "\u0002z"
+key = "Z"
+mods = "{{ $Command }}"
+
+# switch to next tmux window
+[[keyboard.bindings]]
+chars = "\u0002n"
+key = "Tab"
+mods = "{{ $Command }}"
+
+# switch to previous tmux window
+[[keyboard.bindings]]
+chars = "\u0002p"
+key = "`"
+mods = "{{ $Command }}"
+
+# rename the current tmux window
+[[keyboard.bindings]]
+chars = "\u0002,"
+key = "Comma"
+mods = "{{ $Command }}"
+
+# enter the tmux command prompt
+[[keyboard.bindings]]
+chars = "\u0002:"
+key = "Semicolon"
+mods = "{{ $Command }}"
+
+# select tmux window 0
+[[keyboard.bindings]]
+chars = "\u00020"
+key = "Key0"
+mods = "{{ $Command }}"
+
+# select tmux window 1
+[[keyboard.bindings]]
+chars = "\u00021"
+key = "Key1"
+mods = "{{ $Command }}"
+
+# select tmux window 2
+[[keyboard.bindings]]
+chars = "\u00022"
+key = "Key2"
+mods = "{{ $Command }}"
+
+# select tmux window 3
+[[keyboard.bindings]]
+chars = "\u00023"
+key = "Key3"
+mods = "{{ $Command }}"
+
+# select tmux window 4
+[[keyboard.bindings]]
+chars = "\u00024"
+key = "Key4"
+mods = "{{ $Command }}"
+
+# select tmux window 5
+[[keyboard.bindings]]
+chars = "\u00025"
+key = "Key5"
+mods = "{{ $Command }}"
+
+# select tmux window 6
+[[keyboard.bindings]]
+chars = "\u00026"
+key = "Key6"
+mods = "{{ $Command }}"
+
+# select tmux window 7
+[[keyboard.bindings]]
+chars = "\u00027"
+key = "Key7"
+mods = "{{ $Command }}"
+
+# select tmux window 8
+[[keyboard.bindings]]
+chars = "\u00028"
+key = "Key8"
+mods = "{{ $Command }}"
+
+# select tmux window 9
+[[keyboard.bindings]]
+chars = "\u00029"
+key = "Key9"
+mods = "{{ $Command }}"
+
+[shell]
+program = '{{ lookPath "tmux" }}'
+
+[window]
+decorations = '{{ eq .osIdLike "darwin" | ternary "buttonless" "full" }}'
+dynamic_padding = false
+opacity = 0.95
+
+[window.padding]
+x = 14
+y = 10
