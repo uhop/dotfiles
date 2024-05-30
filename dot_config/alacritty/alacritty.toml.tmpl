@@ -21,8 +21,9 @@ hide_when_typing = true
 save_to_clipboard = true
 
 [shell]
-program = '{{ lookPath "tmux" }}'
-args = ["new-session", "-A", "-D", "-s", "main"]
+program = "/bin/bash"
+args = ["-l", "-c", "tmux new-session -A -D -s main"]
+
 
 [window]
 decorations = '{{ eq .osIdLike "darwin" | ternary "buttonless" "full" }}'
