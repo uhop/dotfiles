@@ -10,6 +10,29 @@ size = 12.0
 family = "Hack Nerd Font Mono"
 style = "Regular"
 
+[mouse]
+hide_when_typing = true
+
+# [[mouse.bindings]]
+# action = "PasteSelection"
+# mouse = "Middle"
+
+[selection]
+save_to_clipboard = true
+
+[shell]
+program = '{{ lookPath "tmux" }}'
+args = ["new-session", "-A", "-D", "-s", "main"]
+
+[window]
+decorations = '{{ eq .osIdLike "darwin" | ternary "buttonless" "full" }}'
+dynamic_padding = false
+opacity = 0.95
+
+[window.padding]
+x = 14
+y = 10
+
 {{ $Command := eq .osIdLike "darwin" | ternary "Command" "Control" }}
 
 # NOTE: helpful hex codes
@@ -161,15 +184,3 @@ mods = "{{ $Command }}"
 chars = "\u00029"
 key = "Key9"
 mods = "{{ $Command }}"
-
-[shell]
-program = '{{ lookPath "tmux" }}'
-
-[window]
-decorations = '{{ eq .osIdLike "darwin" | ternary "buttonless" "full" }}'
-dynamic_padding = false
-opacity = 0.95
-
-[window.padding]
-x = 14
-y = 10
