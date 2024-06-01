@@ -10,8 +10,8 @@ size = {{ eq .osIdLike "darwin" | ternary "16" "12" }}
 family = "Hack Nerd Font Mono"
 style = "Regular"
 
-[mouse]
-hide_when_typing = true
+# [mouse]
+# hide_when_typing = true
 
 # [[mouse.bindings]]
 # action = "PasteSelection"
@@ -23,7 +23,6 @@ save_to_clipboard = true
 [shell]
 program = "/bin/bash"
 args = ["-l", "-c", "tmux new-session -A -D -s main"]
-
 
 [window]
 decorations = '{{ eq .osIdLike "darwin" | ternary "buttonless" "full" }}'
