@@ -79,15 +79,15 @@ alias top="sudo htop"
 alias du="ncdu --color dark -rr -x --exclude .git --exclude node_modules"
 alias help='tldr'
 
-alias l='exa'
-#alias la='exa -a'
-#alias ll='exa -lah'
-#alias ls='exa --color=auto'
+alias l='eza'
+#alias la='eza -a'
+#alias ll='eza -lah'
+#alias ls='eza --color=auto'
 
-alias ls='exa --grid --color auto --icons --sort=type'
-alias ll='exa --long --color always --icons --sort=type'
-alias la='exa --grid --all --color auto --icons --sort=type'
-alias lla='exa --long --all --color auto --icons --sort=type'
+alias ls='eza --grid --color auto --icons --sort=type'
+alias ll='eza --long --color always --icons --sort=type'
+alias la='eza --grid --all --color auto --icons --sort=type'
+alias lla='eza --long --all --color auto --icons --sort=type'
 
 # My custom commands
 
