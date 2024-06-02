@@ -15,7 +15,7 @@ PROMPT="$BOLD$BRIGHT_CYAN"
 echo "${WARN}Both apt and snap require sudo: expect asking for the sudo password.${RESET}"
 echo "${PROMPT}Installing command line apps: sudo apt install...${RESET}"
 sudo apt install -y build-essential bash-completion micro wget age mosh dialog \
-  eza bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
+  bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
   brotli gh hub mc neofetch ripgrep duf hyperfine zoxide nginx shellcheck \
   grc golang rustc python3 net-tools firejail waypipe
 {{ if .hasGui -}}
@@ -39,6 +39,7 @@ brew "deno"
 brew "diff-so-fancy"
 brew "dog"
 brew "dust"
+brew "eza"
 brew "fd"
 brew "git-lfs"
 brew "gping"
