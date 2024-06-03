@@ -26,6 +26,12 @@ sudo softwareupdate -i -a
 echo "${PROMPT}Run brew...${RESET}"
 brew update && brew upgrade
 
+. "$(brew --prefix nvm)/nvm.sh"
+echo "${PROMPT}Update major Node versions...${RESET}"
+update-node-versions.js
+echo "${PROMPT}Trim minor Node versions...${RESET}"
+trim-node-versions.js
+
 if command -v bun &> /dev/null; then
   echo "${PROMPT}Upgrade Bun...${RESET}"
   bun upgrade
