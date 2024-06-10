@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+. ~/.local/bin/colors.sh
+
+WARN="$BOLD$BRIGHT_WHITE$BG_BLUE"
+PROMPT="$BOLD$BRIGHT_CYAN"
+
+{{ if eq .osIdLike "linux-debian" -}}
+echo "${WARN}apt requires sudo: expect asking for the sudo password.${RESET}"
+echo "${PROMPT}Run sudo apt...${RESET}"
+sudo apt autoclean
+sudo apt autoremove
+{{- end }}
+
+echo "${PROMPT}Run brew...${RESET}"
+brew cleanup
+
+. "$(brew --prefix nvm)/nvm.sh"
+echo "${PROMPT}Update major Node versions...${RESET}"
+update-node-versions.js
+echo "${PROMPT}Trim minor Node versions...${RESET}"
+trim-node-versions.js
+
+{{ if eq .osIdLike "linux-debian" -}}
+if compgen -G "/run/reb*" > /dev/null; then
+	echo "${WARN}WARNING: reboot is ${BLINK}${STANDOUT_ON}required${RESET}${WARN}. To reboot run: ${ITALIC_ON}sudo shutdown -r now${RESET}"
+fi
+{{- end }}
