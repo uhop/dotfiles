@@ -180,6 +180,7 @@ unset VISUAL
 
 export EDITOR=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
+export FORCE_COLOR=3
 export GITHUB_USERNAME=uhop
 
 # dedupe path (based on https://www.linuxjournal.com/content/removing-duplicate-path-entries)
