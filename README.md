@@ -167,6 +167,10 @@ To support cut-and-paste in the micro editor:
 
 <kbd>F10</kbd> doesn't work in a terminal: https://superuser.com/questions/1543538/f10-key-not-working-in-terminal-mc-ubuntu-19-10
 
+### Titan security key
+
+See: https://support.google.com/titansecuritykey/answer/9148044?hl=en
+
 ### Ubuntu on Mac
 
 Enabling <kbd>Fn</kbd> keys:
