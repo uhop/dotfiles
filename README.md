@@ -171,6 +171,10 @@ To support cut-and-paste in the micro editor:
 
 See: https://support.google.com/titansecuritykey/answer/9148044?hl=en
 
+A key should be registered only once. When I attempted to do so, I was misleadingly informed that
+"this device cannot be used to create passkeys". When it happened, press "Use other device",
+which will switch from the current computer to the key and now everything will go smoothly.
+
 ### Ubuntu on Mac
 
 Enabling <kbd>Fn</kbd> keys:
