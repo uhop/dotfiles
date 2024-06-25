@@ -16,7 +16,7 @@ echo "${WARN}Both apt and snap require sudo: expect asking for the sudo password
 echo "${PROMPT}Installing command line apps: sudo apt install...${RESET}"
 sudo apt install -y build-essential bash-completion micro wget age mosh dialog \
   bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel fzf \
-  brotli gh hub mc neofetch ripgrep duf hyperfine zoxide nginx shellcheck \
+  brotli gh hub mc ripgrep duf hyperfine zoxide nginx shellcheck \
   grc golang rustc python3 net-tools firejail waypipe lnav
 {{ if .hasGui -}}
 echo "${PROMPT}Installing GUI apps: sudo apt install...${RESET}"
@@ -40,6 +40,7 @@ brew "diff-so-fancy"
 brew "dog"
 brew "dust"
 brew "eza"
+brew "fastfetch"
 brew "fd"
 brew "git-lfs"
 brew "gping"
@@ -86,6 +87,7 @@ brew "dog"
 brew "duf"
 brew "dust"
 brew "eza"
+brew "fastfetch"
 brew "fd"
 brew "fzf"
 brew "gh"
@@ -110,7 +112,6 @@ brew "midnight-commander"
 brew "mosh"
 brew "ncdu"
 brew "nginx"
-brew "neofetch"
 brew "nvm"
 brew "parallel"
 brew "prettyping"
