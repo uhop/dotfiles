@@ -148,17 +148,7 @@ command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
 test -e ~/.config/broot/launcher/bash/br && . ~/.config/broot/launcher/bash/br || true
 
 if command -v fzf &> /dev/null; then
-  if [ -f /usr/share/doc/fzf/examples/key-bindings.bash ]; then
-  	. /usr/share/doc/fzf/examples/key-bindings.bash
-  	[ -f /usr/share/doc/fzf/examples/completion.bash ] && . /usr/share/doc/fzf/examples/completion.bash || true
-  else
-  	if [ ! -f ~/.fzf.bash ]; then
-  	  FZF_INSTALL="$(brew --prefix)/opt/fzf/install"
-  	  [ -f "$FZF_INSTALL" ] && eval "$FZF_INSTALL" || true
-  	  unset FZF_INSTALL
-  	fi
-    [ -f ~/.fzf.bash ] && . ~/.fzf.bash || true
-  fi
+	eval "$(fzf --bash)"
 fi
 
 if [[ $TERM_PROGRAM != "WarpTerminal" ]]; then
