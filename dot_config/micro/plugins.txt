@@ -1,0 +1,11 @@
+> plugin list
+The following plugins are currently installed:
+lsp (0.6.2)
+autoclose (1.0.0)
+comment (1.0.0)
+diff (1.0.0)
+ftoptions (1.0.0)
+linter (1.0.0)
+literate (1.0.0)
+status (1.0.0)
+

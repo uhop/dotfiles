@@ -1,4 +1,5 @@
 {
+    "lsp.server": "python=pylsp,go=gopls,typescript=deno lsp={\"enable\":true},javascript=deno lsp={\"enable\":true},markdown=deno lsp={\"enable\":true},json=deno lsp={\"enable\":true},jsonc=deno lsp={\"enable\":true},rust=rust-analyzer,lua=lua-language-server,c++=clangd,dart=dart language-server,zig=zls",
     "mkparents": true,
     "tabsize": 2
 }
