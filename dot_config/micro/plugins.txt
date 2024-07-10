@@ -1,5 +1,6 @@
 > plugin list
 The following plugins are currently installed:
+fzf (1.1.1)
 lsp (0.6.2)
 autoclose (1.0.0)
 comment (1.0.0)
