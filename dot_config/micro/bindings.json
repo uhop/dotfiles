@@ -19,11 +19,6 @@
   "\u001b[1;6D": "SelectToStartOfLine",
   "Alt-/": "lua:comment.comment",
   "Alt-b": "command:prettier",
-  "Alt-d": "command:definition",
-  "Alt-f": "command:format",
-  "Alt-k": "command:hover",
-  "Alt-r": "command:references",
   "Ctrl-d": "Delete",
-  "CtrlSpace": "command:lspcompletion",
   "CtrlUnderscore": "lua:comment.comment"
 }
