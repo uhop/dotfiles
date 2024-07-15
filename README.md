@@ -187,6 +187,7 @@ Enabling <kbd>Fn</kbd> keys:
 Video driver:
 
 - https://askubuntu.com/questions/1295423/ubuntu-20-04-on-imac-mid-2011-cant-adjust-brightness
+  - This answer worked for my MacBook Air: https://askubuntu.com/a/1478635
 
 ## GUI
 
