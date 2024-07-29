@@ -69,7 +69,9 @@ The following tools are installed and aliased:
 - `golang`, `python3`, `pyenv`, `rustc`, `wabt`, `zig` &mdash; language environments we use and love.
 - `brotli` &mdash; better than `gzip`, used by HTTP.
 - `mc` &mdash; Midnight Commander for file manipulations.
+- `yazi` &mdash; Yet Another terminal file manager
 - `alacritty` &mdash; no-nonsense terminal.
+- `kitty` &mdash; no-nonsense terminal.
 - `duf` &mdash; a disk utility.
 - `hyperfine` &mdash; benchmarking better than `time`.
 - `zoxide` &mdash; better `cd`.
