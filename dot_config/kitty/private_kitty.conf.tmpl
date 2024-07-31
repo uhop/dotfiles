@@ -1,0 +1,20 @@
+# FONTS
+font_family Hack Nerd Font Mono
+bold_font auto
+italic_font auto
+bold_italic_font auto
+font_size {{ eq .osIdLike "darwin" | ternary "16" "12" }}
+
+{{ $Command := eq .osIdLike "darwin" | ternary "super" "ctrl" }}
+
+# SWITCHING TMUX TABS
+map {{ $Command }}+1 send_text normal,application \u00021
+map {{ $Command }}+2 send_text normal,application \u00022
+map {{ $Command }}+3 send_text normal,application \u00023
+map {{ $Command }}+4 send_text normal,application \u00024
+map {{ $Command }}+5 send_text normal,application \u00025
+map {{ $Command }}+6 send_text normal,application \u00026
+map {{ $Command }}+7 send_text normal,application \u00027
+map {{ $Command }}+8 send_text normal,application \u00028
+map {{ $Command }}+9 send_text normal,application \u00029
+map {{ $Command }}+0 send_text normal,application \u00020
