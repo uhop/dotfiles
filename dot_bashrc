@@ -127,6 +127,9 @@ if [ -f "$BPN/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
   . "$BPN/nvm.sh"
   # nvm use stable
+  if [ -s "$BPN/etc/bash_completion.d/nvm" ]; then
+    . "$BPN/etc/bash_completion.d/nvm"
+  fi
 fi
 unset BPN
 
