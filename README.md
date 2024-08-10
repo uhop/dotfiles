@@ -220,6 +220,8 @@ They are installed manually using Win-A (Cmd-A) from Gnome.
 - `AppImageLauncher`
   - It is installed using the official `.deb` file or the PPA: https://github.com/TheAssassin/AppImageLauncher/wiki/Install-on-Ubuntu-or-Debian
 
+# Application-specific notes
+
 ## Micro
 
 The `prettier` plugin is installed manually: https://github.com/claromes/micro-prettier
@@ -229,3 +231,7 @@ Consider its cousing for Python: https://github.com/claromes/micro-yapf
 Links on customization:
 
 - https://claromes.com/blog/customizing-my-micro-editor.html
+
+## Kitty terminal
+
+See for details on installing: https://sw.kovidgoyal.net/kitty/binary/
