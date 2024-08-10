@@ -222,11 +222,31 @@ They are installed manually using Win-A (Cmd-A) from Gnome.
 
 # Application-specific notes
 
+## tmux
+
+The alias to invoke `ssh` with `tmux` is `ssht`: `ssht srv`..
+
+When running locally `tmux` uses
+the standard prefix: <kbd>Ctrl</kbd>+<kbd>b</kbd>. When invoked remotely through `ssht` it uses
+the prefix: <kbd>Ctrl</kbd>+<kbd>a</kbd>. This way you can use different prefixes for local and
+remote sessions.
+
+When running `tmux` for the first time, install plugins by pressing <kbd>Prefix</kbd>+<kbd>I</kbd>.
+To update plugins, press <kbd>Prefix</kbd>+<kbd>U</kbd>. Note that `I` and `U` are uppercase.
+
 ## Micro
 
 The `prettier` plugin is installed manually: https://github.com/claromes/micro-prettier
 
-Consider its cousing for Python: https://github.com/claromes/micro-yapf
+Consider its cousin for Python: https://github.com/claromes/micro-yapf
+
+The rest of plugins (excluding default plugins) are installed using:
+
+```bash
+mic -plugin install fzf
+```
+
+The list of recommended plugins can be found here: `~/.config/micro/plugins.txt`.
 
 Links on customization:
 
