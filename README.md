@@ -108,7 +108,7 @@ These instructions assume a newly installed OS. Otherwise, adjust accordingly.
   ```
 - Install `chezmoi`:
   ```bash
-  bash install chezmoi
+  brew install chezmoi
   ```
 - Initialize dotfiles:
   ```bash
