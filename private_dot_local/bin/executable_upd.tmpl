@@ -28,7 +28,7 @@ brew update && brew upgrade
 
 if command -v bun &> /dev/null; then
   echo "${PROMPT}Upgrade Bun...${RESET}"
-  bun upgrade
+  bun upgrade --stable
 fi
 
 {{ if eq .osIdLike "linux-debian" -}}
