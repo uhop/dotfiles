@@ -60,6 +60,7 @@ The following tools are installed and aliased:
 - `broot` &mdash; better `tree`.
 - `prettyping`, `gping` &mdash; better `ping`.
 - `htop` &mdash; better `top`.
+- `btop` &mdash; better `top`.
 - `awscli`, `aws-iam-authenticator`, `kubernetes-cli`, `helm`, `gh`, `hub`, `nginx`, `net-tools`, `xh` &mdash; useful utilities for web development.
 - `parallel` &mdash; shell parallelization.
 - `fzf` &mdash; a command-line fuzzy finder.
@@ -82,6 +83,7 @@ The following tools are installed and aliased:
 - `xc` &mdash; a task runner.
 - `mosh` &mdash; a mobile shell.
 - `lnav` &mdash; a log navigator
+- `sd` &mdash; better `sed`.
 
 Check `.bash_aliases` for a list of aliases.
 
