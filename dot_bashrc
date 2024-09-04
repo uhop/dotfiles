@@ -177,4 +177,18 @@ export FORCE_COLOR=3
 export GITHUB_USERNAME=uhop
 
 # dedupe path (based on https://www.linuxjournal.com/content/removing-duplicate-path-entries)
-export PATH=$(echo -n "$PATH" | awk -v RS=: '!($0 in a) {a[$0]; printf("%s%s", length(a) > 1 ? ":" : "", $0)}')
+# export PATH=$(echo -n "$PATH" | awk -v RS=: '!($0 in a) {a[$0]; printf("%s%s", length(a) > 1 ? ":" : "", $0)}')
+
+# custom dedupe
+if command -v node &> /dev/null; then
+  export PATH=$(node -e '
+    const path = new Set(process.env.PATH.split(":"));
+    path.delete("");
+    let nvm;
+    for (const p of path) {
+      if (/\.nvm\b/.test(p)) nvm = p;
+    }
+    if (nvm) path.delete(nvm);
+    console.log((nvm ? [nvm, ...path] : [...path]).join(":"));
+  ')
+fi
