@@ -257,3 +257,10 @@ Links on customization:
 ## Kitty terminal
 
 See for details on installing: https://sw.kovidgoyal.net/kitty/binary/
+
+## GNOME
+
+I used the following articles as a guidance:
+
+* https://www.howtogeek.com/improve-ubuntu-without-using-the-terminal/
+* https://www.howtogeek.com/i-always-install-these-gnome-extensions-on-my-linux-computers/
