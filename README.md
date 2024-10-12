@@ -264,3 +264,15 @@ I used the following articles as a guidance:
 
 * https://www.howtogeek.com/improve-ubuntu-without-using-the-terminal/
 * https://www.howtogeek.com/i-always-install-these-gnome-extensions-on-my-linux-computers/
+
+This is the list of user-installed extensions I use:
+
+* ArcMenu
+* Clipboard History
+* Dash to Dock &mdash; doesn't work for me, sometimes locks GNOME (?), disabled
+* Dash to Panel &mdash; not sure I like how it works, disabled
+* GSConnect &mdash; sometimes not available in newer versions
+* Just Perfection
+* LAN IP Address
+* Tray Icons: Reloaded
+* Vitals &mdash; useful, but I usually disable it on low-powered systems
