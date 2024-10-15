@@ -57,6 +57,7 @@ The following tools are installed and aliased:
 - `ncdu`, `dust` &mdash; better `du`.
 - `ag`, `ripgrep` &mdash; better `ack`.
 - `tig`, `lazygit` &mdash; text interface for `git`.
+  - `onefetch` &mdash; `git` stats.
 - `broot` &mdash; better `tree`.
 - `prettyping`, `gping` &mdash; better `ping`.
 - `htop` &mdash; better `top`.
