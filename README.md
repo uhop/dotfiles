@@ -239,6 +239,8 @@ remote sessions.
 When running `tmux` for the first time, install plugins by pressing <kbd>Prefix</kbd>+<kbd>I</kbd>.
 To update plugins, press <kbd>Prefix</kbd>+<kbd>U</kbd>. Note that `I` and `U` are uppercase.
 
+See "Kitty terminal" below if you run Kitty with `tmux` remotely.
+
 ## Micro
 
 The `prettier` plugin is installed manually: https://github.com/claromes/micro-prettier
@@ -260,6 +262,10 @@ Links on customization:
 ## Kitty terminal
 
 See for details on installing: https://sw.kovidgoyal.net/kitty/binary/
+
+`tmux` will complain that `xterm-kitty` is unknown. The solution is to copy
+`.terminfo` to the remote server:
+[Tmux under Kitty terminal](https://unix.stackexchange.com/questions/470676/tmux-under-kitty-terminal).
 
 ## GNOME
 
