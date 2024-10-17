@@ -267,6 +267,14 @@ See for details on installing: https://sw.kovidgoyal.net/kitty/binary/
 `.terminfo` to the remote server:
 [Tmux under Kitty terminal](https://unix.stackexchange.com/questions/470676/tmux-under-kitty-terminal).
 
+Example:
+
+```bash
+scp -r ~/.terminfo REMOTE:~./terminfo
+```
+
+Where `REMOTE` is the remote server you are copying `.terminfo` to.
+
 ## GNOME
 
 I used the following articles as a guidance:
