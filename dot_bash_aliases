@@ -3,14 +3,14 @@
 ## Colorize the ls output ##
 #alias ls='command ls --color=auto'
 ## Use a long listing format ##
-#alias ll='command ls -la' 
+#alias ll='command ls -la'
 ## Show hidden files ##
 #alias l.='command ls -d .* --color=auto'
 
 # some more ls aliases
 #alias la='command ls -A'
 #alias l='command ls -CF'
- 
+
 ## get rid of command not found ##
 alias cd..='command cd ..'
 ## a quick way to get out of current directory ##
