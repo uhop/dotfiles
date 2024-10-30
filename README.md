@@ -182,6 +182,30 @@ A key should be registered only once. When I attempted to do so, I was misleadin
 "this device cannot be used to create passkeys". When it happened, press "Use other device",
 which will switch from the current computer to the key and now everything will go smoothly.
 
+### Windows on Ubuntu (LXC)
+
+See the following articles:
+
+* https://ubuntu.com/tutorials/how-to-install-a-windows-11-vm-using-lxd#1-overview
+* https://discussion.scottibyte.com/t/windows-11-lxd-virtual-machine-updated-november-2023/88
+
+Useful commands:
+
+* Start the `win11` instance:
+  ```bash
+  lxc start win11
+  ```
+* Start and connect:
+  ```bash
+  lxc start win11 --console=vga
+  ```
+* Connect to the running instance:
+  ```bash
+  lxc console win11 --type=vga
+  ```
+
+If RDP is enabled in Windows, you can use `Remmina` to connect. Usually it is a faster option.
+
 ### Ubuntu on Mac
 
 Enabling <kbd>Fn</kbd> keys:
