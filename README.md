@@ -182,7 +182,7 @@ A key should be registered only once. When I attempted to do so, I was misleadin
 "this device cannot be used to create passkeys". When it happened, press "Use other device",
 which will switch from the current computer to the key and now everything will go smoothly.
 
-### Windows on Ubuntu (LXC)
+### Windows on Ubuntu (LXD)
 
 See the following articles:
 
@@ -195,16 +195,17 @@ Useful commands:
   ```bash
   lxc start win11
   ```
-* Start and connect:
-  ```bash
-  lxc start win11 --console=vga
-  ```
+  * Start and connect:
+    ```bash
+    lxc start win11 --console=vga
+    ```
 * Connect to the running instance:
   ```bash
   lxc console win11 --type=vga
   ```
 
 If RDP is enabled in Windows, you can use `Remmina` to connect. Usually it is a faster option.
+OTOH, connecting console allows to see the boot process and updates before Windows is loaded.
 
 ### Ubuntu on Mac
 
@@ -316,4 +317,5 @@ This is the list of user-installed extensions I use:
 * Just Perfection
 * LAN IP Address
 * Tray Icons: Reloaded
+* User id in top panel
 * Vitals &mdash; useful, but I usually disable it on low-powered systems
