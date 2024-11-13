@@ -18,6 +18,9 @@ const main = async () => {
 	for (let i = 1; i < versions.length; ++i) {
 		const version = versions[i], versionString = toVersionString(version);
 		if (version.major === versions[i - 1].major) {
+		  if (version.current) {
+		    await runNvm(`use ${version.major}`).nothrow();
+		  }
 			await runNvm(`uninstall ${versionString}`).nothrow();
 		} else {
 			console.log('MAJOR:', versionString);
