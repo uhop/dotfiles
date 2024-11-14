@@ -207,6 +207,12 @@ Useful commands:
 If RDP is enabled in Windows, you can use `Remmina` to connect. Usually it is a faster option.
 OTOH, connecting console allows to see the boot process and updates before Windows is loaded.
 
+### Docker
+
+* Docker: https://docs.docker.com/engine/install/ubuntu/
+* `lazydocker`: https://github.com/jesseduffield/lazydocker
+* `dive`: https://github.com/wagoodman/dive
+
 ### Ubuntu on Mac
 
 Enabling <kbd>Fn</kbd> keys:

@@ -66,6 +66,7 @@ alias env='command env | sort'
 alias path='command echo -e ${PATH//:/\\n}'
 
 alias mic='micro'
+alias lzd='lazydocker'
 
 # Better replacements
 
