@@ -85,6 +85,7 @@ The following tools are installed and aliased:
 - `mosh` &mdash; a mobile shell.
 - `lnav` &mdash; a log navigator
 - `sd` &mdash; better `sed`.
+- `uv` &mdash; fast Python package manager.
 
 Check `.bash_aliases` for a list of aliases.
 
