@@ -236,6 +236,7 @@ They are installed manually using Win-A (Cmd-A) from Gnome.
 - `flatpak`
   - `flatseal` &mdash; `flatpak` permission editor.
   - `calibre` &mdash; an e-book manager.
+  - `gear lever` &mdash; an AppImage manager.
   - Web browsers (used for testing):
     - Brave
     - Chromium
@@ -254,8 +255,9 @@ They are installed manually using Win-A (Cmd-A) from Gnome.
     - It is available as a flatpak, but apparently it is completely unusable.
   - *Note:* if `snap-store` cannot be updated (because it is running) use:
     `snap-store --quit && snap refresh snap-store`
-- `AppImageLauncher`
-  - It is installed using the official `.deb` file or the PPA: https://github.com/TheAssassin/AppImageLauncher/wiki/Install-on-Ubuntu-or-Debian
+- AppImages
+  - `gear lever` is used via `flatpak`. See above.
+  - `AppImageLauncher` can be used. It is installed using the official `.deb` file or the PPA: https://github.com/TheAssassin/AppImageLauncher/wiki/Install-on-Ubuntu-or-Debian
 
 # Application-specific notes
 
