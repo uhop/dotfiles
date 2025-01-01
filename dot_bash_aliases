@@ -11,16 +11,6 @@
 #alias la='command ls -A'
 #alias l='command ls -CF'
 
-## get rid of command not found ##
-alias cd..='command cd ..'
-## a quick way to get out of current directory ##
-alias ..='command cd ..'
-alias ...='command cd ../../'
-alias ....='command cd ../../../'
-alias .....='command cd ../../../../'
-alias .4='command cd ../../../../'
-alias .5='command cd ../../../../../'
-
 ## Colorize the grep command output for ease of use (good for log files)##
 alias grep='grep --color=auto'
 alias egrep='egrep --color=auto'
@@ -80,6 +70,8 @@ alias top="sudo htop"
 alias du="ncdu --color dark -rr -x --exclude .git --exclude node_modules"
 alias help='tldr'
 
+# Better `ls`
+
 alias l='eza'
 #alias la='eza -a'
 #alias ll='eza -lah'
@@ -89,6 +81,20 @@ alias ls='eza --grid --color auto --icons --sort=type'
 alias ll='eza --long --color always --icons --sort=type'
 alias la='eza --grid --all --color auto --icons --sort=type'
 alias lla='eza --long --all --color auto --icons --sort=type'
+alias l.='ls -d .*'
+
+# Better `cd` AKA `z`
+
+## get rid of command not found ##
+alias cd..='z ..'
+alias z..='z ..'
+## a quick way to get out of current directory ##
+alias ..='z ..'
+alias ...='z ../../'
+alias ....='z ../../../'
+alias .....='z ../../../../'
+alias .4='z ../../../../'
+alias .5='z ../../../../../'
 
 # My custom commands
 

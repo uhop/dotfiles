@@ -98,18 +98,6 @@ fi
 [ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH" || true
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" || true
 
-# Alias definitions.
-# You may want to put all your additions into a separate file like
-# ~/.bash_aliases, instead of adding them here directly.
-# See /usr/share/doc/bash-doc/examples in the bash-doc package.
-
-[ -f ~/.bash_aliases ] && . ~/.bash_aliases || true
-
-# enable programmable completion features (you don't need to enable
-# this, if it's already enabled in /etc/bash.bashrc and /etc/profile
-# sources /etc/bash.bashrc).
-[ -f /etc/bash_completion ] && ! shopt -oq posix && . /etc/bash_completion || true
-
 BP="$(brew --prefix)"
 if [ -f "$BP/etc/profile.d/bash_completion.sh" ]; then
   . "$BP/etc/profile.d/bash_completion.sh"
@@ -175,6 +163,19 @@ export EDITOR=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export FORCE_COLOR=3
 export GITHUB_USERNAME=uhop
+
+# Alias definitions.
+# You may want to put all your additions into a separate file like
+# ~/.bash_aliases, instead of adding them here directly.
+# See /usr/share/doc/bash-doc/examples in the bash-doc package.
+
+[ -f ~/.bash_aliases ] && . ~/.bash_aliases || true
+
+# enable programmable completion features (you don't need to enable
+# this, if it's already enabled in /etc/bash.bashrc and /etc/profile
+# sources /etc/bash.bashrc).
+
+[ -f /etc/bash_completion ] && ! shopt -oq posix && . /etc/bash_completion || true
 
 # dedupe path (based on https://www.linuxjournal.com/content/removing-duplicate-path-entries)
 # export PATH=$(echo -n "$PATH" | awk -v RS=: '!($0 in a) {a[$0]; printf("%s%s", length(a) > 1 ? ":" : "", $0)}')
