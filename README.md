@@ -243,7 +243,6 @@ They are installed manually using Win-A (Cmd-A) from Gnome.
     - Google Chrome
     - Microsoft Edge
   - Communications:
-    - Skype
     - Slack
     - Zoom
   - `steam` &mdash; the game launcher from Valve.
@@ -252,6 +251,8 @@ They are installed manually using Win-A (Cmd-A) from Gnome.
   - `code` &mdash; Visual Studio Code.
   - `firefox` &mdash; a web browser (it comes preinstalled).
   - `postman` &mdash; a tool for debugging network services.
+    - It is available as a flatpak, but apparently it is completely unusable.
+  - `skype` &mdash; communications
     - It is available as a flatpak, but apparently it is completely unusable.
   - *Note:* if `snap-store` cannot be updated (because it is running) use:
     `snap-store --quit && snap refresh snap-store`
