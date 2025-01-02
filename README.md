@@ -86,6 +86,7 @@ The following tools are installed and aliased:
 - `lnav` &mdash; a log navigator
 - `sd` &mdash; better `sed`.
 - `uv` &mdash; fast Python package manager.
+- `gcp` &mdash; advanced file copy utility.
 
 Check `.bash_aliases` for a list of aliases.
 
