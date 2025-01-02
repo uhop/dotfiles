@@ -96,6 +96,11 @@ alias .....='z ../../../../'
 alias .4='z ../../../../'
 alias .5='z ../../../../../'
 
+# Better `cp` and `mv`
+
+alias cpg='rsync -aP'
+alias mvg='rsync -aP --remove-source-files'
+
 # My custom commands
 
 # no-globbing mode for bash functions, thanks to http://blog.edwards-research.com/2011/05/preventing-globbing/
