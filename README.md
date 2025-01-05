@@ -330,3 +330,9 @@ This is the list of user-installed extensions I use:
 * Tray Icons: Reloaded
 * User id in top panel
 * Vitals &mdash; useful, but I usually disable it on low-powered systems
+
+## MakeMKV
+
+The best way is to install it on Linux via PPA:
+
+* https://connectwww.com/how-to-install-makemkv-on-ubuntu-mkv-converter/61127/
