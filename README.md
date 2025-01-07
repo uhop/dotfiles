@@ -238,6 +238,7 @@ They are installed manually using Win-A (Cmd-A) from Gnome.
   - `flatseal` &mdash; `flatpak` permission editor.
   - `calibre` &mdash; an e-book manager.
   - `gear lever` &mdash; an AppImage manager.
+  - `telegram` &mdash; a social network.
   - Web browsers (used for testing):
     - Brave
     - Chromium
@@ -265,7 +266,7 @@ They are installed manually using Win-A (Cmd-A) from Gnome.
 
 ## tmux
 
-The alias to invoke `ssh` with `tmux` is `ssht`: `ssht srv`..
+The alias to invoke `ssh` with `tmux` is `ssht`: `ssht srv`.
 
 When running locally `tmux` uses
 the standard prefix: <kbd>Ctrl</kbd>+<kbd>b</kbd>. When invoked remotely through `ssht` it uses
