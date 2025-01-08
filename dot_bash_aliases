@@ -103,6 +103,11 @@ alias mvg='rsync -aP --remove-source-files'
 
 # My custom commands
 
+mkd() {
+  mkdir -pv "$@"
+  z "$@" || exit
+}
+
 # no-globbing mode for bash functions, thanks to http://blog.edwards-research.com/2011/05/preventing-globbing/
 
 noGlobOff() {
@@ -132,6 +137,8 @@ implWhere() {
 }
 
 alias where='noGlob implWhere'
+
+# ssh helpers
 
 ssht() {
   local TMUX="(command -v tmux &> /dev/null && tmux new -As ssh_tmux)"
