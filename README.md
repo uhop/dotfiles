@@ -31,6 +31,14 @@ git config --global user.email "you@example.com"
 
 And update your GitHub user name in `.chezmoi.toml.tmpl` and at the bottom of `.bashrc`.
 
+## Maintenance
+
+Over time a system should be updated. There are the following scripts that help to do that:
+
+1. `upd` &mdash; runs updates on all relevant services: `apt`, `snap`, `flatpak`, `brew`, `bun`.
+
+2. `cleanup` &mdash; runs cleanups on all relevant services (see above) and updates `node`.
+
 ## Installed tools
 
 The choice of tools and aliases is influenced by:
