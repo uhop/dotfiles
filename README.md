@@ -223,6 +223,13 @@ OTOH, connecting console allows to see the boot process and updates before Windo
 * `lazydocker`: https://github.com/jesseduffield/lazydocker
 * `dive`: https://github.com/wagoodman/dive
 
+Time to time `AppArmor` interferes with `Docker` operations, which result in failures with
+"permission denied" errors. Frequently it can be helped with:
+
+```bash
+sudo aa-remove-unknown
+```
+
 ### Ubuntu on Mac
 
 Enabling <kbd>Fn</kbd> keys:
