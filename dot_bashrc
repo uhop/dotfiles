@@ -172,6 +172,7 @@ fi
 unset VISUAL
 
 export EDITOR=micro
+export VISUAL=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export FORCE_COLOR=3
 export GITHUB_USERNAME=uhop
