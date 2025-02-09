@@ -100,7 +100,7 @@ if command -v rsync &>/dev/null; then
   alias rcp="rsync -av --progress -h"
   alias rmv="rsync -av --progress -h --remove-source-files"
   alias rup="rsync -avu --progress -h"
-  alias rsync="rsync -avu --delete --progress -h"
+  alias rsy="rsync -avu --delete --progress -h"
 fi
 
 # System rebooting
@@ -178,7 +178,7 @@ extract () { # usage: extract <file>
 }
 
 # TODO: redo the optimization with better utilities
-imageoptim () { # usage: imageoptim <file> <options>
+imageop () { # usage: imageop <file> <options>
   if [ -f $1 ] ; then
     case $1 in
       *.jpg)   jpegoptim $1 "${@:2}";;
