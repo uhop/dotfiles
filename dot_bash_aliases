@@ -1,20 +1,10 @@
 # commands from https://www.cyberciti.biz/tips/bash-aliases-mac-centos-linux-unix.html
 
-## Colorize the ls output ##
-#alias ls='command ls --color=auto'
-## Use a long listing format ##
-#alias ll='command ls -la'
-## Show hidden files ##
-#alias l.='command ls -d .* --color=auto'
-
-# some more ls aliases
-#alias la='command ls -A'
-#alias l='command ls -CF'
-
-## Colorize the grep command output for ease of use (good for log files)##
+## Colorize output for ease of use (good for log files)
 alias grep='grep --color=auto'
 alias egrep='egrep --color=auto'
 alias fgrep='fgrep --color=auto'
+alias diff='diff --color=auto'
 
 ## Start calculator with math support
 alias bc='command bc -l'
@@ -34,24 +24,24 @@ alias j='command jobs -l'
 
 ## Add safety nets
 ## do not delete / or prompt if deleting more than 3 files at a time #
-#alias rm='command rm -I --preserve-root'
-alias rm='command rm -I'
+alias rm='command rm -I --preserve-root'
 ## confirmation #
-#alias mv='command mv -i'
-#alias cp='command cp -i'
-#alias ln='command ln -i'
+alias mv='command mv -iv'
+alias cp='command cp -iv'
+alias ln='command ln -i'
 ## Parenting changing perms on / #
-#alias chown='command chown --preserve-root'
-#alias chmod='command chmod --preserve-root'
-#alias chgrp='command chgrp --preserve-root'
+alias chown='command chown --preserve-root'
+alias chmod='command chmod --preserve-root'
+alias chgrp='command chgrp --preserve-root'
 
 ## Resume wget by default
 ## this one saved my butt so many times ##
 alias wget='command wget -c'
 
-## set some other defaults ##
+## set some other defaults
 alias df='command df -kh'
-#alias du='command du -ch'
+alias dd='command dd status=progress'
+alias free='free -m'
 alias env='command env | sort'
 alias path='command echo -e ${PATH//:/\\n}'
 
@@ -73,15 +63,13 @@ alias help='tldr'
 # Better `ls`
 
 alias l='eza'
-#alias la='eza -a'
-#alias ll='eza -lah'
-#alias ls='eza --color=auto'
 
 alias ls='eza --grid --color auto --icons --sort=type'
 alias ll='eza --long --color always --icons --sort=type'
 alias la='eza --grid --all --color auto --icons --sort=type'
 alias lla='eza --long --all --color auto --icons --sort=type'
 alias l.='ls -d .*'
+alias ltr='eza -l -t modified -r'
 
 # Better `cd` AKA `z`
 
@@ -96,17 +84,128 @@ alias .....='z ../../../../'
 alias .4='z ../../../../'
 alias .5='z ../../../../../'
 
-# Better `cp` and `mv`
+# cd + ls
 
-alias cpg='rsync -aP'
-alias mvg='rsync -aP --remove-source-files'
+zl() {
+  local dir="$1"
+  local dir="${dir:=$HOME}"
+  z "$dir" >/dev/null && l
+}
+
+# Better `cp` and `mv` with a progress bar
+
+if command -v rsync &>/dev/null; then
+  alias cpg="rsync -ah --info=progress2 --no-inc-recursive --stats"
+  alias mvg="rsync -ah --info=progress2 --no-inc-recursive --stats --remove-source-files"
+  alias rcp="rsync -av --progress -h"
+  alias rmv="rsync -av --progress -h --remove-source-files"
+  alias rup="rsync -avu --progress -h"
+  alias rsync="rsync -avu --delete --progress -h"
+fi
+
+# System rebooting
+
+if command -v systemctl &> /dev/null; then
+  alias shutdown='sudo systemctl poweroff'
+  alias poweroff='sudo systemctl poweroff'
+  alias poff='sudo systemctl poweroff'
+  alias reboot='sudo systemctl reboot'
+fi
+
+# copied from https://www.reddit.com/r/linux/comments/c85me2/useful_aliases_that_i_have_created/
+
+alias gimme='sudo chown $USER:$USER'
+alias oports='sudo lsof -i -P -n | grep -i listen'
+alias oports2='sudo ss -tnlp'
+
+# copied from https://www.reddit.com/r/linuxquestions/comments/13c6r2j/favorite_aliases/
+
+alias dirty='watch -n1 "cat /proc/meminfo | grep Dirty"'
+
+# copied from https://www.reddit.com/r/linuxquestions/comments/16tgbh9/what_are_your_favorite_aliases_to_use/
+
+alias duf="duf -only local,fuse"
+
+up() { z $(eval printf '../'%.0s {1..$1}); }
+
+nowrap() {
+    # this is a function so it can have params
+    # positive params set starting column relative to "1"
+    # negative params set end column relative to $COLUMNS
+    # last of each gets used. anything not matching is ignored
+    #
+    # defaults:
+    inset=1
+    backset=0
+    while [ -n "$1" ] ; do
+        case $1 in
+            -*)     backset=$1  ;;
+            *)      inset=$1    ;;
+        esac
+        shift
+    done
+    cut -c $inset-$(($COLUMNS+$inset+$backset-1))
+}
+
+# exclude useless directories
+alias tre='tree -I "*__pycache__|venv|*static|node_modules|.venv|.git|env|.env|.idea|.vscode|.fleet|CMakeFiles"'
+alias gre='grep -r --exclude-dir={node_modules,venv,out,.git,.idea,.metadata,dist,build}'
+
+# copied from https://github.com/Heaust-ops/aliases/blob/main/.bash_aliases
+
+extract () { # usage: extract <file>
+  if [ -f $1 ] ; then
+    case $1 in
+      *.tar.bz2)   tar xjf $1   ;;
+      *.tar.gz)    tar xzf $1   ;;
+      *.bz2)       bunzip2 $1   ;;
+      *.rar)       unrar x $1   ;;
+      *.gz)        gunzip $1    ;;
+      *.tar)       tar xf $1    ;;
+      *.tbz2)      tar xjf $1   ;;
+      *.tgz)       tar xzf $1   ;;
+      *.zip)       unzip $1     ;;
+      *.Z)         uncompress $1;;
+      *.7z)        7z x $1      ;;
+      *.deb)       ar x $1      ;;
+      *.tar.xz)    tar xf $1    ;;
+      *.tar.zst)   unzstd $1    ;;
+      *)           echo "'$1' cannot be extracted via extract()" ;;
+    esac
+  else
+    echo "'$1' is not a valid file"
+  fi
+}
+
+# TODO: redo the optimization with better utilities
+imageoptim () { # usage: imageoptim <file> <options>
+  if [ -f $1 ] ; then
+    case $1 in
+      *.jpg)   jpegoptim $1 "${@:2}";;
+      *.jpeg)  jpegoptim $1 "${@:2}";;
+      *.png)   optipng $1 "${@:2}";;
+      *)       echo "'$1' cannot be optimised via imageoptim()" ;;
+    esac
+  else
+    echo "'$1' is not a valid file"
+  fi
+}
+
+## get top process eating memory
+alias psmem='ps auxf | sort -nr -k 4'
+alias psm10='psmem | head -10'
+
+# copied from https://www.reddit.com/r/linux/comments/fn9iqf/your_cli_alias_commands/
+
+alias pse="\ps -e --forest" # list processes as a tree
+alias psg="\ps aux | grep -v grep | grep -i -e VSZ -e" # search for a running process. example: psg firefox
+alias psr="\ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head" # list top 10 cpu-intensive processes
+alias psm="\ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%mem | head" # list top 10 cpu-intensive processes
+alias pst="\ps -eo pid,comm,lstart,etimes,time,args"
 
 # My custom commands
 
-mkd() {
-  mkdir -pv "$@"
-  z "$@" || exit
-}
+mkcd() { mkdir -pv "$@" && z "$@"; }
 
 # no-globbing mode for bash functions, thanks to http://blog.edwards-research.com/2011/05/preventing-globbing/
 
