@@ -290,6 +290,10 @@ echo $(brew --prefix)/bin/bash | sudo tee -a /private/etc/shells
 chsh -s $(brew --prefix)/bin/bash
 ```
 
+For more info see:
+
+* https://phoenixnap.com/kb/change-zsh-to-bash-mac
+
 Make sure that scripts start with `#!/usr/bin/env bash` instead of `#!/bin/bash`. The former
 is the new `bash`, while the latter is the old one.
 
