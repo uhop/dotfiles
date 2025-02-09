@@ -23,16 +23,21 @@ alias h='command history'
 alias j='command jobs -l'
 
 ## Add safety nets
-## do not delete / or prompt if deleting more than 3 files at a time #
+## do not delete / or prompt if deleting more than 3 files at a time
 alias rm='command rm -I --preserve-root'
+if [[ $OSTYPE == 'darwin'* ]]; then
+  alias rm='command rm -I'
+fi
 ## confirmation #
 alias mv='command mv -iv'
 alias cp='command cp -iv'
 alias ln='command ln -i'
 ## Parenting changing perms on / #
-alias chown='command chown --preserve-root'
-alias chmod='command chmod --preserve-root'
-alias chgrp='command chgrp --preserve-root'
+if [[ $OSTYPE != 'darwin'* ]]; then
+  alias chown='command chown --preserve-root'
+  alias chmod='command chmod --preserve-root'
+  alias chgrp='command chgrp --preserve-root'
+fi
 
 ## Resume wget by default
 ## this one saved my butt so many times ##
@@ -114,13 +119,15 @@ fi
 
 # copied from https://www.reddit.com/r/linux/comments/c85me2/useful_aliases_that_i_have_created/
 
-alias gimme='sudo chown $USER:$USER'
 alias oports='sudo lsof -i -P -n | grep -i listen'
-alias oports2='sudo ss -tnlp'
+if [[ $OSTYPE != 'darwin'* ]]; then
+  alias gimme='sudo chown $USER:$USER'
+  alias oports2='sudo ss -tnlp'
+fi
 
 # copied from https://www.reddit.com/r/linuxquestions/comments/13c6r2j/favorite_aliases/
 
-alias dirty='watch -n1 "cat /proc/meminfo | grep Dirty"'
+[[ $OSTYPE != 'darwin'* ]] && alias dirty='watch -n1 "cat /proc/meminfo | grep Dirty"'
 
 # copied from https://www.reddit.com/r/linuxquestions/comments/16tgbh9/what_are_your_favorite_aliases_to_use/
 
@@ -192,16 +199,23 @@ imageop () { # usage: imageop <file> <options>
 }
 
 ## get top process eating memory
-alias psmem='ps auxf | sort -nr -k 4'
-alias psm10='psmem | head -10'
+if [[ $OSTYPE != 'darwin'* ]]; then
+  alias psmem='ps auxf | sort -nr -k 4'
+  alias psm10='psmem | head -10'
+fi
 
 # copied from https://www.reddit.com/r/linux/comments/fn9iqf/your_cli_alias_commands/
 
-alias pse="\ps -e --forest" # list processes as a tree
-alias psg="\ps aux | grep -v grep | grep -i -e VSZ -e" # search for a running process. example: psg firefox
-alias psr="\ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head" # list top 10 cpu-intensive processes
-alias psm="\ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%mem | head" # list top 10 cpu-intensive processes
-alias pst="\ps -eo pid,comm,lstart,etimes,time,args"
+if [[ $OSTYPE == 'darwin'* ]]; then
+  alias psr="command ps -eo pid,ppid,command,%mem,%cpu -r | head" # list top 10 cpu-intensive processes
+  alias psm="command ps -eo pid,ppid,command,%mem,%cpu -m | head" # list top 10 cpu-intensive processes
+else
+  alias pse="command ps -e --forest" # list processes as a tree
+  alias psr="command ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head" # list top 10 cpu-intensive processes
+  alias psm="command ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%mem | head" # list top 10 cpu-intensive processes
+fi
+alias psg="command ps aux | grep -v grep | grep -i -e VSZ -e" # search for a running process. example: psg firefox
+alias pst="command ps -eo pid,comm,lstart,etimes,time,args"
 
 # My custom commands
 
