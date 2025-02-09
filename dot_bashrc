@@ -140,6 +140,13 @@ test -e ~/.config/broot/launcher/bash/br && . ~/.config/broot/launcher/bash/br |
 
 if command -v fzf &> /dev/null; then
 	eval "$(fzf --bash)"
+	_fzf_setup_completion dir z tree ltr zl
+	_fzf_setup_completion path cp mv rm cat
+	_fzf_setup_completion path l ls ll la lla l.
+	_fzf_setup_completion path mic micro gimme
+	_fzf_setup_completion path cpg mvg rcp rmv rup rsy
+	_fzf_setup_completion path extract imageop
+	_fzf_setup_completion host ping prettyping ssht mosh mosht
 	if [ -f "$HOME/.local/vendors/fzf-git.sh" ]; then
 	  . "$HOME/.local/vendors/fzf-git.sh"
 	fi
