@@ -140,6 +140,9 @@ test -e ~/.config/broot/launcher/bash/br && . ~/.config/broot/launcher/bash/br |
 
 if command -v fzf &> /dev/null; then
 	eval "$(fzf --bash)"
+	if [ -f "$HOME/.local/vendors/fzf-git.sh" ]; then
+	  . "$HOME/.local/vendors/fzf-git.sh"
+	fi
 fi
 
 if [[ $TERM_PROGRAM != "WarpTerminal" ]]; then
