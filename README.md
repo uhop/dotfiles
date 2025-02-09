@@ -95,6 +95,7 @@ The following tools are installed and aliased:
 - `sd` &mdash; better `sed`.
 - `uv` &mdash; fast Python package manager.
 - `gcp` &mdash; advanced file copy utility.
+- `tree` &mdash; show file directories as trees.
 
 Check `.bash_aliases` for a list of aliases.
 
