@@ -1,0 +1,26 @@
+background-opacity = 0.95
+background-blur = true
+
+font-family = Hack Nerd Font Mono,monospace
+#font-family = monospace
+
+theme = dark:Builtin Dark,light:Builtin Light
+
+mouse-hide-while-typing = true
+mouse-shift-capture = true
+
+shell-integration-features = cursor,sudo,title
+
+{{ $Command := eq .osIdLike "darwin" | ternary "super" "ctrl" }}
+
+# SWITCHING TMUX TABS
+keybind = {{ $Command }}+1=text:\x02\x31
+keybind = {{ $Command }}+2=text:\x02\x32
+keybind = {{ $Command }}+3=text:\x02\x33
+keybind = {{ $Command }}+4=text:\x02\x34
+keybind = {{ $Command }}+5=text:\x02\x35
+keybind = {{ $Command }}+6=text:\x02\x36
+keybind = {{ $Command }}+7=text:\x02\x37
+keybind = {{ $Command }}+8=text:\x02\x38
+keybind = {{ $Command }}+9=text:\x02\x39
+keybind = {{ $Command }}+0=text:\x02\x30
