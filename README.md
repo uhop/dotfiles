@@ -354,3 +354,18 @@ This is the list of user-installed extensions I use:
 The best way is to install it on Linux via PPA:
 
 * https://connectwww.com/how-to-install-makemkv-on-ubuntu-mkv-converter/61127/
+
+## doas
+
+`doas` should be configured before the first use. The configuration lives in `/etc/doas.conf`.
+The typical minimal configuration looks like that:
+
+```txt
+permit persist keepenv setenv { PATH XAUTHORITY LANG LC_ALL } :sudo
+```
+
+For more details see:
+
+* https://wiki.debian.org/Doas
+* https://manpages.debian.org/bookworm/opendoas/doas.1.en.html
+* https://manpages.debian.org/bookworm/opendoas/doas.conf.5.en.html
