@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Install the Ultimate VIM: https://github.com/amix/vimrc
 if [ ! -d ~/.vim_runtime ]; then
