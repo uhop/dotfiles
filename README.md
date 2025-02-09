@@ -96,6 +96,7 @@ The following tools are installed and aliased:
 - `uv` &mdash; fast Python package manager.
 - `gcp` &mdash; advanced file copy utility.
 - `tree` &mdash; show file directories as trees.
+- `doas` &mdash; a (better) alternative to `sudo`.
 
 Check `.bash_aliases` for a list of aliases.
 
