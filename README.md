@@ -279,6 +279,20 @@ They are installed manually using Win-A (Cmd-A) from Gnome.
   - `gear lever` is used via `flatpak`. See above.
   - `AppImageLauncher` can be used. It is installed using the official `.deb` file or the PPA: https://github.com/TheAssassin/AppImageLauncher/wiki/Install-on-Ubuntu-or-Debian
 
+## MacOS
+
+The default shell is `zsh`. I use `bash`. The latter is included but a very old version
+(something related to licensing issues). It is recommended to install the latest version with `brew`:
+
+```bash
+brew install bash
+echo $(brew --prefix)/bin/bash | sudo tee -a /private/etc/shells
+chsh -s $(brew --prefix)/bin/bash
+```
+
+Make sure that scripts start with `#!/usr/bin/env bash` instead of `#!/bin/bash`. The former
+is the new `bash`, while the latter is the old one.
+
 # Application-specific notes
 
 ## tmux
