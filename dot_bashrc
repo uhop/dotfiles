@@ -147,7 +147,7 @@ if command -v fzf &> /dev/null; then
     _fzf_setup_completion path mic micro gimme
     _fzf_setup_completion path cpg mvg rcp rmv rup rsy
     _fzf_setup_completion path extract imageop
-    _fzf_setup_completion host ping prettyping ssht mosh mosht
+    _fzf_setup_completion host ping prettyping sftp ssht mosh mosht
   fi
 	if [ -f "$HOME/.local/vendors/fzf-git.sh" ]; then
 	  . "$HOME/.local/vendors/fzf-git.sh"
