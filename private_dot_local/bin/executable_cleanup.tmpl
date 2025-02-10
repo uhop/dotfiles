@@ -16,9 +16,9 @@ echo "${PROMPT}Run brew...${RESET}"
 brew cleanup
 
 . "$(brew --prefix nvm)/nvm.sh"
-echo "${PROMPT}Update major Node versions...${RESET}"
+echo "${PROMPT}Update major node versions...${RESET}"
 update-node-versions.js
-echo "${PROMPT}Trim minor Node versions...${RESET}"
+echo "${PROMPT}Trim minor node versions...${RESET}"
 trim-node-versions.js
 
 {{ if eq .osIdLike "linux-debian" -}}

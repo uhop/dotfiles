@@ -26,8 +26,16 @@ sudo softwareupdate -i -a
 echo "${PROMPT}Run brew...${RESET}"
 brew update && brew upgrade
 
+
+if command -v tmux &> /dev/null; then
+  if [ -f "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" ]; then
+    echo "${PROMPT}Update tmux plugins...${RESET}"
+    "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" all
+  fi
+fi
+
 if command -v bun &> /dev/null; then
-  echo "${PROMPT}Upgrade Bun...${RESET}"
+  echo "${PROMPT}Upgrade bun...${RESET}"
   bun upgrade --stable
 fi
 

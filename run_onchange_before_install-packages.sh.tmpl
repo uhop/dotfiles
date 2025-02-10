@@ -163,13 +163,17 @@ if command -v tmux &> /dev/null; then
     echo "${PROMPT}Installing tmux plugin manager...${RESET}"
     git clone https://github.com/tmux-plugins/tpm "$HOME/.config/tmux/plugins/tpm"
   fi
+  if [ -f "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" ]; then
+    echo "${PROMPT}Installing tmux plugins...${RESET}"
+    "$HOME/.config/tmux/plugins/tpm/bin/install_plugins"
+  fi
 fi
 
-echo "${PROMPT}Installing the latest stable Node...${RESET}"
+echo "${PROMPT}Installing the latest stable node...${RESET}"
 . "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
 
 if ! command -v bun &> /dev/null; then
-  echo "${PROMPT}Installing Bun...${RESET}"
+  echo "${PROMPT}Installing bun...${RESET}"
   curl -fsSL https://bun.sh/install | bash
 fi
