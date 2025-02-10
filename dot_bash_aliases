@@ -111,10 +111,15 @@ fi
 # System rebooting
 
 if command -v systemctl &> /dev/null; then
-  alias poweroff='sudo systemctl poweroff'
+  alias poweroff="sudo systemctl poweroff"
+  alias reboot="sudo systemctl reboot"
+elif command -v shutdown &>/dev/null; then
+  alias poweroff="sudo shutdown -h now"
+  alias reboot="sudo shutdown -r now"
+fi
+if type -t poweroff &>/dev/null; then
   alias shutdown=poweroff
   alias poff=poweroff
-  alias reboot='sudo systemctl reboot'
 fi
 
 # copied from https://www.reddit.com/r/linux/comments/c85me2/useful_aliases_that_i_have_created/
