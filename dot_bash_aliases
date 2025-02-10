@@ -254,11 +254,15 @@ alias where='noGlob implWhere'
 # ssh helpers
 
 ssht() {
-  local TMUX="(command -v tmux &> /dev/null && tmux new -As ssh_tmux)"
-  ssh -t "$@" "$TMUX || bash"
+  local session_name="$2"
+  local session_name="${session_name:=ssh_tmux}"
+  local TMUX="(command -v tmux &> /dev/null && tmux new -As $session_name)"
+  ssh -t "$1" "$TMUX || bash"
 }
 
 mosht() {
-  local TMUX="tmux new -As ssh_tmux"
-  mosh "$@" -- $TMUX
+  local session_name="$2"
+  local session_name="${session_name:=ssh_tmux}"
+  local TMUX="tmux new -As $session_name"
+  mosh "$1" -- $TMUX
 }
