@@ -2,7 +2,7 @@ background-opacity = 0.95
 background-blur = true
 
 font-family = Hack Nerd Font Mono,monospace
-#font-family = monospace
+font-size = {{ eq .osIdLike "darwin" | ternary "16" "12" }}
 
 theme = dark:Builtin Dark,light:Builtin Light
 
