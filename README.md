@@ -37,7 +37,7 @@ Over time a system should be updated. There are the following scripts that help 
 
 1. `upd` &mdash; runs updates on all relevant services: `apt`, `snap`, `flatpak`, `brew`, `bun`.
 
-2. `cleanup` &mdash; runs cleanups on all relevant services (see above) and updates `node`.
+2. `cln` &mdash; runs cleanups on all relevant services (see above) and updates `node`.
 
 ## Installed tools
 
