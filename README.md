@@ -70,7 +70,7 @@ The following tools are installed and aliased:
 - `prettyping`, `gping` &mdash; better `ping`.
 - `htop` &mdash; better `top`.
 - `btop` &mdash; better `top`.
-- `awscli`, `aws-iam-authenticator`, `kubernetes-cli`, `helm`, `gh`, `hub`, `nginx`, `net-tools`, `xh` &mdash; useful utilities for web development.
+- `awscli`, `aws-iam-authenticator`, `kubernetes-cli`, `helm`, `sops`, `gh`, `hub`, `nginx`, `net-tools`, `xh` &mdash; useful utilities for web development.
 - `parallel` &mdash; shell parallelization.
 - `fzf` &mdash; a command-line fuzzy finder.
 - `micro` &mdash; an editor. Alternatives: `nano`.
