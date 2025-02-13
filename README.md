@@ -382,6 +382,21 @@ The typical minimal configuration looks like that:
 permit persist keepenv setenv { PATH XAUTHORITY LANG LC_ALL } :sudo
 ```
 
+Additional useful permissions can be, which allow to run common maintenance commands
+without asking password:
+
+```txt
+permit nopass :sudo cmd apt args update
+permit nopass :sudo cmd apt args upgrade
+permit nopass :sudo cmd apt args install
+permit nopass :sudo cmd apt args autoremove
+permit nopass :sudo cmd apt args autoclean
+
+permit nopass :sudo cmd snap args refresh
+```
+
+**If `doas` is available, it is aliased as `sudo` in `.bash_aliases`.**
+
 For more details see:
 
 * https://wiki.debian.org/Doas

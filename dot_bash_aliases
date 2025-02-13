@@ -1,4 +1,9 @@
-# commands from https://www.cyberciti.biz/tips/bash-aliases-mac-centos-linux-unix.html
+# some commands from https://www.cyberciti.biz/tips/bash-aliases-mac-centos-linux-unix.html
+
+if command -v doas &>/dev/null; then
+  # use doas instead of sudo by default
+  alias sudo='doas'
+fi
 
 ## Colorize output for ease of use (good for log files)
 alias grep='grep --color=auto'
