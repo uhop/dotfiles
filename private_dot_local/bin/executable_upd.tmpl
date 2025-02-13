@@ -8,7 +8,7 @@ WARN="$BOLD$BRIGHT_WHITE$BG_BLUE"
 PROMPT="$BOLD$BRIGHT_CYAN"
 
 {{ if eq .osIdLike "linux-debian" -}}
-command -v doas &>/dev/null && alias sudo='doas' || true
+command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
 echo "${WARN}Both apt and snap require sudo: expect asking for the sudo password.${RESET}"
 echo "${PROMPT}Run sudo apt...${RESET}"
