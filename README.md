@@ -382,7 +382,7 @@ The typical minimal configuration looks like that:
 permit persist keepenv setenv { PATH XAUTHORITY LANG LC_ALL } :sudo
 ```
 
-Additional useful permissions can be, which allow to run common maintenance commands
+Additional useful permissions, which allow to run common maintenance commands
 without asking password:
 
 ```txt
@@ -393,6 +393,13 @@ permit nopass :sudo cmd apt args autoremove
 permit nopass :sudo cmd apt args autoclean
 
 permit nopass :sudo cmd snap args refresh
+```
+
+For good measure make this file readable only for `root`:
+
+```bash
+sudo chown -c root:root /etc/doas.conf
+sudo chmod -c 0400 /etc/doas.conf
 ```
 
 **If `doas` is available, it is aliased as `sudo` in `.bash_aliases`.**
