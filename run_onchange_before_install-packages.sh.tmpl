@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
+shopt -s expand_aliases
 set -e
+
+command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
 BRIGHT_CYAN=$(tput setaf 14)
 BRIGHT_WHITE=$(tput setaf 15)
@@ -22,7 +25,6 @@ sudo apt install -y build-essential bash-completion micro wget age mosh dialog o
 echo "${PROMPT}Installing GUI apps: sudo apt install...${RESET}"
 sudo apt install -y meld alacritty flatpak gnome-software-plugin-flatpak ttf-mscorefonts-installer firetools
 {{- end }}
-# sudo snap install bottom
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 echo "${PROMPT}Installing brew packages...${RESET}"
 brew bundle --no-lock --file=/dev/stdin <<EOF
@@ -159,6 +161,22 @@ brew "zoxide"
 {{ if .hasGui -}}cask "meld"{{- end }}
 EOF
 {{- end }}
+
+if ! [ -f /etc/doas.conf ]; then
+  echo "${PROMPT}Installing the default doas config...${RESET}"
+  sudo tee /etc/doas.conf >/dev/null <<EOF
+permit persist keepenv setenv { PATH XAUTHORITY LANG LC_ALL } :sudo
+
+permit nopass :sudo cmd apt args update
+permit nopass :sudo cmd apt args upgrade
+permit nopass :sudo cmd apt args autoremove
+permit nopass :sudo cmd apt args autoclean
+
+permit nopass :sudo cmd snap args refresh
+EOF
+  sudo chown root:root /etc/doas.conf
+  sudo chmod 0400 /etc/doas.conf
+fi
 
 if command -v tmux &> /dev/null; then
   if [ ! -f "$HOME/.config/tmux/plugins/tpm/tpm" ]; then
