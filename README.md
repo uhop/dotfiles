@@ -388,7 +388,6 @@ without asking password:
 ```txt
 permit nopass :sudo cmd apt args update
 permit nopass :sudo cmd apt args upgrade
-permit nopass :sudo cmd apt args install
 permit nopass :sudo cmd apt args autoremove
 permit nopass :sudo cmd apt args autoclean
 
