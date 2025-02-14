@@ -402,7 +402,9 @@ sudo chown -c root:root /etc/doas.conf
 sudo chmod -c 0400 /etc/doas.conf
 ```
 
-**If `doas` is available, it is aliased as `sudo` in `.bash_aliases`.**
+On initial setup the config described above is installed if no config is available.
+
+**If `doas` is available and its config exists, it is aliased as `sudo` in `.bash_aliases`.**
 
 For more details see:
 
