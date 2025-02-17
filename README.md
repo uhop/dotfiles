@@ -392,6 +392,9 @@ permit nopass :sudo cmd apt args autoremove
 permit nopass :sudo cmd apt args autoclean
 
 permit nopass :sudo cmd snap args refresh
+
+permit nopass :sudo cmd ping
+permit nopass :sudo cmd prettyping
 ```
 
 For good measure make this file readable only for `root`:
