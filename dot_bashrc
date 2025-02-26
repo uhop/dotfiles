@@ -36,7 +36,7 @@ esac
 # should be on the output of commands, not on the prompt
 #force_color_prompt=yes
 
-if [ "$VISUAL" = yes ]; then
+if [ "$VISUAL" == yes ]; then
 	if [ -n "$force_color_prompt" ]; then
 	    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
 	        # We have color support; assume it's compliant with Ecma-48
@@ -47,29 +47,31 @@ if [ "$VISUAL" = yes ]; then
 	        color_prompt=
 	    fi
 	fi
-	if [ "$color_prompt" = yes ]; then
+	if [ "$color_prompt" == yes ]; then
 	    PS1='\[\033[01;33m\]\w\[\033[00m\] \$ '
 	else
 	    PS1='\w \$ '
 	fi
 fi
 
+isMac=no
 unameOut="$(uname -s)"
 case "${unameOut}" in
     Linux*)     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)";;
     Darwin*)
-      if [ -f /opt/homebrew/bin/brew ]; then
+      isMac=yes
+      if [ -s /opt/homebrew/bin/brew ]; then
       	eval "$(/opt/homebrew/bin/brew shellenv)"
-      elif [ -f /usr/local/bin/brew ]; then
+      elif [ -s /usr/local/bin/brew ]; then
       	eval "$(/usr/local/bin/brew shellenv)"
       fi
     	;;
 esac
 unset unameOut
 
-if [ "$VISUAL" = yes ]; then
+if [ "$VISUAL" == yes ]; then
 	BGP="$(brew --prefix bash-git-prompt)"
-	if [ -f "$BGP/share/gitprompt.sh" ]; then
+	if [ -s "$BGP/share/gitprompt.sh" ]; then
 	    #GIT_PROMPT_ONLY_IN_REPO=1
 	    #GIT_PROMPT_FETCH_REMOTE_STATUS=0   # uncomment to avoid fetching remote status
 	    #GIT_PROMPT_THEME=Default
@@ -84,7 +86,7 @@ fi
 unset color_prompt force_color_prompt
 
 # If this is an xterm set the title to user@host:dir
-if [ "$VISUAL" = yes ]; then
+if [ "$VISUAL" == yes ]; then
 	case "$TERM" in
 	xterm*|rxvt*)
 	    PS1="\[\e]0;\u@\h: \w\a\]$PS1"
@@ -99,19 +101,25 @@ fi
 [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" || true
 
 BP="$(brew --prefix)"
-if [ -f "$BP/etc/profile.d/bash_completion.sh" ]; then
+if [ -s "$BP/etc/profile.d/bash_completion.sh" ]; then
   . "$BP/etc/profile.d/bash_completion.sh"
 else
   for COMPLETION in "$BP/etc/bash_completion.d/"*
   do
-    [ -f "${COMPLETION}" ] && . "${COMPLETION}"
+    [ -s "${COMPLETION}" ] && . "${COMPLETION}"
   done
 fi
 unset BP
 
+# git completion
+if [ "$isMac" == no ]; then
+  [ -s ~/.config/git/git-completion.bash ] && . ~/.config/git/git-completion.bash
+fi
+unset isMac
+
 # NVM for node.js
 BPN="$(brew --prefix nvm)"
-if [ -f "$BPN/nvm.sh" ]; then
+if [ -s "$BPN/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
   . "$BPN/nvm.sh"
   # nvm use stable
@@ -129,7 +137,7 @@ if command -v pyenv &> /dev/null; then
 fi
 
 # bun
-if [ -f "$HOME/.bun/bin/bun" ]; then
+if [ -s "$HOME/.bun/bin/bun" ]; then
   export BUN_INSTALL="$HOME/.bun"
   export PATH=$BUN_INSTALL/bin:$PATH
 fi
@@ -150,7 +158,7 @@ if command -v fzf &> /dev/null; then
     _fzf_setup_completion path extract imageop
     _fzf_setup_completion host ping prettyping sftp ssht mosh mosht
   fi
-	if [ -f "$HOME/.local/vendors/fzf-git.sh" ]; then
+	if [ -s "$HOME/.local/vendors/fzf-git.sh" ]; then
 	  . "$HOME/.local/vendors/fzf-git.sh"
 	fi
 fi
@@ -159,7 +167,7 @@ if [[ $TERM_PROGRAM != "WarpTerminal" ]]; then
   test -e ~/.iterm2_shell_integration.bash && . ~/.iterm2_shell_integration.bash || true
 fi
 
-if [ "$VISUAL" = yes ]; then
+if [ "$VISUAL" == yes ]; then
 	# [ "$SHLVL" == "1" ] && command -v fastfetch &> /dev/null && fastfetch || true
 	if command -v fastfetch &> /dev/null; then
 	  SPN=$(ps -p $PPID | awk '{print substr($0, index($0, $4))}' | tail -1)
@@ -183,13 +191,13 @@ export GITHUB_USERNAME=uhop
 # ~/.bash_aliases, instead of adding them here directly.
 # See /usr/share/doc/bash-doc/examples in the bash-doc package.
 
-[ -f ~/.bash_aliases ] && . ~/.bash_aliases || true
+[ -s ~/.bash_aliases ] && . ~/.bash_aliases || true
 
 # enable programmable completion features (you don't need to enable
 # this, if it's already enabled in /etc/bash.bashrc and /etc/profile
 # sources /etc/bash.bashrc).
 
-[ -f /etc/bash_completion ] && ! shopt -oq posix && . /etc/bash_completion || true
+[ -s /etc/bash_completion ] && ! shopt -oq posix && . /etc/bash_completion || true
 
 # dedupe path (based on https://www.linuxjournal.com/content/removing-duplicate-path-entries)
 # export PATH=$(echo -n "$PATH" | awk -v RS=: '!($0 in a) {a[$0]; printf("%s%s", length(a) > 1 ? ":" : "", $0)}')
