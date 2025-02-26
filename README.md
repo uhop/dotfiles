@@ -97,6 +97,7 @@ The following tools are installed and aliased:
 - `gcp` &mdash; advanced file copy utility.
 - `tree` &mdash; show file directories as trees.
 - `doas` &mdash; a (better) alternative to `sudo`.
+- `etckeeper` &mdash; `git`-backed storage for `/etc` files (Linux only).
 
 Check `.bash_aliases` for a list of aliases.
 
@@ -413,3 +414,7 @@ For more details see:
 * https://wiki.debian.org/Doas
 * https://manpages.debian.org/bookworm/opendoas/doas.1.en.html
 * https://manpages.debian.org/bookworm/opendoas/doas.conf.5.en.html
+
+## etckeeper
+
+See: https://wiki.archlinux.org/title/Etckeeper
