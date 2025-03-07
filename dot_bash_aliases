@@ -55,6 +55,7 @@ alias path='command echo -e ${PATH//:/\\n}'
 
 alias mic='micro'
 alias lzd='lazydocker'
+alias lzg='lazygit'
 
 # Better replacements
 
