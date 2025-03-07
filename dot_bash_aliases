@@ -76,8 +76,29 @@ alias ls='eza --grid --color auto --icons --sort=type'
 alias ll='eza --long --color always --icons --sort=type'
 alias la='eza --grid --all --color auto --icons --sort=type'
 alias lla='eza --long --all --color auto --icons --sort=type'
-alias l.='ls -d .*'
 alias ltr='eza -l -t modified -r'
+
+join_path() {
+  local result="$1"
+  local component
+
+  # Iterate through remaining arguments (path components)
+  shift
+  for component in "$@"; do
+    # If result is empty, assign component to result
+    if [[ -z "$result" ]]; then
+      result="$component"
+    # If component is not empty, add a slash and the component
+    elif [[ -n "$component" ]]; then
+      # Remove trailing slash from result if present
+      result="${result%/}"
+      result="$result/$component"
+    fi
+  done
+  echo "$result"
+}
+
+l.() { l -d $(join_path "$1" ".*"); }
 
 # Better `cd` AKA `z`
 
@@ -228,6 +249,7 @@ alias pst="command ps -eo pid,comm,lstart,etimes,time,args"
 # My custom commands
 
 mkcd() { mkdir -pv "$@" && z "$@"; }
+alias mkz="mkcd"
 
 # no-globbing mode for bash functions, thanks to http://blog.edwards-research.com/2011/05/preventing-globbing/
 
