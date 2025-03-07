@@ -104,7 +104,7 @@ CURSOR_RIGHT1=$(tput cuf1)
 CURSOR_INVISIBLE=$(tput civis)
 CURSOR_HIGHLIGHT=$(tput cvvis)
 CURSOR_NORMAL=$(tput cnorm)
-CURSOR_LAST=$(tput ll)
+# CURSOR_LAST=$(tput ll)
 
 cursor_pos    () { tput cup "$1" "$2"; }
 cursor_left   () { tput cub "$1"; }
