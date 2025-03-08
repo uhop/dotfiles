@@ -27,7 +27,7 @@ sudo apt install -y meld alacritty flatpak gnome-software-plugin-flatpak ttf-msc
 {{- end }}
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 echo "${PROMPT}Installing brew packages...${RESET}"
-brew bundle --no-lock --file=/dev/stdin <<EOF
+brew bundle --file=/dev/stdin <<EOF
 tap "homebrew/bundle"
 tap "joerdav/xc"
 brew "aws-iam-authenticator"
@@ -79,7 +79,7 @@ elif [ -f /usr/local/bin/brew ]; then
   eval "$(/usr/local/bin/brew shellenv)"
 fi
 echo "${PROMPT}Installing brew packages...${RESET}"
-brew bundle --no-lock --file=/dev/stdin <<EOF
+brew bundle --file=/dev/stdin <<EOF
 tap "homebrew/bundle"
 tap "joerdav/xc"
 brew "aws-iam-authenticator"
@@ -145,6 +145,7 @@ brew "tig"
 brew "tmux"
 brew "tree"
 brew "typescript-language-server"
+brew "util-linux"
 brew "uv"
 brew "wabt"
 brew "wget"

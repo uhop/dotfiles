@@ -109,6 +109,8 @@ else
     [ -s "${COMPLETION}" ] && . "${COMPLETION}"
   done
 fi
+[ -d "$BP/opt/util-linux/bin" ] && PATH="$BP/opt/util-linux/bin:$PATH" || true
+[ -d "$BP/opt/util-linux/sbin" ] && PATH="$BP/opt/util-linux/sbin:$PATH" || true
 unset BP
 
 # git completion
