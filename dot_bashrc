@@ -186,6 +186,8 @@ export BASH_SILENCE_DEPRECATION_WARNING=1
 export FORCE_COLOR=3
 export GITHUB_USERNAME=uhop
 
+export JOT_AWS_BUCKET="${GITHUB_USERNAME}-notes"
+
 # Alias definitions.
 # You may want to put all your additions into a separate file like
 # ~/.bash_aliases, instead of adding them here directly.

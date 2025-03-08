@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+
+set -e
+shopt -s expand_aliases
+
+. ~/.local/bin/colors.sh
+
+WARN="$BOLD$BRIGHT_WHITE$BG_BLUE"
+ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
+PROMPT="$BOLD$BRIGHT_CYAN"
+
+TMPDIR=$(mktemp -d)
+trap 'rm -rf -- "$TMPDIR"' EXIT
+
+if [ -z "$JOT_AWS_BUCKET" ]; then
+  echo "${ERROR}No AWS bucket name is specified by \"${STANDOUT_ON}JOT_AWS_BUCKET${STANDOUT_OFF}\". Please set it to an accessible bucket for notes.${RESET}"
+  exit 1
+fi
+
+if ! aws s3api head-bucket --bucket "$JOT_AWS_BUCKET" &>/dev/null; then
+  echo "${ERROR}AWS bucket \"${STANDOUT_ON}$JOT_AWS_BUCKET${STANDOUT_OFF}\" is not accessible or does not exist. Please verify.${RESET}"
+  exit 1
+fi
+
+if [ -z "$1" ]; then
+  echo "${WARN}No file name is specified. Here is a list of available files:${RESET}"
+  aws s3 ls "$JOT_AWS_BUCKET"
+  if [ $? -ne 0 ]; then
+    echo "${ERROR}The previous command failed: make sure that the bucket ${STANDOUT_ON}${JOT_AWS_BUCKET}${STANDOUT_OFF} exists and accessible.${RESET}"
+    exit 1
+  fi
+  echo "${PROMPT}Use: jot ${ITALIC_ON}filename${RESET}"
+  exit 0
+fi
+
+FOUND=yes
+if ! aws s3api head-object --bucket "$JOT_AWS_BUCKET" --key "$1" &>/dev/null; then
+  FOUND=no
+fi
+
+AGE_KEY=${JOT_AGE_KEY:-~/.ssh/age.key}
+SSH_PUB=${JOT_SSH_PUB:-~/.ssh/id_rsa.pub}
+SSH_PRV=${JOT_SSH_PRV:-~/.ssh/id_rsa}
+
+do_command() {
+  local file_ext="$2"
+  local file_long="$3"."$2"
+  local file_short="$3"
+
+  if [[ "$FOUND" == "no" ]] && [[ "$1" == "d" ]]; then
+    rm "$TMPDIR/$file_long"
+    touch "$TMPDIR/$file_short"
+    return 0
+  fi
+
+  case "$file_ext" in
+    "age")
+      if [[ "$1" == "d" ]]; then
+        # decode
+        if [ -f "$AGE_KEY" ]; then
+          age --decrypt -i "$AGE_KEY" -o "$TMPDIR/$file_short" "$TMPDIR/$file_long"
+          rm "$TMPDIR/$file_long"
+        elif [ -f "$SSH_PRV" ]; then
+          age --decrypt -i "$SSH_PRV" -o "$TMPDIR/$file_short" "$TMPDIR/$file_long"
+          rm "$TMPDIR/$file_long"
+        else
+          echo "${ERROR}Keys not found: ${STANDOUT_ON}${AGE_KEY}${STANDOUT_OFF}, ${STANDOUT_ON}${SSH_PRV}${STANDOUT_OFF}${RESET}"
+          return 1
+        fi
+      elif [[ "$1" == "e" ]]; then
+        # encode
+        if [ -f "$AGE_KEY" ]; then
+          age --encrypt -i "$AGE_KEY" -o "$TMPDIR/$file_long" "$TMPDIR/$file_short"
+          rm "$TMPDIR/$file_short"
+        elif [ -f "$SSH_PUB" ]; then
+          age --encrypt -R "$SSH_PUB" -o "$TMPDIR/$file_long" "$TMPDIR/$file_short"
+          rm "$TMPDIR/$file_short"
+        else
+          echo "${ERROR}Keys not found: ${STANDOUT_ON}${AGE_KEY}${STANDOUT_OFF}, ${STANDOUT_ON}${SSH_PUB}${STANDOUT_OFF}${RESET}"
+          return 1
+        fi
+      fi
+      ;;
+    "br")
+      if [[ "$1" == "d" ]]; then
+        # decode
+        brotli -d --rm "$TMPDIR/$file_long"
+      elif [[ "$1" == "e" ]]; then
+        # encode
+        brotli -Z --rm "$TMPDIR/$file_short"
+      fi
+      ;;
+    "bz2")
+      if [[ "$1" == "d" ]]; then
+        # decode
+        bunzip2 "$TMPDIR/$file_long"
+      elif [[ "$1" == "e" ]]; then
+        # encode
+        bzip2 -z --best "$TMPDIR/$file_short"
+      fi
+      ;;
+    "gz")
+      if [[ "$1" == "d" ]]; then
+        # decode
+        gunzip "$TMPDIR/$file_long"
+      elif [[ "$1" == "e" ]]; then
+        # encode
+        gzip -9 "$TMPDIR/$file_short"
+      fi
+      ;;
+    "xz")
+      if [[ "$1" == "d" ]]; then
+        # decode
+        xz -d "$TMPDIR/$file_long"
+      elif [[ "$1" == "e" ]]; then
+        # encode
+        xz -z -e -9 "$TMPDIR/$file_short"
+      fi
+      ;;
+    "zst")
+      if [[ "$1" == "d" ]]; then
+        # decode
+        unzstd --rm "$TMPDIR/$file_long"
+      elif [[ "$1" == "e" ]]; then
+        # encode
+        zstd --ultra --rm "$TMPDIR/$file_short"
+      fi
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+if [[ "$FOUND" == "yes" ]]; then
+  aws s3 cp "s3://$JOT_AWS_BUCKET/$1" "$TMPDIR/$1"
+else
+  touch "$TMPDIR/$1"
+fi
+
+file_name="$1"
+extensions=()
+
+while true; do
+  file_ext="${file_name##*.}"
+  file_short="${file_name%.*}"
+  if ! do_command t "$file_ext"; then
+    break
+  fi
+  do_command d "$file_ext" "$file_short"
+  file_name="$file_short"
+  extensions+=("$file_ext")
+done
+
+editor="${VISUAL:-$EDITOR}"
+
+"$editor" "$TMPDIR/$file_name"
+
+
+# Get the index of the last element
+last_index=$(( ${#extensions[@]} - 1 ))
+
+# Iterate from the last index down to 0
+for (( i = $last_index; i >= 0; --i )); do
+  do_command e "${extensions[$i]}" "$file_name"
+  file_name+=".${extensions[$i]}"
+done
+
+aws s3 cp "$TMPDIR/$1" "s3://$JOT_AWS_BUCKET/$1"
