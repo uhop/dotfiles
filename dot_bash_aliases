@@ -99,7 +99,13 @@ join_path() {
   echo "$result"
 }
 
-l.() { l -d $(join_path "$1" ".*"); }
+l.() {
+  if [ -n "$1" ] && [ ! -d "$1" ]; then
+    echo "Use: l. [dir]"
+    return 1
+  fi
+  l -d $(join_path "$1" ".*")
+}
 
 # Better `cd` AKA `z`
 
