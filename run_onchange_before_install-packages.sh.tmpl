@@ -208,7 +208,8 @@ if command -v etckeeper &> /dev/null; then
 fi
 
 echo "${PROMPT}Installing the latest stable node...${RESET}"
-. "$(brew --prefix nvm)/nvm.sh"
+[ ! -d ~/.nvm ] && mkdir ~/.nvm || true
+\. "$(brew --prefix nvm)/nvm.sh"
 nvm install stable
 
 if ! command -v bun &> /dev/null; then

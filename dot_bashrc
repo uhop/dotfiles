@@ -78,7 +78,7 @@ if [ "$VISUAL" == yes ]; then
 	    #GIT_PROMPT_THEME=Single_line_Solarized
 	    __GIT_PROMPT_DIR="$BGP/share"
 	    GIT_PROMPT_THEME=Single_line
-	    source "$BGP/share/gitprompt.sh"
+	    \. "$BGP/share/gitprompt.sh"
 	fi
 	unset BGP
 fi
@@ -97,25 +97,26 @@ if [ "$VISUAL" == yes ]; then
 fi
 
 # set PATH so it includes user's private bin if it exists
-[ -d "$HOME/bin" ] && PATH="$HOME/bin:$PATH" || true
-[ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" || true
+[ -d ~/bin ] && PATH="$HOME/bin:$PATH" || true
+[ -d ~/.local/bin ] && PATH="$HOME/.local/bin:$PATH" || true
 
 BP="$(brew --prefix)"
 if [ -s "$BP/etc/profile.d/bash_completion.sh" ]; then
-  . "$BP/etc/profile.d/bash_completion.sh"
-else
+  \. "$BP/etc/profile.d/bash_completion.sh"
+elif [ -d "$BP/etc/bash_completion.d/" ]; then
   for COMPLETION in "$BP/etc/bash_completion.d/"*
   do
-    [ -s "${COMPLETION}" ] && . "${COMPLETION}"
+    [ -s "${COMPLETION}" ] && \. "${COMPLETION}"
   done
 fi
+# util-linux should be in the path
 [ -d "$BP/opt/util-linux/bin" ] && PATH="$BP/opt/util-linux/bin:$PATH" || true
 [ -d "$BP/opt/util-linux/sbin" ] && PATH="$BP/opt/util-linux/sbin:$PATH" || true
 unset BP
 
 # git completion
 if [ "$isMac" == no ]; then
-  [ -s ~/.config/git/git-completion.bash ] && . ~/.config/git/git-completion.bash
+  [ -s ~/.config/git/git-completion.bash ] && \. ~/.config/git/git-completion.bash
 fi
 unset isMac
 
@@ -123,10 +124,10 @@ unset isMac
 BPN="$(brew --prefix nvm)"
 if [ -s "$BPN/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
-  . "$BPN/nvm.sh"
+  \. "$BPN/nvm.sh"
   # nvm use stable
   if [ -s "$BPN/etc/bash_completion.d/nvm" ]; then
-    . "$BPN/etc/bash_completion.d/nvm"
+    \. "$BPN/etc/bash_completion.d/nvm"
   fi
 fi
 unset BPN
@@ -139,7 +140,7 @@ if command -v pyenv &> /dev/null; then
 fi
 
 # bun
-if [ -s "$HOME/.bun/bin/bun" ]; then
+if [ -s ~/.bun/bin/bun ]; then
   export BUN_INSTALL="$HOME/.bun"
   export PATH=$BUN_INSTALL/bin:$PATH
 fi
@@ -147,7 +148,7 @@ fi
 command -v doas &> /dev/null && complete -cf doas || true
 command -v xc &> /dev/null && complete -C "$(brew --prefix xc)" xc || true
 command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
-test -e ~/.config/broot/launcher/bash/br && . ~/.config/broot/launcher/bash/br || true
+[ -s ~/.config/broot/launcher/bash/br ] && \. ~/.config/broot/launcher/bash/br || true
 
 if command -v fzf &> /dev/null; then
 	eval "$(fzf --bash)"
@@ -160,13 +161,11 @@ if command -v fzf &> /dev/null; then
     _fzf_setup_completion path extract imageop
     _fzf_setup_completion host ping prettyping sftp ssht mosh mosht
   fi
-	if [ -s "$HOME/.local/vendors/fzf-git.sh" ]; then
-	  . "$HOME/.local/vendors/fzf-git.sh"
-	fi
+	[ -s ~/.local/vendors/fzf-git.sh ] && \. ~/.local/vendors/fzf-git.sh || true
 fi
 
 if [[ $TERM_PROGRAM != "WarpTerminal" ]]; then
-  test -e ~/.iterm2_shell_integration.bash && . ~/.iterm2_shell_integration.bash || true
+  [ -s ~/.iterm2_shell_integration.bash ] && \. ~/.iterm2_shell_integration.bash || true
 fi
 
 if [ "$VISUAL" == yes ]; then
@@ -195,13 +194,13 @@ export JOT_AWS_BUCKET="${GITHUB_USERNAME}-notes"
 # ~/.bash_aliases, instead of adding them here directly.
 # See /usr/share/doc/bash-doc/examples in the bash-doc package.
 
-[ -s ~/.bash_aliases ] && . ~/.bash_aliases || true
+[ -s ~/.bash_aliases ] && \. ~/.bash_aliases || true
 
 # enable programmable completion features (you don't need to enable
 # this, if it's already enabled in /etc/bash.bashrc and /etc/profile
 # sources /etc/bash.bashrc).
 
-[ -s /etc/bash_completion ] && ! shopt -oq posix && . /etc/bash_completion || true
+[ -s /etc/bash_completion ] && ! shopt -oq posix && \. /etc/bash_completion || true
 
 # dedupe path (based on https://www.linuxjournal.com/content/removing-duplicate-path-entries)
 # export PATH=$(echo -n "$PATH" | awk -v RS=: '!($0 in a) {a[$0]; printf("%s%s", length(a) > 1 ? ":" : "", $0)}')
