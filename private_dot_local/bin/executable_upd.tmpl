@@ -48,3 +48,10 @@ if compgen -G "/run/reb*" > /dev/null; then
 	echo "${WARN}WARNING: reboot is ${BLINK}${STANDOUT_ON}required${RESET}${WARN}. To reboot run: ${ITALIC_ON}sudo shutdown -r now${RESET}"
 fi
 {{- end }}
+
+if [ -d ~/.local/share/libs/scripts ]; then
+  echo "${PROMPT}Update bash scripts...${RESET}"
+  pushd ~/.local/share/libs/scripts
+  git pull
+  popd
+fi
