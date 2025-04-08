@@ -51,7 +51,7 @@ fi
 
 if [ -d ~/.local/share/libs/scripts ]; then
   echo "${PROMPT}Update bash scripts...${RESET}"
-  pushd ~/.local/share/libs/scripts
+  pushd ~/.local/share/libs/scripts > /dev/null
   git pull
-  popd
+  popd > /dev/null
 fi

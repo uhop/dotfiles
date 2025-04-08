@@ -220,9 +220,9 @@ fi
 if ! [ -d ~/.local/share/libs/scripts ]; then
   echo "${PROMPT}Cloning bash scripts...${RESET}"
   mkdir -p ~/.local/share/libs
-  pushd ~/.local/share/libs
+  pushd ~/.local/share/libs > /dev/null
   git clone --filter=blob:none --sparse git@github.com:uhop/options.bash scripts
   cd scripts
   git sparse-checkout set --no-cone '/*.sh' '/README.md'
-  popd
+  popd > /dev/null
 fi
