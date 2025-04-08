@@ -47,6 +47,10 @@ args::option "-h, --help" "Show help"
 args::parse "$@"
 eval set -- "${args_cleaned}"
 
+if [[ "$args_command" == "edit" ]]; then
+  shift
+fi
+
 ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
 
 TMPDIR=$(mktemp -d)
@@ -78,11 +82,7 @@ if [ -z "${1:-}" ] || [[ "$args_command" == "list" ]]; then
   exit 0
 fi
 
-if [[ "$args_command" == "edit" ]]; then
-  shift
-fi
-
-asset="${1:-}"
+asset="$1"
 if [ -z "$asset" ]; then
   ansi::err "${ERROR}No file name is specified for editing.${RESET_ALL}"
   exit 1
