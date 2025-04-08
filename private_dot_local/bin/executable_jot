@@ -1,40 +1,72 @@
 #!/usr/bin/env bash
 
-set -e
+set -o errexit -o pipefail -o nounset -o noclobber
 shopt -s expand_aliases
 
-. ~/.local/bin/colors.sh
+. ~/.local/share/libs/scripts/ansi-style.sh
+. ~/.local/share/libs/scripts/args.sh
+. ~/.local/share/libs/scripts/args-version.sh
+. ~/.local/share/libs/scripts/args-help.sh
 
-WARN="$BOLD$BRIGHT_WHITE$BG_BLUE"
+script_dir="$(dirname "$(readlink -f "$0")")"
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0" "Jot notes keeping them in S3"
+# args_program_usage="$(box::make "usage example 1" "usage example 2" "usage example 3")"
+# args_program_header="Some fancyful\ndescription"
+# args_program_footer="Some footer"
+# args_program_help_style="list"
+args_program_required_command="no"
+
+args::option "edit, e" "Edit file" "file_name"
+args::option "list, l" "List available files"
+
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+
+args::parse "$@"
+eval set -- "${args_cleaned}"
+
 ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
-PROMPT="$BOLD$BRIGHT_CYAN"
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf -- "$TMPDIR"' EXIT
 
 if [ -z "$JOT_AWS_BUCKET" ]; then
-  echo "${ERROR}No AWS bucket name is specified by \"${STANDOUT_ON}JOT_AWS_BUCKET${STANDOUT_OFF}\". Please set it to an accessible bucket for notes.${RESET}"
+  ansi::err "${ERROR}No AWS bucket name is specified by \"${REVERSE}JOT_AWS_BUCKET${RESET_REVERSE}\". Please set it to an accessible bucket for notes.${RESET_ALL}"
   exit 1
 fi
 
+ansi::out "Using AWS bucket: ${BOLD}${JOT_AWS_BUCKET}${RESET_BOLD}"
+ansi::out "Testing access to the bucket..."
 if ! aws s3api head-bucket --bucket "$JOT_AWS_BUCKET" &>/dev/null; then
-  echo "${ERROR}AWS bucket \"${STANDOUT_ON}$JOT_AWS_BUCKET${STANDOUT_OFF}\" is not accessible or does not exist. Please verify.${RESET}"
+  ansi::err "${ERROR}AWS bucket \"${REVERSE}$JOT_AWS_BUCKET${RESET_REVERSE}\" is not accessible or does not exist. Please verify.${RESET_ALL}"
   exit 1
 fi
 
-if [ -z "$1" ]; then
-  echo "${WARN}No file name is specified. Here is a list of available files:${RESET}"
+if [ -z "${1:-}" ] || [[ "$args_command" == "list" ]]; then
+  echo
+  ansi::out "Listing available files:"
+  echo
   aws s3 ls "$JOT_AWS_BUCKET"
   if [ $? -ne 0 ]; then
-    echo "${ERROR}The previous command failed: make sure that the bucket ${STANDOUT_ON}${JOT_AWS_BUCKET}${STANDOUT_OFF} exists and accessible.${RESET}"
+    ansi::err "${ERROR}The previous command failed: make sure that the bucket ${REVERSE}${JOT_AWS_BUCKET}${RESET_REVERSE} exists and accessible.${RESET_ALL}"
     exit 1
   fi
-  echo "${PROMPT}Use: jot ${ITALIC_ON}filename${RESET}"
+  echo
+  ansi::out "Use: jot ${ITALIC}filename${RESET_ALL}"
   exit 0
 fi
 
+if [[ "$args_command" == "edit" ]]; then
+  shift
+fi
+
+asset="$1"
+
 FOUND=yes
-if ! aws s3api head-object --bucket "$JOT_AWS_BUCKET" --key "$1" &>/dev/null; then
+ansi::out "Checking access to the file..."
+if ! aws s3api head-object --bucket "$JOT_AWS_BUCKET" --key "$asset" &>/dev/null; then
   FOUND=no
 fi
 
@@ -43,11 +75,12 @@ SSH_PUB=${JOT_SSH_PUB:-~/.ssh/id_rsa.pub}
 SSH_PRV=${JOT_SSH_PRV:-~/.ssh/id_rsa}
 
 do_command() {
+  local command="$1"
   local file_ext="$2"
-  local file_long="$3"."$2"
-  local file_short="$3"
+  local file_short="${3:-}"
+  local file_long="$file_short"."$2"
 
-  if [[ "$FOUND" == "no" ]] && [[ "$1" == "d" ]]; then
+  if [[ "$FOUND" == "no" ]] && [[ "$command" == "d" ]]; then
     rm "$TMPDIR/$file_long"
     touch "$TMPDIR/$file_short"
     return 0
@@ -55,74 +88,88 @@ do_command() {
 
   case "$file_ext" in
     "age")
-      if [[ "$1" == "d" ]]; then
+      if [[ "$command" == "d" ]]; then
         # decode
         if [ -f "$AGE_KEY" ]; then
+          ansi::out "Decrypting with age key..."
           age --decrypt -i "$AGE_KEY" -o "$TMPDIR/$file_short" "$TMPDIR/$file_long"
           rm "$TMPDIR/$file_long"
         elif [ -f "$SSH_PRV" ]; then
+          ansi::out "Decrypting with ssh private key..."
           age --decrypt -i "$SSH_PRV" -o "$TMPDIR/$file_short" "$TMPDIR/$file_long"
           rm "$TMPDIR/$file_long"
         else
-          echo "${ERROR}Keys not found: ${STANDOUT_ON}${AGE_KEY}${STANDOUT_OFF}, ${STANDOUT_ON}${SSH_PRV}${STANDOUT_OFF}${RESET}"
+          ansi::err "${ERROR}Keys not found: ${REVERSE}${AGE_KEY}${RESET_REVERSE}, ${REVERSE}${SSH_PRV}${RESET_REVERSE}${RESET_ALL}"
           return 1
         fi
-      elif [[ "$1" == "e" ]]; then
+      elif [[ "$command" == "e" ]]; then
         # encode
         if [ -f "$AGE_KEY" ]; then
+          ansi::out "Encrypting with age key..."
           age --encrypt -i "$AGE_KEY" -o "$TMPDIR/$file_long" "$TMPDIR/$file_short"
           rm "$TMPDIR/$file_short"
         elif [ -f "$SSH_PUB" ]; then
+          ansi::out "Encrypting with ssh public key..."
           age --encrypt -R "$SSH_PUB" -o "$TMPDIR/$file_long" "$TMPDIR/$file_short"
           rm "$TMPDIR/$file_short"
         else
-          echo "${ERROR}Keys not found: ${STANDOUT_ON}${AGE_KEY}${STANDOUT_OFF}, ${STANDOUT_ON}${SSH_PUB}${STANDOUT_OFF}${RESET}"
+          ansi::err "${ERROR}Keys not found: ${REVERSE}${AGE_KEY}${RESET_REVERSE}, ${REVERSE}${SSH_PUB}${RESET_REVERSE}${RESET_ALL}"
           return 1
         fi
       fi
       ;;
     "br")
-      if [[ "$1" == "d" ]]; then
+      if [[ "$command" == "d" ]]; then
         # decode
+        ansi::out "Decoding with brotli..."
         brotli -d --rm "$TMPDIR/$file_long"
-      elif [[ "$1" == "e" ]]; then
+      elif [[ "$command" == "e" ]]; then
         # encode
+        ansi::out "Encoding with brotli..."
         brotli -Z --rm "$TMPDIR/$file_short"
       fi
       ;;
     "bz2")
-      if [[ "$1" == "d" ]]; then
+      if [[ "$command" == "d" ]]; then
         # decode
+        ansi::out "Decoding with bunzip2..."
         bunzip2 "$TMPDIR/$file_long"
-      elif [[ "$1" == "e" ]]; then
+      elif [[ "$command" == "e" ]]; then
         # encode
+        ansi::out "Encoding with bzip2..."
         bzip2 -z --best "$TMPDIR/$file_short"
       fi
       ;;
     "gz")
-      if [[ "$1" == "d" ]]; then
+      if [[ "$command" == "d" ]]; then
         # decode
+        ansi::out "Decoding with gunzip..."
         gunzip "$TMPDIR/$file_long"
-      elif [[ "$1" == "e" ]]; then
+      elif [[ "$command" == "e" ]]; then
         # encode
+        ansi::out "Encoding with gzip..."
         gzip -9 "$TMPDIR/$file_short"
       fi
       ;;
     "xz")
-      if [[ "$1" == "d" ]]; then
+      if [[ "$command" == "d" ]]; then
         # decode
+        ansi::out "Decoding with xz..."
         xz -d "$TMPDIR/$file_long"
-      elif [[ "$1" == "e" ]]; then
+      elif [[ "$command" == "e" ]]; then
         # encode
+        ansi::out "Encoding with xz..."
         xz -z -e -9 "$TMPDIR/$file_short"
       fi
       ;;
     "zst")
-      if [[ "$1" == "d" ]]; then
+      if [[ "$command" == "d" ]]; then
         # decode
+        ansi::out "Decoding with zstd..."
         unzstd --rm "$TMPDIR/$file_long"
-      elif [[ "$1" == "e" ]]; then
+      elif [[ "$command" == "e" ]]; then
         # encode
+        ansi::out "Encoding with zstd..."
         zstd --ultra --rm "$TMPDIR/$file_short"
       fi
       ;;
@@ -134,12 +181,13 @@ do_command() {
 }
 
 if [[ "$FOUND" == "yes" ]]; then
-  aws s3 cp "s3://$JOT_AWS_BUCKET/$1" "$TMPDIR/$1"
+  ansi::out "Downloading ${BOLD}${asset}${RESET_BOLD} from S3..."
+  aws s3 cp "s3://$JOT_AWS_BUCKET/$asset" "$TMPDIR/$asset" --quiet
 else
-  touch "$TMPDIR/$1"
+  touch "$TMPDIR/$asset"
 fi
 
-file_name="$1"
+file_name="$asset"
 extensions=()
 
 while true; do
@@ -155,8 +203,8 @@ done
 
 editor="${VISUAL:-$EDITOR}"
 
+ansi::out "Opening ${BOLD}${asset}${RESET_BOLD} in ${BOLD}${editor}${RESET_BOLD}..."
 "$editor" "$TMPDIR/$file_name"
-
 
 # Get the index of the last element
 last_index=$(( ${#extensions[@]} - 1 ))
@@ -167,4 +215,5 @@ for (( i = $last_index; i >= 0; --i )); do
   file_name+=".${extensions[$i]}"
 done
 
-aws s3 cp "$TMPDIR/$1" "s3://$JOT_AWS_BUCKET/$1"
+ansi::out "Uploading ${BOLD}${asset}${RESET_BOLD} to S3..."
+aws s3 cp "$TMPDIR/$asset" "s3://$JOT_AWS_BUCKET/$asset" --quiet
