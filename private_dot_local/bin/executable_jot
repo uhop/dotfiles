@@ -12,10 +12,30 @@ script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
 args::program "$script_name" "1.0" "Jot notes keeping them in S3"
-# args_program_usage="$(box::make "usage example 1" "usage example 2" "usage example 3")"
-# args_program_header="Some fancyful\ndescription"
-# args_program_footer="Some footer"
-# args_program_help_style="list"
+args_program_header="${BOLD}Jot${RESET_BOLD} can read and write notes as text files using S3 as a storage.
+While doing so it decodes files using their extensions. For example,
+${BOLD}notes.md.gz.age${RESET_BOLD} will be decrypted by ${BOLD}age${RESET_BOLD} and then decompressed by ${BOLD}gzip${RESET_BOLD}.
+The resulting file ${BOLD}notes.md${RESET_BOLD} will be opened in the default editor.
+After editing, the file will be compressed and encrypted back.
+If the file does not exist, an empty file will be created."
+args_program_footer="If no arguments are provided, ${BOLD}Jot${RESET_BOLD} will list available files.
+If only one argument is provided, ${BOLD}Jot${RESET_BOLD} will edit this file.
+
+Supported environment variables:
+- ${BOLD}JOT_AWS_BUCKET${RESET_BOLD}: AWS bucket name for notes
+- ${BOLD}JOT_AGE_KEY${RESET_BOLD}: Age key for notes. Default: ${ITALIC}~/.ssh/age.key${RESET_ITALIC}
+- ${BOLD}JOT_SSH_PUB${RESET_BOLD}: SSH public key for notes. Default: ${ITALIC}~/.ssh/id_rsa.pub${RESET_ITALIC}
+- ${BOLD}JOT_SSH_PRV${RESET_BOLD}: SSH private key for notes. Default: ${ITALIC}~/.ssh/id_rsa${RESET_ITALIC}
+- ${BOLD}VISUAL${RESET_BOLD}: Editor for notes
+- ${BOLD}EDITOR${RESET_BOLD}: Editor for notes, used when ${BOLD}VISUAL${RESET_BOLD} is not set
+
+Supported file extensions:
+- ${BOLD}.age${RESET_BOLD}: Age encrypted file
+- ${BOLD}.br${RESET_BOLD}:  Brotli compressed file
+- ${BOLD}.bz2${RESET_BOLD}: Bzip2 compressed file
+- ${BOLD}.gz${RESET_BOLD}:  Gzip compressed file
+- ${BOLD}.xz${RESET_BOLD}:  XZ compressed file
+- ${BOLD}.zst${RESET_BOLD}: Zstandard compressed file"
 args_program_required_command="no"
 
 args::option "edit, e" "Edit file" "file_name"
@@ -62,7 +82,11 @@ if [[ "$args_command" == "edit" ]]; then
   shift
 fi
 
-asset="$1"
+asset="${1:-}"
+if [ -z "$asset" ]; then
+  ansi::err "${ERROR}No file name is specified for editing.${RESET_ALL}"
+  exit 1
+fi
 
 FOUND=yes
 ansi::out "Checking access to the file..."
