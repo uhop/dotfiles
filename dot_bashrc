@@ -183,6 +183,8 @@ export BASH_SILENCE_DEPRECATION_WARNING=1
 export FORCE_COLOR=3
 export GITHUB_USERNAME=uhop
 
+export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
+
 if [ -s ~/.env ]; then
   case "${unameOut}" in
       Linux*)             export $(grep -v '^#' .env | xargs -d '\n');;
@@ -190,8 +192,6 @@ if [ -s ~/.env ]; then
   esac
 fi
 unset unameOut
-
-export JOT_AWS_BUCKET="${GITHUB_USERNAME}-notes"
 
 # Alias definitions.
 # You may want to put all your additions into a separate file like

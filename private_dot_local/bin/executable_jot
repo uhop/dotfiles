@@ -22,7 +22,7 @@ args_program_footer="If no arguments are provided, ${BOLD}Jot${RESET_BOLD} will 
 If only one argument is provided, ${BOLD}Jot${RESET_BOLD} will edit this file.
 
 Supported environment variables:
-- ${BOLD}JOT_AWS_BUCKET${RESET_BOLD}: AWS bucket name for notes
+- ${BOLD}JOT_AWS_S3_BUCKET${RESET_BOLD}: AWS bucket name for notes
 - ${BOLD}JOT_AGE_KEY${RESET_BOLD}: Age key for notes. Default: ${ITALIC}~/.ssh/age.key${RESET_ITALIC}
 - ${BOLD}JOT_SSH_PUB${RESET_BOLD}: SSH public key for notes. Default: ${ITALIC}~/.ssh/id_rsa.pub${RESET_ITALIC}
 - ${BOLD}JOT_SSH_PRV${RESET_BOLD}: SSH private key for notes. Default: ${ITALIC}~/.ssh/id_rsa${RESET_ITALIC}
@@ -39,7 +39,10 @@ Supported file extensions:
 args_program_required_command="no"
 
 args::option "edit, e" "Edit file" "file_name"
-args::option "list, l" "List available files"
+args::option "list, l" "List available files" "prefix"
+args::option "copy, c" "Copy file to the current directory" "file_name"
+args::option "save, s" "Save local file to the S3 bucket" "file_name"
+args::option "delete, d" "Delete file in the S3 bucket" "file_name"
 
 args::option "-x, --exact" "Exact file name match"
 args::option "-y, --yes" "Create new file without confirmation"
@@ -59,25 +62,26 @@ ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf -- "$TMPDIR"' EXIT
 
-if [ -z "$JOT_AWS_BUCKET" ]; then
-  ansi::err "${ERROR}No AWS bucket name is specified by \"${REVERSE}JOT_AWS_BUCKET${RESET_REVERSE}\". Please set it to an accessible bucket for notes.${RESET_ALL}"
+if [ -z "$JOT_AWS_S3_BUCKET" ]; then
+  ansi::err "${ERROR}No AWS bucket name is specified by \"${REVERSE}JOT_AWS_S3_BUCKET${RESET_REVERSE}\". Please set it to an accessible bucket for notes.${RESET_ALL}"
   exit 1
 fi
 
-ansi::out "Using AWS bucket: ${BOLD}${JOT_AWS_BUCKET}${RESET_BOLD}"
+ansi::out "Using AWS bucket: ${BOLD}${JOT_AWS_S3_BUCKET}${RESET_BOLD}"
 ansi::out "Testing access to the bucket..."
-if ! aws s3api head-bucket --bucket "$JOT_AWS_BUCKET" &>/dev/null; then
-  ansi::err "${ERROR}AWS bucket \"${REVERSE}$JOT_AWS_BUCKET${RESET_REVERSE}\" is not accessible or does not exist. Please verify.${RESET_ALL}"
+if ! aws s3api head-bucket --bucket "$JOT_AWS_S3_BUCKET" &>/dev/null; then
+  ansi::err "${ERROR}AWS bucket \"${REVERSE}$JOT_AWS_S3_BUCKET${RESET_REVERSE}\" is not accessible or does not exist. Please verify.${RESET_ALL}"
   exit 1
 fi
 
 if [ -z "${1:-}" ] || [[ "$args_command" == "list" ]]; then
+  prefix="${2:-}"
   echo
   ansi::out "Listing available files:"
   echo
-  aws s3 ls "$JOT_AWS_BUCKET"
+  aws s3 ls "s3://$JOT_AWS_S3_BUCKET/$prefix"
   if [ $? -ne 0 ]; then
-    ansi::err "${ERROR}The previous command failed: make sure that the bucket ${REVERSE}${JOT_AWS_BUCKET}${RESET_REVERSE} exists and accessible.${RESET_ALL}"
+    ansi::err "${ERROR}The previous command failed: make sure that the bucket ${REVERSE}${JOT_AWS_S3_BUCKET}${RESET_REVERSE} exists and accessible.${RESET_ALL}"
     exit 1
   fi
   echo
@@ -93,13 +97,13 @@ fi
 
 FOUND=yes
 ansi::out "Checking access to the file..."
-if ! aws s3api head-object --bucket "$JOT_AWS_BUCKET" --key "$asset" &>/dev/null; then
+if ! aws s3api head-object --bucket "$JOT_AWS_S3_BUCKET" --key "$asset" &>/dev/null; then
   FOUND=no
 fi
 
 if [[ "$FOUND" == "no" ]] && ! [[ -v args_options["-x"] ]]; then
     ansi::out "Looking for a prefix ${BOLD}${asset}.${RESET_BOLD}"
-    listing=$(aws s3 ls "s3://${JOT_AWS_BUCKET}/${asset}" || echo "")
+    listing=$(aws s3 ls "s3://${JOT_AWS_S3_BUCKET}/${asset}" || echo "")
     set +e
     IFS=$'\n' read -r -d '' -a lines <<< "$listing"
     set -e
@@ -255,7 +259,7 @@ do_command() {
 
 if [[ "$FOUND" == "yes" ]]; then
   ansi::out "Downloading ${BOLD}${asset}${RESET_BOLD} from S3..."
-  aws s3 cp "s3://$JOT_AWS_BUCKET/$asset" "$TMPDIR/$asset" --quiet
+  aws s3 cp "s3://$JOT_AWS_S3_BUCKET/$asset" "$TMPDIR/$asset" --quiet
 else
   touch "$TMPDIR/$asset"
 fi
@@ -294,4 +298,4 @@ for (( i = $last_index; i >= 0; --i )); do
 done
 
 ansi::out "Uploading ${BOLD}${asset}${RESET_BOLD} to S3..."
-aws s3 cp "$TMPDIR/$asset" "s3://$JOT_AWS_BUCKET/$asset" --quiet
+aws s3 cp "$TMPDIR/$asset" "s3://$JOT_AWS_S3_BUCKET/$asset" --quiet
