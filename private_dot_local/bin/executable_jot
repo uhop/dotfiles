@@ -277,7 +277,12 @@ done
 editor="${VISUAL:-$EDITOR}"
 
 ansi::out "Opening ${BOLD}${asset}${RESET_BOLD} in ${BOLD}${editor}${RESET_BOLD}..."
+cp "$TMPDIR/$file_name" "$TMPDIR/${file_name}.bak"
 "$editor" "$TMPDIR/$file_name"
+if cmp -s "$TMPDIR/${file_name}.bak" "$TMPDIR/$file_name"; then
+  ansi::out "No changes detected: skipping saving."
+  exit 0
+fi
 
 # Get the index of the last element
 last_index=$(( ${#extensions[@]} - 1 ))
