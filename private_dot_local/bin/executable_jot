@@ -41,6 +41,9 @@ args_program_required_command="no"
 args::option "edit, e" "Edit file" "file_name"
 args::option "list, l" "List available files"
 
+args::option "-x, --exact" "Exact file name match"
+args::option "-y, --yes" "Create new file without confirmation"
+args::option "-n, --no" "Don't create new file"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 
@@ -92,6 +95,52 @@ FOUND=yes
 ansi::out "Checking access to the file..."
 if ! aws s3api head-object --bucket "$JOT_AWS_BUCKET" --key "$asset" &>/dev/null; then
   FOUND=no
+fi
+
+if [[ "$FOUND" == "no" ]] && ! [[ -v args_options["-x"] ]]; then
+    ansi::out "Looking for a prefix ${BOLD}${asset}.${RESET_BOLD}"
+    listing=$(aws s3 ls "s3://${JOT_AWS_BUCKET}/${asset}" || echo "")
+    set +e
+    IFS=$'\n' read -r -d '' -a lines <<< "$listing"
+    set -e
+    unset listing
+    if [[ "${#lines[@]}" -eq 1 ]]; then
+      if [[ "${lines[0]}" =~ ^[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+(.+)$ ]]; then
+        asset="${BASH_REMATCH[1]}"
+        FOUND=yes
+        ansi::out "Found file ${BOLD}${asset}${RESET_BOLD}"
+      else
+        ansi::err "${ERROR}Cannot parse listing of ${REVERSE}${asset}${RESET_REVERSE}.${RESET_ALL}"
+        exit 1
+      fi
+    elif [[ "${#lines[@]}" -gt 1 ]]; then
+      ansi::err "${ERROR}Multiple files found with prefix ${REVERSE}${asset}${RESET_REVERSE}. Please specify the full name or better prefix.${RESET_ALL}"
+      exit 1
+    fi
+    unset lines
+fi
+
+if [[ "$FOUND" == "no" ]]; then
+    if [[ -v args_options["-n"] ]]; then
+      ansi::out "File ${BOLD}$asset${RESET_BOLD} does not exist and ${BOLD}--no${RESET_BOLD} is specified."
+      exit 0
+    fi
+    if ! [[ -v args_options["-y"] ]]; then
+      echo -en "Do you want to create ${BOLD}$asset${RESET_BOLD}? [Y/n] "
+      read response
+      case "${response^^}" in
+        N | NO | NOPE)
+          ansi::out "File ${BOLD}$asset${RESET_BOLD} is not created."
+          exit 0
+          ;;
+        Y | YES | YEP | YEAH | '')
+          ;;
+        *)
+          ansi::err "Invalid response: ${BOLD}${response}${RESET_BOLD}"
+          exit 1
+          ;;
+      esac
+    fi
 fi
 
 AGE_KEY=${JOT_AGE_KEY:-~/.ssh/age.key}
