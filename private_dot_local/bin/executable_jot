@@ -30,8 +30,8 @@ Supported environment variables:
 - ${BOLD}JOT_AGE_KEY${RESET_BOLD}: Age key for notes. Default: ${ITALIC}~/.ssh/age.key${RESET_ITALIC}
 - ${BOLD}JOT_SSH_PUB${RESET_BOLD}: SSH public key for notes. Default: ${ITALIC}~/.ssh/id_rsa.pub${RESET_ITALIC}
 - ${BOLD}JOT_SSH_PRV${RESET_BOLD}: SSH private key for notes. Default: ${ITALIC}~/.ssh/id_rsa${RESET_ITALIC}
-- ${BOLD}VISUAL${RESET_BOLD}: Editor for notes
-- ${BOLD}EDITOR${RESET_BOLD}: Editor for notes, used when ${BOLD}VISUAL${RESET_BOLD} is not set
+- ${BOLD}VISUAL${RESET_BOLD}: Editor for notes. If not specified, ${BOLD}EDITOR${RESET_BOLD} will be used.
+- ${BOLD}EDITOR${RESET_BOLD}: Editor for notes. Default: ${ITALIC}nano${RESET_ITALIC}
 
 Supported file extensions:
 - ${BOLD}.age${RESET_BOLD}: Age encrypted file
@@ -390,7 +390,7 @@ fi
 # edit the file
 
 if [[ "$args_command" == "edit" ]]; then
-  editor="${VISUAL:-$EDITOR}"
+  editor="${VISUAL:-${EDITOR:-nano}}"
   ansi::out "Opening ${BOLD}${asset}${RESET_BOLD} in ${BOLD}${editor}${RESET_BOLD}..."
   cp "$TMPDIR/$file_name" "$TMPDIR/${file_name}.bak"
   "$editor" "$TMPDIR/$file_name"
