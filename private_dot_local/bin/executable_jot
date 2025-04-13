@@ -17,7 +17,9 @@ While doing so it decodes files using their extensions. For example,
 ${BOLD}notes.md.gz.age${RESET_BOLD} will be decrypted by ${BOLD}age${RESET_BOLD} and then decompressed by ${BOLD}gzip${RESET_BOLD}.
 The resulting file ${BOLD}notes.md${RESET_BOLD} will be opened in the default editor.
 After editing, the file will be compressed and encrypted back.
-If the file does not exist, an empty file will be created."
+If the file does not exist, an empty file will be created.
+Additionally the standard set of file commands is supported:
+- list, copy, save, rename, delete."
 args_program_footer="If no arguments are provided, ${BOLD}Jot${RESET_BOLD} will list available files.
 If only one argument is provided, ${BOLD}Jot${RESET_BOLD} will edit this file.
 
