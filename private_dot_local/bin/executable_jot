@@ -41,8 +41,9 @@ args_program_required_command="no"
 args::option "edit, e" "Edit file" "file_name"
 args::option "list, l" "List available files" "prefix"
 args::option "copy, c" "Copy file to the current directory" "file_name"
-args::option "save, s" "Save local file to the S3 bucket" "file_name"
+args::option "save, s" "Save local file to the S3 bucket" "from_name to_name"
 args::option "delete, d" "Delete file in the S3 bucket" "file_name"
+args::option "rename, r" "Rename file in the S3 bucket" "from_name to_name"
 
 args::option "-x, --exact" "Exact file name match"
 args::option "-y, --yes" "Create new file without confirmation"
@@ -52,10 +53,6 @@ args::option "-h, --help" "Show help"
 
 args::parse "$@"
 eval set -- "${args_cleaned}"
-
-if [[ "$args_command" == "edit" ]]; then
-  shift
-fi
 
 ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
 
@@ -89,18 +86,26 @@ if [ -z "${1:-}" ] || [[ "$args_command" == "list" ]]; then
   exit 0
 fi
 
-asset="$1"
+if [ -z "$args_command" ]; then
+  args_command="edit"
+else
+  shift
+fi
+
+asset="${1:-}"
 if [ -z "$asset" ]; then
-  ansi::err "${ERROR}No file name is specified for editing.${RESET_ALL}"
+    ansi::err "${ERROR}No file name is specified for file operations.${RESET_ALL}"
   exit 1
 fi
 
+# check if the asset exists
 FOUND=yes
 ansi::out "Checking access to the file..."
 if ! aws s3api head-object --bucket "$JOT_AWS_S3_BUCKET" --key "$asset" &>/dev/null; then
   FOUND=no
 fi
 
+# looking for a suitable file using the asset name as a prefix
 if [[ "$FOUND" == "no" ]] && ! [[ -v args_options["-x"] ]]; then
     ansi::out "Looking for a prefix ${BOLD}${asset}.${RESET_BOLD}"
     listing=$(aws s3 ls "s3://${JOT_AWS_S3_BUCKET}/${asset}" || echo "")
@@ -124,6 +129,7 @@ if [[ "$FOUND" == "no" ]] && ! [[ -v args_options["-x"] ]]; then
     unset lines
 fi
 
+# creating file if it doesn't exist
 if [[ "$FOUND" == "no" ]]; then
     if [[ -v args_options["-n"] ]]; then
       ansi::out "File ${BOLD}$asset${RESET_BOLD} does not exist and ${BOLD}--no${RESET_BOLD} is specified."
@@ -257,6 +263,19 @@ do_command() {
   return 0
 }
 
+# delete/rename operations
+
+if [[ "$args_command" == "delete" ]]; then
+  args::err "Not implemented yet"
+  exit 1
+fi
+
+if [[ "$args_command" == "rename" ]]; then
+  args::err "Not implemented yet"
+  exit 1
+fi
+
+# download the asset
 if [[ "$FOUND" == "yes" ]]; then
   ansi::out "Downloading ${BOLD}${asset}${RESET_BOLD} from S3..."
   aws s3 cp "s3://$JOT_AWS_S3_BUCKET/$asset" "$TMPDIR/$asset" --quiet
@@ -267,6 +286,7 @@ fi
 file_name="$asset"
 extensions=()
 
+# decode the asset
 while true; do
   file_ext="${file_name##*.}"
   file_short="${file_name%.*}"
@@ -278,6 +298,22 @@ while true; do
   extensions+=("$file_ext")
 done
 
+# copy/save operations
+
+if [[ "$args_command" == "copy" ]]; then
+  local_file_name=$(basename "$TMPDIR/$file_name")
+  ansi::out "Copying ${BOLD}${asset}${RESET_BOLD} to ${BOLD}${local_file_name}${RESET_BOLD}..."
+  cp -iv "$TMPDIR/$file_name" "${local_file_name}"
+  exit 0
+fi
+
+if [[ "$args_command" == "save" ]]; then
+  args::err "Not implemented yet"
+  exit 1
+fi
+
+# edit the file
+
 editor="${VISUAL:-$EDITOR}"
 
 ansi::out "Opening ${BOLD}${asset}${RESET_BOLD} in ${BOLD}${editor}${RESET_BOLD}..."
@@ -288,6 +324,8 @@ if cmp -s "$TMPDIR/${file_name}.bak" "$TMPDIR/$file_name"; then
   exit 0
 fi
 
+# encode the file
+
 # Get the index of the last element
 last_index=$(( ${#extensions[@]} - 1 ))
 
@@ -297,5 +335,6 @@ for (( i = $last_index; i >= 0; --i )); do
   file_name+=".${extensions[$i]}"
 done
 
+# upload the asset
 ansi::out "Uploading ${BOLD}${asset}${RESET_BOLD} to S3..."
 aws s3 cp "$TMPDIR/$asset" "s3://$JOT_AWS_S3_BUCKET/$asset" --quiet
