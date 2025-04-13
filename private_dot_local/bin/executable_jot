@@ -19,9 +19,11 @@ The resulting file ${BOLD}notes.md${RESET_BOLD} will be opened in the default ed
 After editing, the file will be compressed and encrypted back.
 If the file does not exist, an empty file will be created.
 Additionally the standard set of file commands is supported:
-- list, copy, save, rename, delete."
+- list, edit, get, put, rename, delete."
 args_program_footer="If no arguments are provided, ${BOLD}Jot${RESET_BOLD} will list available files.
 If only one argument is provided, ${BOLD}Jot${RESET_BOLD} will edit this file.
+Commands "edit", "get", and "rename" treat their 1st arguments as prefixes
+unless "--exact" is specified.
 
 Supported environment variables:
 - ${BOLD}JOT_AWS_S3_BUCKET${RESET_BOLD}: AWS bucket name for notes
@@ -42,10 +44,10 @@ args_program_required_command="no"
 
 args::option "edit, e" "Edit file" "file_name"
 args::option "list, l" "List available files" "prefix"
-args::option "copy, c" "Copy file to the current directory" "file_name"
-args::option "save, s" "Save local file to the S3 bucket" "from_name to_name"
-args::option "delete, d" "Delete file in the S3 bucket" "file_name"
-args::option "rename, r" "Rename file in the S3 bucket" "from_name to_name"
+args::option "get, g" "Get file to the current directory" "file_name"
+args::option "put, p" "Put local file to the S3 bucket" "from_name to_name"
+args::option "delete, del, rm, d" "Delete file in the S3 bucket" "file_name"
+args::option "rename, mv, r" "Rename file in the S3 bucket" "from_name to_name"
 
 args::option "-x, --exact" "Exact file name match"
 args::option "-y, --yes" "Create new file without confirmation"
@@ -84,7 +86,7 @@ if [ -z "${1:-}" ] || [[ "$args_command" == "list" ]]; then
     exit 1
   fi
   echo
-  ansi::out "Use: jot ${ITALIC}filename${RESET_ALL}"
+  ansi::out "To edit a file: jot ${ITALIC}file_name${RESET_ALL}"
   exit 0
 fi
 
@@ -95,6 +97,10 @@ else
 fi
 
 asset="${1:-}"
+if [[ "$args_command" == "put" ]]; then
+  local_file_name="$asset"
+  asset="${2:-}"
+fi
 if [ -z "$asset" ]; then
     ansi::err "${ERROR}No file name is specified for file operations.${RESET_ALL}"
   exit 1
@@ -108,7 +114,7 @@ if ! aws s3api head-object --bucket "$JOT_AWS_S3_BUCKET" --key "$asset" &>/dev/n
 fi
 
 # looking for a suitable file using the asset name as a prefix
-if [[ "$FOUND" == "no" ]] && ! [[ -v args_options["-x"] ]]; then
+if [[ "$FOUND" == "no" ]] && ! [[ -v args_options["-x"] ]] && [[ "$args_command" != "put" ]] && [[ "$args_command" != "delete" ]] ; then
     ansi::out "Looking for a prefix ${BOLD}${asset}.${RESET_BOLD}"
     listing=$(aws s3 ls "s3://${JOT_AWS_S3_BUCKET}/${asset}" || echo "")
     set +e
@@ -132,7 +138,7 @@ if [[ "$FOUND" == "no" ]] && ! [[ -v args_options["-x"] ]]; then
 fi
 
 # creating file if it doesn't exist
-if [[ "$FOUND" == "no" ]]; then
+if [[ "$FOUND" == "no" ]] && [[ "$args_command" != "put" ]]; then
     if [[ "$args_command" == "delete" ]] || [[ "$args_command" == "rename" ]]; then
       ansi::err "${ERROR}File ${REVERSE}$asset${RESET_REVERSE} does not exist.${RESET_ALL}"
       exit 1
@@ -142,7 +148,7 @@ if [[ "$FOUND" == "no" ]]; then
       exit 0
     fi
     if ! [[ -v args_options["-y"] ]]; then
-      echo -en "Do you want to create ${BOLD}$asset${RESET_BOLD}? [Y/n] "
+      ansi::prompt "Do you want to create ${BOLD}$asset${RESET_BOLD}? [Y/n] "
       read response
       case "${response^^}" in
         N | NO | NOPE)
@@ -152,7 +158,7 @@ if [[ "$FOUND" == "no" ]]; then
         Y | YES | YEP | YEAH | '')
           ;;
         *)
-          ansi::err "${ERROR}Invalid response: ${REVERSE}${response}${RESET_REVERSE}${RESET_ALL}"
+          ansi::err "${ERROR}Invalid response: ${REVERSE}${response}${RESET_ALL}"
           exit 1
           ;;
       esac
@@ -283,13 +289,41 @@ if [[ "$args_command" == "rename" ]]; then
     ansi::err "${ERROR}No new name provided.${RESET_ALL}"
     exit 1
   fi
+  if ! [[ -v args_options["-y"] ]]; then
+    FOUND=yes
+    ansi::out "Checking ${BOLD}${new_name}${RESET_BOLD}..."
+    if ! aws s3api head-object --bucket "$JOT_AWS_S3_BUCKET" --key "$new_name" &>/dev/null; then
+      FOUND=no
+    fi
+    if [[ "$FOUND" == "yes" ]]; then
+      if [[ -v args_options["-n"] ]]; then
+        ansi::err "${ERROR}Asset ${BOLD}${new_name}${RESET_BOLD} already exists.${RESET_ALL}"
+        exit 1
+      fi
+      ansi::prompt "Do you want to override ${BOLD}$new_name${RESET_BOLD}? [Y/n] "
+      read response
+      case "${response^^}" in
+        N | NO | NOPE)
+          ansi::out "Skipping renaming of ${BOLD}$asset${RESET_BOLD} to ${BOLD}$new_name${RESET_BOLD}."
+          exit 0
+          ;;
+        Y | YES | YEP | YEAH | '')
+          ansi::out "Overriding ${BOLD}$new_name${RESET_BOLD}..."
+          ;;
+        *)
+          ansi::err "${ERROR}Invalid response: ${REVERSE}${response}${RESET_ALL}"
+          exit 1
+          ;;
+      esac
+    fi
+  fi
   ansi::out "Renaming ${BOLD}${asset}${RESET_BOLD} to ${BOLD}${new_name}${RESET_BOLD}..."
   aws s3 mv "s3://$JOT_AWS_S3_BUCKET/$asset" "s3://$JOT_AWS_S3_BUCKET/$new_name" --quiet
   exit 0
 fi
 
 # download the asset
-if [[ "$FOUND" == "yes" ]]; then
+if [[ "$FOUND" == "yes" ]] && [[ "$args_command" != "put" ]]; then
   ansi::out "Downloading ${BOLD}${asset}${RESET_BOLD} from S3..."
   aws s3 cp "s3://$JOT_AWS_S3_BUCKET/$asset" "$TMPDIR/$asset" --quiet
 else
@@ -311,30 +345,59 @@ while true; do
   extensions+=("$file_ext")
 done
 
-# copy/save operations
+# get/put operations
 
-if [[ "$args_command" == "copy" ]]; then
+if [[ "$args_command" == "get" ]]; then
   local_file_name=$(basename "$TMPDIR/$file_name")
   ansi::out "Copying ${BOLD}${asset}${RESET_BOLD} to ${BOLD}${local_file_name}${RESET_BOLD}..."
-  cp -iv "$TMPDIR/$file_name" "${local_file_name}"
+  cp -i "$TMPDIR/$file_name" "${local_file_name}"
   exit 0
 fi
 
-if [[ "$args_command" == "save" ]]; then
-  args::err "Not implemented yet"
-  exit 1
+if [[ "$args_command" == "put" ]]; then
+  if [[ -f "$local_file_name" ]]; then
+    ansi::out "Copying ${BOLD}${local_file_name}${RESET_BOLD} to ${BOLD}${file_name}${RESET_BOLD}..."
+    cp "$local_file_name" "$TMPDIR/$file_name"
+  else
+    ansi::err "${ERROR}Local file ${BOLD}${local_file_name}${RESET_BOLD} not found.${RESET_ALL}"
+    exit 1
+  fi
+  if ! [[ -v args_options["-y"] ]]; then
+    if [[ "$FOUND" == "yes" ]]; then
+      if [[ -v args_options["-n"] ]]; then
+        ansi::err "${ERROR}Asset ${BOLD}${asset}${RESET_BOLD} already exists.${RESET_ALL}"
+        exit 1
+      fi
+      ansi::prompt "Do you want to override ${BOLD}$asset${RESET_BOLD}? [Y/n] "
+      read response
+      case "${response^^}" in
+        N | NO | NOPE)
+          ansi::out "Skipping uploading of ${BOLD}$local_file_name${RESET_BOLD} to ${BOLD}$asset${RESET_BOLD}."
+          exit 0
+          ;;
+        Y | YES | YEP | YEAH | '')
+          ansi::out "Overriding ${BOLD}$asset${RESET_BOLD}..."
+          ;;
+        *)
+          ansi::err "${ERROR}Invalid response: ${REVERSE}${response}${RESET_ALL}"
+          exit 1
+          ;;
+      esac
+    fi
+  fi
 fi
 
 # edit the file
 
-editor="${VISUAL:-$EDITOR}"
-
-ansi::out "Opening ${BOLD}${asset}${RESET_BOLD} in ${BOLD}${editor}${RESET_BOLD}..."
-cp "$TMPDIR/$file_name" "$TMPDIR/${file_name}.bak"
-"$editor" "$TMPDIR/$file_name"
-if cmp -s "$TMPDIR/${file_name}.bak" "$TMPDIR/$file_name"; then
-  ansi::out "No changes detected: skipping saving."
-  exit 0
+if [[ "$args_command" == "edit" ]]; then
+  editor="${VISUAL:-$EDITOR}"
+  ansi::out "Opening ${BOLD}${asset}${RESET_BOLD} in ${BOLD}${editor}${RESET_BOLD}..."
+  cp "$TMPDIR/$file_name" "$TMPDIR/${file_name}.bak"
+  "$editor" "$TMPDIR/$file_name"
+  if cmp -s "$TMPDIR/${file_name}.bak" "$TMPDIR/$file_name"; then
+    ansi::out "No changes: skipping saving."
+    exit 0
+  fi
 fi
 
 # encode the file
