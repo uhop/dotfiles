@@ -19,11 +19,11 @@ The resulting file ${BOLD}notes.md${RESET_BOLD} will be opened in the default ed
 After editing, the file will be compressed and encrypted back.
 If the file does not exist, an empty file will be created.
 Additionally the standard set of file commands is supported:
-- list, edit, get, put, rename, delete."
+- ${BOLD}list${RESET_BOLD}, ${BOLD}edit${RESET_BOLD}, ${BOLD}get${RESET_BOLD}, ${BOLD}put${RESET_BOLD}, ${BOLD}rename${RESET_BOLD}, ${BOLD}delete${RESET_BOLD}."
 args_program_footer="If no arguments are provided, ${BOLD}Jot${RESET_BOLD} will list available files.
 If only one argument is provided, ${BOLD}Jot${RESET_BOLD} will edit this file.
-Commands "edit", "get", and "rename" treat their 1st arguments as prefixes
-unless "--exact" is specified.
+Commands ${BOLD}edit${RESET_BOLD}, ${BOLD}get${RESET_BOLD}, and ${BOLD}rename${RESET_BOLD} treat their 1st arguments as prefixes
+unless ${BOLD}--exact${RESET_BOLD} is specified.
 
 Supported environment variables:
 - ${BOLD}JOT_AWS_S3_BUCKET${RESET_BOLD}: AWS bucket name for notes
