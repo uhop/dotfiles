@@ -1,57 +1,77 @@
 #!/usr/bin/env bash
 
+set -o errexit -o pipefail -o nounset -o noclobber
 shopt -s expand_aliases
 
-. ~/.local/bin/colors.sh
+. ~/.local/share/libs/scripts/ansi-style.sh
+. ~/.local/share/libs/scripts/args.sh
+. ~/.local/share/libs/scripts/args-version.sh
+. ~/.local/share/libs/scripts/args-help.sh
 
-WARN="$BOLD$BRIGHT_WHITE$BG_BLUE"
-PROMPT="$BOLD$BRIGHT_CYAN"
+script_dir="$(dirname "$(readlink -f "$0")")"
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0" "Update software with available package managers"
+
+args::option "--clean, -c" "Run the cleanup script ${BOLD}cln${RESET_ALL} after updating"
+args::option "--version, -v" "Show version"
+args::option "--help, -h" "Show help"
+
+args::parse "$@"
+eval set -- "${args_cleaned}"
+
+WARN="${BOLD}${BRIGHT_WHITE}${BG_BLUE}"
+PROMPT="${BOLD}${FG_CYAN}"
 
 {{ if eq .osIdLike "linux-debian" -}}
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
-echo "${WARN}Both apt and snap require sudo: expect asking for the sudo password.${RESET}"
-echo "${PROMPT}Run sudo apt...${RESET}"
+ansi::out "${WARN}Both apt and snap require sudo: expect asking for the sudo password.${RESET_ALL}"
+ansi::out "${PROMPT}Run sudo apt...${RESET_ALL}"
 sudo apt update && sudo apt upgrade
 
-echo "${PROMPT}Run sudo snap...${RESET}"
+ansi::out "${PROMPT}Run sudo snap...${RESET_ALL}"
 sudo snap refresh
 
 {{ if .hasGui -}}
-echo "${PROMPT}Run flatpak...${RESET}"
+ansi::out "${PROMPT}Run flatpak...${RESET_ALL}"
 flatpak update
 {{- end }}
 {{- else if eq .osIdLike "darwin" -}}
-echo "${WARN}softwareupdate requires sudo: expect asking for the sudo password.${RESET}"
-echo "${PROMPT}Run sudo softwareupdate...${RESET}"
+ansi::out "${WARN}softwareupdate requires sudo: expect asking for the sudo password.${RESET_ALL}"
+ansi::out "${PROMPT}Run sudo softwareupdate...${RESET_ALL}"
 sudo softwareupdate -i -a
 {{- end }}
 
-echo "${PROMPT}Run brew...${RESET}"
+ansi::out "${PROMPT}Run brew...${RESET_ALL}"
 brew update && brew upgrade
-
 
 if command -v tmux &> /dev/null; then
   if [ -f "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" ]; then
-    echo "${PROMPT}Update tmux plugins...${RESET}"
+    ansi::out "${PROMPT}Update tmux plugins...${RESET_ALL}"
     "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" all
   fi
 fi
 
 if command -v bun &> /dev/null; then
-  echo "${PROMPT}Upgrade bun...${RESET}"
+  ansi::out "${PROMPT}Upgrade bun...${RESET_ALL}"
   bun upgrade --stable
 fi
 
 {{ if eq .osIdLike "linux-debian" -}}
 if compgen -G "/run/reb*" > /dev/null; then
-	echo "${WARN}WARNING: reboot is ${BLINK}${STANDOUT_ON}required${RESET}${WARN}. To reboot run: ${ITALIC_ON}sudo shutdown -r now${RESET}"
+	ansi::out "${WARN}WARNING: reboot is ${BLINK}${STANDOUT}required${RESET_ALL}${WARN}. To reboot run: ${ITALIC}sudo shutdown -r now${RESET_ALL}"
 fi
 {{- end }}
 
 if [ -d ~/.local/share/libs/scripts ]; then
-  echo "${PROMPT}Update bash scripts...${RESET}"
+  ansi::out "${PROMPT}Update bash scripts...${RESET_ALL}"
   pushd ~/.local/share/libs/scripts > /dev/null
   git pull
   popd > /dev/null
+fi
+
+if [[ -v args_options["--clean"] ]]; then
+  ansi::out "\n${PROMPT}Clean up...${RESET_ALL}\n"
+  cln
 fi

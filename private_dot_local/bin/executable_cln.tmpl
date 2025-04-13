@@ -1,32 +1,47 @@
 #!/usr/bin/env bash
 
+set -o errexit -o pipefail -o nounset -o noclobber
 shopt -s expand_aliases
 
-. ~/.local/bin/colors.sh
+. ~/.local/share/libs/scripts/ansi-style.sh
+. ~/.local/share/libs/scripts/args.sh
+. ~/.local/share/libs/scripts/args-version.sh
+. ~/.local/share/libs/scripts/args-help.sh
 
-WARN="$BOLD$BRIGHT_WHITE$BG_BLUE"
-PROMPT="$BOLD$BRIGHT_CYAN"
+script_dir="$(dirname "$(readlink -f "$0")")"
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0" "Clean unused versions and caches of software"
+
+args::option "--version, -v" "Show version"
+args::option "--help, -h" "Show help"
+
+args::parse "$@"
+eval set -- "${args_cleaned}"
+
+WARN="${BOLD}${BRIGHT_WHITE}${BG_BLUE}"
+PROMPT="${BOLD}${FG_CYAN}"
 
 {{ if eq .osIdLike "linux-debian" -}}
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
-echo "${WARN}apt requires sudo: expect asking for the sudo password.${RESET}"
-echo "${PROMPT}Run sudo apt...${RESET}"
+ansi::out "${WARN}apt requires sudo: expect asking for the sudo password.${RESET_ALL}"
+ansi::out "${PROMPT}Run sudo apt...${RESET_ALL}"
 sudo apt autoclean
 sudo apt autoremove
 {{- end }}
 
-echo "${PROMPT}Run brew...${RESET}"
+ansi::out "${PROMPT}Run brew...${RESET_ALL}"
 brew cleanup
 
-. "$(brew --prefix nvm)/nvm.sh"
-echo "${PROMPT}Update major node versions...${RESET}"
+source "$(brew --prefix nvm)/nvm.sh"
+ansi::out "${PROMPT}Update major node versions...${RESET_ALL}"
 update-node-versions.js
-echo "${PROMPT}Trim minor node versions...${RESET}"
+ansi::out "${PROMPT}Trim minor node versions...${RESET_ALL}"
 trim-node-versions.js
 
 {{ if eq .osIdLike "linux-debian" -}}
 if compgen -G "/run/reb*" > /dev/null; then
-	echo "${WARN}WARNING: reboot is ${BLINK}${STANDOUT_ON}required${RESET}${WARN}. To reboot run: ${ITALIC_ON}sudo shutdown -r now${RESET}"
+	ansi::out "${WARN}WARNING: reboot is ${BLINK}${STANDOUT}required${RESET_ALL}${WARN}. To reboot run: ${ITALIC}sudo shutdown -r now${RESET_ALL}"
 fi
 {{- end }}
