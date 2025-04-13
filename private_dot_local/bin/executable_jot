@@ -131,6 +131,10 @@ fi
 
 # creating file if it doesn't exist
 if [[ "$FOUND" == "no" ]]; then
+    if [[ "$args_command" == "delete" ]] || [[ "$args_command" == "rename" ]]; then
+      ansi::err "${ERROR}File ${REVERSE}$asset${RESET_REVERSE} does not exist.${RESET_ALL}"
+      exit 1
+    fi
     if [[ -v args_options["-n"] ]]; then
       ansi::out "File ${BOLD}$asset${RESET_BOLD} does not exist and ${BOLD}--no${RESET_BOLD} is specified."
       exit 0
@@ -146,7 +150,7 @@ if [[ "$FOUND" == "no" ]]; then
         Y | YES | YEP | YEAH | '')
           ;;
         *)
-          ansi::err "Invalid response: ${BOLD}${response}${RESET_BOLD}"
+          ansi::err "${ERROR}Invalid response: ${REVERSE}${response}${RESET_REVERSE}${RESET_ALL}"
           exit 1
           ;;
       esac
@@ -266,13 +270,20 @@ do_command() {
 # delete/rename operations
 
 if [[ "$args_command" == "delete" ]]; then
-  args::err "Not implemented yet"
-  exit 1
+  ansi::out "Deleting ${BOLD}${asset}${RESET_BOLD} from S3..."
+  aws s3 rm "s3://$JOT_AWS_S3_BUCKET/$asset" --quiet
+  exit 0
 fi
 
 if [[ "$args_command" == "rename" ]]; then
-  args::err "Not implemented yet"
-  exit 1
+  new_name="${2:-}"
+  if [ -z "$new_name" ]; then
+    ansi::err "${ERROR}No new name provided.${RESET_ALL}"
+    exit 1
+  fi
+  ansi::out "Renaming ${BOLD}${asset}${RESET_BOLD} to ${BOLD}${new_name}${RESET_BOLD}..."
+  aws s3 mv "s3://$JOT_AWS_S3_BUCKET/$asset" "s3://$JOT_AWS_S3_BUCKET/$new_name" --quiet
+  exit 0
 fi
 
 # download the asset
