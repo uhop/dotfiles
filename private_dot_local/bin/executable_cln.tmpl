@@ -12,6 +12,7 @@ script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
 args::program "$script_name" "1.0" "Clean unused versions and caches of software"
+args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset}"
 
 args::option "--version, -v" "Show version"
 args::option "--help, -h" "Show help"
@@ -34,7 +35,7 @@ sudo apt autoremove
 ansi::out "${PROMPT}Run brew...${RESET_ALL}"
 brew cleanup
 
-source "$(brew --prefix nvm)/nvm.sh"
+. "$(brew --prefix nvm)/nvm.sh"
 ansi::out "${PROMPT}Update major node versions...${RESET_ALL}"
 update-node-versions.js
 ansi::out "${PROMPT}Trim minor node versions...${RESET_ALL}"
