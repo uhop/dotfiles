@@ -187,8 +187,8 @@ export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
 
 if [ -s ~/.env ]; then
   case "${unameOut}" in
-      Linux*)             export $(grep -v '^#' .env | xargs -d '\n');;
-      Darwin* | FreeBSD*) export $(grep -v '^#' .env | xargs -0);;
+      Linux*)             export $(grep -v '^#' ~/.env | xargs -d '\n');;
+      Darwin* | FreeBSD*) export $(grep -v '^#' ~/.env | xargs -0);;
   esac
 fi
 unset unameOut
