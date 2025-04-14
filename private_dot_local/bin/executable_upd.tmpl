@@ -61,7 +61,7 @@ fi
 
 {{ if eq .osIdLike "linux-debian" -}}
 if compgen -G "/run/reb*" > /dev/null; then
-	ansi::out "${WARN}WARNING: reboot is ${BLINK}${STANDOUT}required${RESET_ALL}${WARN}. To reboot run: ${ITALIC}sudo shutdown -r now${RESET_ALL}"
+	ansi::out "${WARN}WARNING: reboot is ${BLINK}${REVERSE}required${RESET_ALL}${WARN}. To reboot run: ${ITALIC}sudo shutdown -r now${RESET_ALL}"
 fi
 {{- end }}
 
