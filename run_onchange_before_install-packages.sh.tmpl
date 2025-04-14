@@ -5,11 +5,11 @@ set -e
 
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
-BRIGHT_CYAN=$(tput setaf 14)
+BRIGHT_CYAN=$(tput setaf 6)
 BRIGHT_WHITE=$(tput setaf 15)
 BG_BLUE=$(tput setab 4)
 BOLD=$(tput bold)
-RESET=$(tput op)
+RESET=$(tput sgr0)
 
 WARN="$BOLD$BRIGHT_WHITE$BG_BLUE"
 PROMPT="$BOLD$BRIGHT_CYAN"
