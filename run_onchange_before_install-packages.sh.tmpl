@@ -171,6 +171,8 @@ permit persist keepenv setenv { PATH XAUTHORITY LANG LC_ALL } :sudo
 
 permit nopass :sudo cmd apt args update
 permit nopass :sudo cmd apt args upgrade
+permit nopass :sudo cmd apt args -y upgrade
+permit nopass :sudo cmd apt args upgrade -y
 permit nopass :sudo cmd apt args autoremove
 permit nopass :sudo cmd apt args autoclean
 
