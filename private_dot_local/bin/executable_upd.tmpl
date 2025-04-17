@@ -59,18 +59,18 @@ if command -v bun &> /dev/null; then
   bun upgrade --stable
 fi
 
-{{ if eq .osIdLike "linux-debian" -}}
-if compgen -G "/run/reb*" > /dev/null; then
-	ansi::out "${WARN}WARNING: reboot is ${BLINK}${REVERSE}required${RESET_ALL}${WARN}. To reboot run: ${ITALIC}sudo shutdown -r now${RESET_ALL}"
-fi
-{{- end }}
-
 if [ -d ~/.local/share/libs/scripts ]; then
   ansi::out "${PROMPT}Update bash scripts...${RESET_ALL}"
   pushd ~/.local/share/libs/scripts > /dev/null
   git pull
   popd > /dev/null
 fi
+
+{{ if eq .osIdLike "linux-debian" -}}
+if compgen -G "/run/reb*" > /dev/null; then
+	ansi::out "${WARN}WARNING: reboot is ${BLINK}${REVERSE}required${RESET_ALL}${WARN}. To reboot run: ${ITALIC}sudo shutdown -r now${RESET_ALL}"
+fi
+{{- end }}
 
 if [[ -v args_options["--clean"] ]]; then
   ansi::out "\n${PROMPT}Clean up...${RESET_ALL}\n"
