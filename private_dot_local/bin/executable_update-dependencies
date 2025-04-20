@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+CYAN="$(tput setaf 6)"
+BOLD="$(tput bold)"
+RESET="$(tput op)$(tput sgr0)"
+
+PROMPT="$BOLD$CYAN"
+
+if [ -d ~/.local/share/libs/scripts ]; then
+  echo "${PROMPT}Updating bash scripts...${RESET}"
+  pushd ~/.local/share/libs/scripts > /dev/null
+  git pull
+  popd > /dev/null
+else
+  echo "${PROMPT}Cloning bash scripts...${RESET}"
+  mkdir -p ~/.local/share/libs
+  pushd ~/.local/share/libs > /dev/null
+  git clone --filter=blob:none --sparse git@github.com:uhop/options.bash scripts
+  cd scripts
+  git sparse-checkout set --no-cone '/*.sh' '/README.md'
+  popd > /dev/null
+fi
