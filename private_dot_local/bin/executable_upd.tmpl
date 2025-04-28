@@ -3,6 +3,8 @@
 set -o errexit -o pipefail -o nounset -o noclobber
 shopt -s expand_aliases
 
+[ -d ~/.local/share/libs/scripts ] && git -C ~/.local/share/libs/scripts pull > /dev/null || true
+
 . ~/.local/share/libs/scripts/ansi.sh
 . ~/.local/share/libs/scripts/args.sh
 . ~/.local/share/libs/scripts/args-version.sh
@@ -61,13 +63,6 @@ fi
 if command -v bun &> /dev/null; then
   ansi::out "${PROMPT}Upgrade bun...${RESET_ALL}"
   bun upgrade --stable
-fi
-
-if [ -d ~/.local/share/libs/scripts ]; then
-  ansi::out "${PROMPT}Update bash scripts...${RESET_ALL}"
-  pushd ~/.local/share/libs/scripts > /dev/null
-  git pull
-  popd > /dev/null
 fi
 
 {{ if eq .osIdLike "linux-debian" -}}
