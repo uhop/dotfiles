@@ -3,7 +3,7 @@
 set -o errexit -o pipefail -o nounset -o noclobber
 shopt -s expand_aliases
 
-[ -d ~/.local/share/libs/scripts ] && git -C ~/.local/share/libs/scripts pull > /dev/null || true
+command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull > /dev/null || true
 
 . ~/.local/share/libs/scripts/ansi.sh
 . ~/.local/share/libs/scripts/args.sh
