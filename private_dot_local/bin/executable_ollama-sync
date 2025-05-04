@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+set -o errexit -o pipefail -o nounset -o noclobber
+shopt -s expand_aliases
+
+command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull > /dev/null || true
+
+. ~/.local/share/libs/scripts/ansi.sh
+. ~/.local/share/libs/scripts/args.sh
+. ~/.local/share/libs/scripts/args-version.sh
+. ~/.local/share/libs/scripts/args-help.sh
+
+script_dir="$(dirname "$(readlink -f "$0")")"
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0" "Updates ollama models"
+
+args::option "--version, -v" "Show version"
+args::option "--help, -h" "Show help"
+
+args::parse "$@"
+eval set -- "${args_cleaned}"
+
+if ! command -v ollama &> /dev/null; then
+  ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
+  ansi::err "${ERROR}ollama is not installed${RESET_ALL}"
+fi
+
+ollama list | awk 'NR>1 && !/reviewer/ {system("ollama pull "$1)}'
+
+# ollama list | tail -n +2 | awk '{print $1}' | while read -r model; do
+#   ollama pull $model
+# done
