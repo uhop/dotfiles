@@ -141,6 +141,9 @@ if [ -s ~/.bun/bin/bun ]; then
   export PATH=$BUN_INSTALL/bin:$PATH
 fi
 
+# lm studio
+[ -d ~/.lmstudio/bin ] && PATH="$HOME/.lmstudio/bin:$PATH" || true
+
 command -v doas &> /dev/null && complete -cf doas || true
 command -v xc &> /dev/null && complete -C "$(brew --prefix xc)" xc || true
 command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
