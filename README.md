@@ -90,7 +90,8 @@ The following tools are installed and aliased:
 - `helix` &mdash; a modal text editor.
 - `whalebrew` &mdash; like `brew` but for Docker images.
 - `xc` &mdash; a task runner.
-- `mosh` &mdash; a mobile shell.
+- `mosh` &mdash; a mobile shell (alternative to `ssh`).
+- `et` &mdash; eternal terminal (alternative to `ssh`).
 - `lnav` &mdash; a log navigator
 - `sd` &mdash; better `sed`.
 - `uv` &mdash; fast Python package manager.
@@ -418,3 +419,12 @@ For more details see:
 ## etckeeper
 
 See: https://wiki.archlinux.org/title/Etckeeper
+
+## ufw
+
+```bash
+# mosh
+sudo ufw allow 60000:61000/udp
+# et
+sudo ufw allow 2022/tcp
+```
