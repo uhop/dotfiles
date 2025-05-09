@@ -48,6 +48,8 @@ flatpak update $ASSUME_YES
 ansi::out "${WARN}softwareupdate requires sudo: expect asking for the sudo password.${RESET_ALL}"
 ansi::out "${PROMPT}Run sudo softwareupdate...${RESET_ALL}"
 sudo softwareupdate -i -a
+ansi::out "${PROMPT}Run mas...${RESET_ALL}"
+mas upgrade
 {{- end }}
 
 ansi::out "${PROMPT}Run brew...${RESET_ALL}"

@@ -98,6 +98,7 @@ The following tools are installed and aliased:
 - `tree` &mdash; show file directories as trees.
 - `doas` &mdash; a (better) alternative to `sudo`.
 - `etckeeper` &mdash; `git`-backed storage for `/etc` files (Linux only).
+- `mas` &mdash; Mac App Store CLI
 
 Check `.bash_aliases` for a list of aliases.
 
