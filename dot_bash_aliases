@@ -312,3 +312,14 @@ ett() {
   local TMUX="(command -v tmux &> /dev/null && tmux new -As $session_name)"
   et "$1" -c "$TMUX || bash"
 }
+
+## kitten ssh helpers
+
+alias kssh="kitten ssh"
+
+kssht() {
+  local session_name="$2"
+  local session_name="${session_name:=ssh_tmux}"
+  local TMUX="(command -v tmux &> /dev/null && tmux new -As $session_name)"
+  kitten ssh -t "$1" "$TMUX || bash"
+}
