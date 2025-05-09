@@ -348,6 +348,14 @@ scp -r ~/.terminfo REMOTE:~./terminfo
 
 Where `REMOTE` is the remote server you are copying `.terminfo` to.
 
+Another (better) solution is to install `kitty-terminfo` system-wide, which solves the problem
+for other users including the super user:
+
+```bash
+# on Debian
+sudo apt install kitty-terminfo
+```
+
 ## GNOME
 
 I used the following articles as a guidance:
