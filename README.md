@@ -99,6 +99,7 @@ The following tools are installed and aliased:
 - `doas` &mdash; a (better) alternative to `sudo`.
 - `etckeeper` &mdash; `git`-backed storage for `/etc` files (Linux only).
 - `mas` &mdash; Mac App Store CLI
+- `sshfs` &mdash; `sftp`-based user-level file system.
 
 Check `.bash_aliases` for a list of aliases.
 
