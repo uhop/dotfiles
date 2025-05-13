@@ -437,3 +437,19 @@ sudo ufw allow 60000:61000/udp
 # et
 sudo ufw allow 2022/tcp
 ```
+
+## TeX/LaTeX
+
+On Linux we can install with `apt` (or other system package manager) the following packages:
+
+- `texlive` &mdash; the core of TeX + most common TeX/LaTeX packages.
+- `texworks` &mdash; the GUI editor for TeX files.
+- `texmaker` &mdash; the GUI editor for TeX files.
+- `latexmk` &mdash; the utility to run process iteratively in multiple passes. Useful for
+  getting labels and pages correctly.
+
+On Mac `texlive` is available with `brew`.
+
+One of popular choices of mutiplatform GUI editors is `LyX`.
+
+This system does not install TeX by default.
