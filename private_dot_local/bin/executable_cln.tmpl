@@ -30,12 +30,13 @@ command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || tru
 
 ansi::out "${WARN}apt requires sudo: expect asking for the sudo password.${RESET_ALL}"
 ansi::out "${PROMPT}Run sudo apt...${RESET_ALL}"
-sudo apt autoclean
 sudo apt autoremove
+sudo apt autoclean
 {{- end }}
 
 ansi::out "${PROMPT}Run brew...${RESET_ALL}"
-brew cleanup
+brew autoremove
+brew cleanup --prune=all --scrub
 
 . "$(brew --prefix nvm)/nvm.sh"
 ansi::out "${PROMPT}Update major node versions...${RESET_ALL}"
