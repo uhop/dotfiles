@@ -1,75 +1,7 @@
-# some commands from https://www.cyberciti.biz/tips/bash-aliases-mac-centos-linux-unix.html
-
 # use doas instead of sudo by default
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
-## Colorize output for ease of use (good for log files)
-alias grep='grep --color=auto'
-alias egrep='egrep --color=auto'
-alias fgrep='fgrep --color=auto'
-alias diff='diff --color=auto'
-
-## Start calculator with math support
-alias bc='command bc -l'
-
-## Generate sha1 digest
-alias sha1='command openssl sha1'
-
-## Create parent directories on demand
-alias mkdir='command mkdir -pv'
-
-## Make mount command output pretty and human readable format
-alias mount='command mount | command column -t'
-
-## Command short cuts to save time
-alias h='command history'
-alias j='command jobs -l'
-
-## Add safety nets
-## do not delete / or prompt if deleting more than 3 files at a time
-alias rm='command rm -I --preserve-root'
-if [[ $OSTYPE == 'darwin'* ]]; then
-  alias rm='command rm -I'
-fi
-## confirmation #
-alias mv='command mv -iv'
-alias cp='command cp -iv'
-alias ln='command ln -i'
-## Parenting changing perms on / #
-if [[ $OSTYPE != 'darwin'* ]]; then
-  alias chown='command chown --preserve-root'
-  alias chmod='command chmod --preserve-root'
-  alias chgrp='command chgrp --preserve-root'
-fi
-
-## Resume wget by default
-## this one saved my butt so many times ##
-alias wget='command wget -c'
-
-## set some other defaults
-alias df='command df -kh'
-alias dd='command dd status=progress'
-alias free='free -m'
-alias env='command env | sort'
-alias path='command echo -e ${PATH//:/\\n}'
-
-alias mic='micro'
-alias lzd='lazydocker'
-alias lzg='lazygit'
-
-# Better replacements
-
-if command -v bat &> /dev/null; then
-  alias cat='bat'
-elif command -v batcat &> /dev/null; then
-  alias cat='batcat'
-fi
-alias ping='sudo prettyping --nolegend'
-alias top="sudo htop"
-alias du="ncdu --color dark -rr -x --exclude .git --exclude node_modules"
-alias help='tldr'
-
-# Better `ls`
+# listing files (better `ls`)
 
 alias l='eza'
 
@@ -107,7 +39,7 @@ l.() {
   l -d $(join_path "$1" ".*")
 }
 
-# Better `cd` AKA `z`
+# traversing directories (better `cd`) AKA `z`
 
 ## get rid of command not found ##
 alias cd..='z ..'
@@ -122,15 +54,42 @@ alias .5='z ../../../../../'
 alias ~='z ~'
 alias -- -='z -'
 
-# cd + ls
+up() { z $(eval printf '../'%.0s {1..$1}); }
 
+# cd + ls
 zl() {
   local dir="$1"
   local dir="${dir:=$HOME}"
   z "$dir" >/dev/null && l
 }
 
-# Better `cp` and `mv` with a progress bar
+## Create parent directories on demand
+alias mkdir='command mkdir -pv'
+
+## mkdir + cd
+mkcd() { mkdir -pv "$@" && z "$@"; }
+alias mkz="mkcd"
+
+# file operations
+
+## Add safety nets
+## do not delete / or prompt if deleting more than 3 files at a time
+alias rm='command rm -I --preserve-root'
+if [[ $OSTYPE == 'darwin'* ]]; then
+  alias rm='command rm -I'
+fi
+## confirmation #
+alias mv='command mv -iv'
+alias cp='command cp -iv'
+alias ln='command ln -i'
+## Parenting changing perms on / #
+if [[ $OSTYPE != 'darwin'* ]]; then
+  alias chown='command chown --preserve-root'
+  alias chmod='command chmod --preserve-root'
+  alias chgrp='command chgrp --preserve-root'
+fi
+
+# `rsync`-based file transfers (better `cp` and `mv`) with a progress bar
 
 if command -v rsync &>/dev/null; then
   alias cpg="rsync -ah --info=progress2 --no-inc-recursive --stats"
@@ -140,6 +99,51 @@ if command -v rsync &>/dev/null; then
   alias rup="rsync -avu --progress -h"
   alias rsy="rsync -avu --delete --progress -h"
 fi
+
+## Resume wget by default
+alias wget='command wget -c'
+
+## Colorize output for ease of use (good for log files)
+alias grep='grep --color=auto'
+alias egrep='egrep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias diff='diff --color=auto'
+
+## Start calculator with math support
+alias bc='command bc -l'
+
+## Generate sha1 digest
+alias sha1='command openssl sha1'
+
+## Make mount command output pretty and human readable format
+alias mount='command mount | command column -t'
+
+## Command short cuts to save time
+alias h='command history'
+alias j='command jobs -l'
+
+## set some other defaults
+alias df='command df -kh'
+alias dd='command dd status=progress'
+alias free='free -m'
+alias env='command env | sort'
+alias path='command echo -e ${PATH//:/\\n}'
+
+alias mic='micro'
+alias lzd='lazydocker'
+alias lzg='lazygit'
+
+# Better replacements
+
+if command -v bat &> /dev/null; then
+  alias cat='bat'
+elif command -v batcat &> /dev/null; then
+  alias cat='batcat'
+fi
+alias ping='sudo prettyping --nolegend'
+alias top="sudo htop"
+alias du="ncdu --color dark -rr -x --exclude .git --exclude node_modules"
+alias help='tldr'
 
 # System rebooting
 
@@ -170,8 +174,6 @@ fi
 # copied from https://www.reddit.com/r/linuxquestions/comments/16tgbh9/what_are_your_favorite_aliases_to_use/
 
 alias duf="duf -only local,fuse"
-
-up() { z $(eval printf '../'%.0s {1..$1}); }
 
 nowrap() {
     # this is a function so it can have params
@@ -256,9 +258,6 @@ alias psg="command ps aux | grep -v grep | grep -i -e VSZ -e" # search for a run
 alias pst="command ps -eo pid,comm,lstart,etimes,time,args"
 
 # My custom commands
-
-mkcd() { mkdir -pv "$@" && z "$@"; }
-alias mkz="mkcd"
 
 # no-globbing mode for bash functions, thanks to http://blog.edwards-research.com/2011/05/preventing-globbing/
 
