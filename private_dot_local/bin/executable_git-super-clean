@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+B=""
+A=""
+if [ -t 1 ]; then
+  B="\033[36m"
+  A="\033[0m"
+fi
+
+echo -e "${B}git reset --hard${A}"
+git reset --hard
+echo -e "${B}git clean --force -d -x${A}"
+git clean --force -d -x

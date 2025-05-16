@@ -32,8 +32,42 @@
 	whitespace = red reverse
 [pager]
 	diff = diff-so-fancy | less --tabs=2 -RFXS --pattern '^(Date|added|deleted|modified): '
+[pretty]
+  better-oneline = "format:%C(auto)%h%d %s %Cgreen(%cr) %Cblue[%cn]"
+  detailed-commit = "format:%C(bold)commit:%Creset %C(bold yellow)%h%Creset %C(yellow)<%H>%Creset %C(auto)%d%Creset%n%C(bold)date:%Creset   %C(bold green)%cd%Creset %C(green)%cr%Creset%n%C(bold)author:%Creset %C(bold blue)%an%Creset %Cblue<%ae>%Creset%n%n%C(cyan)%s%Creset%n%n%C(auto)%b%Creset"
 [alias]
 	patch = !git --no-pager diff --no-color
+	co = checkout
+	cob = checkout -b
+	cm = commit
+	st = status
+	ls = log --oneline --pretty=better-oneline
+	ll = log --oneline --pretty=better-oneline --numstat
+	lsf = log --oneline --pretty=better-oneline --graph --follow
+	tree = log --oneline --pretty=better-oneline --all --graph
+	# re = restore
+	# sw = switch
+	del = branch -D
+	# pick = cherry-pick
+	# type = cat-file -t
+	# dump = cat-file -p
+	aliases = "!f() { git config --get-regexp ^alias\\. | sort; }; f"
+	authors-list = shortlog -e -s -n
+	authors-count = shortlog -s -n
+	sl = log --graph --pretty=detailed-commit
+	last = log -1 --pretty=detailed-commit
+	nuke = reset --hard
+	purge = clean -fd
+	trim = "!f() { git branch | grep -v \"main\" | grep -v \"master\" | grep -v \"^*\" | xargs git branch -D; git remote prune origin; }; f"
+	branches = !git br -a
+	tags = tag
+	remotes = remote -v
+	merge-span = "!f() { echo $(git log -1 $2 --merges --pretty=format:%P | cut -d' ' -f1)$1$(git log -1 $2 --merges --pretty=format:%P | cut -d' ' -f2); }; f"
+	merge-log  = "!git ls `git merge-span .. $1`"
+	merge-diff = "!git diff `git merge-span ... $1`"
+	precommit = diff --cached --diff-algorithm=minimal -w
+	unmerged = diff --name-only --diff-filter=U
+	save = !git add -A && git commit -m 'chore: savepoint'
 [gui]
 	fontui = -family \"Hack Nerd Font Mono\" -size 14 -weight normal -slant roman -underline 0 -overstrike 0
 	fontdiff = -family \"Hack Nerd Font Mono\" -size 14 -weight normal -slant roman -underline 0 -overstrike 0

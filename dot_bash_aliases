@@ -1,6 +1,12 @@
 # use doas instead of sudo by default
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
+# echo the first argument and run
+echoRun() {
+  echo -e "\033[36m${1}\033[0m"
+  eval "$@"
+}
+
 # listing files (better `ls`)
 
 alias l='eza'
@@ -78,10 +84,12 @@ alias rm='command rm -I --preserve-root'
 if [[ $OSTYPE == 'darwin'* ]]; then
   alias rm='command rm -I'
 fi
+
 ## confirmation #
 alias mv='command mv -iv'
 alias cp='command cp -iv'
 alias ln='command ln -i'
+
 ## Parenting changing perms on / #
 if [[ $OSTYPE != 'darwin'* ]]; then
   alias chown='command chown --preserve-root'
@@ -100,8 +108,32 @@ if command -v rsync &>/dev/null; then
   alias rsy="rsync -avu --delete --progress -h"
 fi
 
-## Resume wget by default
+# Resume wget by default
 alias wget='command wget -c'
+
+# git aliases
+
+alias gst='f() { echoRun "git status $@"; unset -f f; }; f'
+__git_complete gst _git_status
+alias gco='f() { echoRun "git checkout $@"; unset -f f; }; f'
+__git_complete gco _git_checkout
+alias gcob='f() { echoRun "git checkout -b $@"; unset -f f; }; f'
+__git_complete gcob _git_checkout
+alias gcm='f() { echoRun "git commit $@"; unset -f f; }; f'
+__git_complete gcm _git_commit
+alias gbr='f() { echoRun "git branch $@"; unset -f f; }; f'
+__git_complete gbr _git_branch
+alias gre='f() { echoRun "git restore $@"; unset -f f; }; f'
+__git_complete gre _git_restore
+alias gsw='f() { echoRun "git switch $@"; unset -f f; }; f'
+__git_complete gsw _git_switch
+
+alias gls='f() { echoRun "git ls $@"; unset -f f; }; f'
+alias gll='f() { echoRun "git ll $@"; unset -f f; }; f'
+
+alias glsf='f() { echoRun "git lsf $@"; unset -f f; }; f'
+
+if command -v gitk &> /dev/null; then alias gk='gitk --all'; fi
 
 ## Colorize output for ease of use (good for log files)
 alias grep='grep --color=auto'

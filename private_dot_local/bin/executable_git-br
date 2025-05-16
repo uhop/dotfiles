@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+CMD="git branch ${@}"
+
+# Only output color if the command isn't being piped.
+if [ -t 1 ]; then
+  COLOR="always"
+  echo -e "\033[36m${CMD}\033[0m"
+else
+  COLOR="auto"
+  echo "${CMD}"
+fi
+
+$CMD \
+  --color="$COLOR" \
+  --format="%(HEAD) %(color:yellow)%(refname:short)%(color:reset) - %(contents:subject) %(color:green)(%(committerdate:relative)) %(color:blue)[%(authorname)]%(color:reset)"

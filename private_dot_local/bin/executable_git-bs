@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Only output color if the command isn't being piped.
+if [ -t 1 ]; then
+  COLOR="always"
+else
+  COLOR="auto"
+fi
+
+git branch \
+  --color="$COLOR" \
+  --sort=-authordate \
+  --format="%(color:green)%(authordate:relative);%(color:blue)%(authorname);%(color:yellow)%(refname:short);%(color:reset)%(subject)" \
+  "$@" \
+  | column -s ";" -t
