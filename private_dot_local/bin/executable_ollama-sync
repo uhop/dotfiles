@@ -26,7 +26,7 @@ if ! command -v ollama &> /dev/null; then
   ansi::err "${ERROR}ollama is not installed${RESET_ALL}"
 fi
 
-ollama list | awk 'NR>1 && !/reviewer/ {system("ollama pull "$1)}'
+ollama list | awk 'NR>1 && !/reviewer/ {system("echo \"\n\033[36mModel: \033[1m"$1"\033[0m\n\"; ollama pull "$1)}'
 
 # ollama list | tail -n +2 | awk '{print $1}' | while read -r model; do
 #   ollama pull $model
