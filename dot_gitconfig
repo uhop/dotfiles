@@ -37,16 +37,17 @@
   detailed-commit = "format:%C(bold)commit:%Creset %C(bold yellow)%h%Creset %C(yellow)<%H>%Creset %C(auto)%d%Creset%n%C(bold)date:%Creset   %C(bold green)%cd%Creset %C(green)%cr%Creset%n%C(bold)author:%Creset %C(bold blue)%an%Creset %Cblue<%ae>%Creset%n%n%C(cyan)%s%Creset%n%n%C(auto)%b%Creset"
 [alias]
 	patch = !git --no-pager diff --no-color
+	st = status
 	co = checkout
 	cob = checkout -b
 	cm = commit
-	st = status
 	ls = log --oneline --pretty=better-oneline
 	ll = log --oneline --pretty=better-oneline --numstat
 	lsf = log --oneline --pretty=better-oneline --graph --follow
 	tree = log --oneline --pretty=better-oneline --all --graph
 	# re = restore
 	# sw = switch
+	force-push = push --force-with-lease
 	del = branch -D
 	# pick = cherry-pick
 	# type = cat-file -t
