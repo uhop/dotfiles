@@ -201,20 +201,20 @@ which will switch from the current computer to the key and now everything will g
 
 See the following articles:
 
-* https://ubuntu.com/tutorials/how-to-install-a-windows-11-vm-using-lxd#1-overview
-* https://discussion.scottibyte.com/t/windows-11-lxd-virtual-machine-updated-november-2023/88
+- https://ubuntu.com/tutorials/how-to-install-a-windows-11-vm-using-lxd#1-overview
+- https://discussion.scottibyte.com/t/windows-11-lxd-virtual-machine-updated-november-2023/88
 
 Useful commands:
 
-* Start the `win11` instance:
+- Start the `win11` instance:
   ```bash
   lxc start win11
   ```
-  * Start and connect:
+  - Start and connect:
     ```bash
     lxc start win11 --console=vga
     ```
-* Connect to the running instance:
+- Connect to the running instance:
   ```bash
   lxc console win11 --type=vga
   ```
@@ -224,9 +224,9 @@ OTOH, connecting console allows to see the boot process and updates before Windo
 
 ### Docker
 
-* Docker: https://docs.docker.com/engine/install/ubuntu/
-* `lazydocker`: https://github.com/jesseduffield/lazydocker
-* `dive`: https://github.com/wagoodman/dive
+- Docker: https://docs.docker.com/engine/install/ubuntu/
+- `lazydocker`: https://github.com/jesseduffield/lazydocker
+- `dive`: https://github.com/wagoodman/dive
 
 Time to time `AppArmor` interferes with `Docker` operations, which result in failures with
 "permission denied" errors. Frequently it can be helped with:
@@ -276,7 +276,7 @@ They are installed manually using Win-A (Cmd-A) from Gnome.
     - It is available as a flatpak, but apparently it is completely unusable.
   - `skype` &mdash; communications
     - It is available as a flatpak, but apparently it is completely unusable.
-  - *Note:* if `snap-store` cannot be updated (because it is running) use:
+  - _Note:_ if `snap-store` cannot be updated (because it is running) use:
     `snap-store --quit && snap refresh snap-store`
 - AppImages
   - `gear lever` is used via `flatpak`. See above.
@@ -295,7 +295,7 @@ chsh -s $(brew --prefix)/bin/bash
 
 For more info see:
 
-* https://phoenixnap.com/kb/change-zsh-to-bash-mac
+- https://phoenixnap.com/kb/change-zsh-to-bash-mac
 
 Make sure that scripts start with `#!/usr/bin/env bash` instead of `#!/bin/bash`. The former
 is the new `bash`, while the latter is the old one.
@@ -362,27 +362,27 @@ sudo apt install kitty-terminfo
 
 I used the following articles as a guidance:
 
-* https://www.howtogeek.com/improve-ubuntu-without-using-the-terminal/
-* https://www.howtogeek.com/i-always-install-these-gnome-extensions-on-my-linux-computers/
+- https://www.howtogeek.com/improve-ubuntu-without-using-the-terminal/
+- https://www.howtogeek.com/i-always-install-these-gnome-extensions-on-my-linux-computers/
 
 This is the list of user-installed extensions I use:
 
-* ArcMenu
-* Clipboard History
-* Dash to Dock &mdash; doesn't work for me, sometimes locks GNOME (?), disabled
-* Dash to Panel &mdash; not sure I like how it works, disabled
-* GSConnect &mdash; sometimes not available in newer versions
-* Just Perfection
-* LAN IP Address
-* Tray Icons: Reloaded
-* User id in top panel
-* Vitals &mdash; useful, but I usually disable it on low-powered systems
+- ArcMenu
+- Clipboard History
+- Dash to Dock &mdash; doesn't work for me, sometimes locks GNOME (?), disabled
+- Dash to Panel &mdash; not sure I like how it works, disabled
+- GSConnect &mdash; sometimes not available in newer versions
+- Just Perfection
+- LAN IP Address
+- Tray Icons: Reloaded
+- User id in top panel
+- Vitals &mdash; useful, but I usually disable it on low-powered systems
 
 ## MakeMKV
 
 The best way is to install it on Linux via PPA:
 
-* https://connectwww.com/how-to-install-makemkv-on-ubuntu-mkv-converter/61127/
+- https://connectwww.com/how-to-install-makemkv-on-ubuntu-mkv-converter/61127/
 
 ## doas
 
@@ -421,9 +421,9 @@ On initial setup the config described above is installed if no config is availab
 
 For more details see:
 
-* https://wiki.debian.org/Doas
-* https://manpages.debian.org/bookworm/opendoas/doas.1.en.html
-* https://manpages.debian.org/bookworm/opendoas/doas.conf.5.en.html
+- https://wiki.debian.org/Doas
+- https://manpages.debian.org/bookworm/opendoas/doas.1.en.html
+- https://manpages.debian.org/bookworm/opendoas/doas.conf.5.en.html
 
 ## etckeeper
 
