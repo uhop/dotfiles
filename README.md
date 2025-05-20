@@ -100,6 +100,7 @@ The following tools are installed and aliased:
 - `etckeeper` &mdash; `git`-backed storage for `/etc` files (Linux only).
 - `mas` &mdash; Mac App Store CLI
 - `sshfs` &mdash; `sftp`-based user-level file system.
+- `agrep` &mdash; fuzzy `grep` of the `tre` package.
 
 Check `.bash_aliases` for a list of aliases.
 
