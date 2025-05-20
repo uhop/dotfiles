@@ -87,6 +87,7 @@ The following tools are installed and aliased:
 - `zoxide` &mdash; better `cd`.
 - `bottom` &mdash; a system monitor.
 - `node`, `nvm`, `deno`, `bun` &mdash; JavaScript environments.
+- `pnpm` &mdash; `node`-compatible package manager.
 - `helix` &mdash; a modal text editor.
 - `whalebrew` &mdash; like `brew` but for Docker images.
 - `xc` &mdash; a task runner.
