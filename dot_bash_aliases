@@ -355,7 +355,7 @@ upfd() {
   done
 }
 
-alias upsearch='noGlob upfd -g'
+alias upsearch='noGlob upfd -gH'
 
 # ssh helpers
 
