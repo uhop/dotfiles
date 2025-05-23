@@ -321,6 +321,42 @@ implWhere() {
 
 alias where='noGlob implWhere'
 
+# upsearch
+
+upfind() {
+  local last_dir="/"
+  if [[ "$1" == "-h" ]]; then
+    shift
+    last_dir="$(realpath "$HOME")"
+  fi
+
+  local dir="$PWD"
+  while true; do
+    command find "$dir" -maxdepth 1 "$@"
+    [[ "$dir" == "$last_dir" ]] && break
+    [[ "$dir" == "/" ]] && break
+    dir="$(realpath "${dir}/..")"
+  done
+}
+
+upfd() {
+  local last_dir="/"
+  if [[ "$1" == "-h" ]]; then
+    shift
+    last_dir="$(realpath "$HOME")"
+  fi
+
+  local dir="$PWD"
+  while true; do
+    command fd --max-depth 1 "$@" "$dir"
+    [[ "$dir" == "$last_dir" ]] && break
+    [[ "$dir" == "/" ]] && break
+    dir="$(realpath "${dir}/..")"
+  done
+}
+
+alias upsearch='noGlob upfd -g'
+
 # ssh helpers
 
 ssht() {
