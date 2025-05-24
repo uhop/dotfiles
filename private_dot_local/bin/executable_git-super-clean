@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -euCo pipefail
+shopt -s expand_aliases
 
 B=""
 A=""

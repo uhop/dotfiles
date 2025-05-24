@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+set -euCo pipefail
+shopt -s expand_aliases
+
 CYAN="$(tput setaf 6)"
 BOLD="$(tput bold)"
 RESET="$(tput op)$(tput sgr0)"
