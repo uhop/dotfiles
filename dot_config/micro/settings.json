@@ -1,23 +1,23 @@
 {
-  "colorcolumn": 100,
-  "diffgutter": true,
-  "ft:makefile": {
-    "tabtospaces": false
-  },
-  "hlsearch": true,
-  "ignorecase": false,
-  "mkparents": true,
-  "prettier": {
-    "onsave": false
-  },
-  "prettier.onsave": false,
-  "rmtrailingws": true,
-  "savecursor": true,
-  "saveundo": true,
-  "scrollbar": true,
-  "softwrap": true,
-  "tabmovement": true,
-  "tabsize": 2,
-  "tabstospaces": true,
-  "wordwrap": true
+    "colorcolumn": 100,
+    "diffgutter": true,
+    "ft:makefile": {
+        "tabtospaces": false
+    },
+    "hlsearch": true,
+    "ignorecase": false,
+    "mkparents": true,
+    "prettier": {
+        "onsave": false
+    },
+    "prettier.onsave": false,
+    "rmtrailingws": true,
+    "savecursor": true,
+    "saveundo": true,
+    "scrollbar": true,
+    "softwrap": true,
+    "tabmovement": true,
+    "tabsize": 2,
+    "tabstospaces": true,
+    "wordwrap": true
 }
