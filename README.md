@@ -102,7 +102,7 @@ The following tools are installed and aliased:
 - `mas` &mdash; Mac App Store CLI
 - `sshfs` &mdash; `sftp`-based user-level file system.
 - `agrep` &mdash; fuzzy `grep` of the `tre` package.
-- `bandwhich` &mdash; real-time network monitoring.
+- `bandwhich`, `bmon` &mdash; real-time network monitoring.
 
 Check `.bash_aliases` for a list of aliases.
 
