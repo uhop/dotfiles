@@ -16,8 +16,8 @@ script_name=$(basename "$0")
 args::program "$script_name" "1.0" "Updates ollama models"
 args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset}"
 
-args::option "--version, -v" "Show version"
-args::option "--help, -h" "Show help"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
 
 args::parse "$@"
 eval set -- "${args_cleaned}"

@@ -16,10 +16,10 @@ script_name=$(basename "$0")
 args::program "$script_name" "1.0" "Update software with available package managers"
 args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset}"
 
-args::option "--clean, -c" "Run the cleanup script ${BOLD}cln${RESET_ALL} after updating"
-args::option "--yes, -y" "Assume \"yes\" to all prompts"
-args::option "--version, -v" "Show version"
-args::option "--help, -h" "Show help"
+args::option "-c, --clean" "Run the cleanup script ${BOLD}cln${RESET_ALL} after updating"
+args::option "-y, --yes" "Assume \"yes\" to all prompts"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
 
 args::parse "$@"
 eval set -- "${args_cleaned}"
@@ -31,7 +31,7 @@ PROMPT="${BOLD}${FG_CYAN}"
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
 ASSUME_YES=''
-if [[ -v args_options["--yes"] ]]; then ASSUME_YES='-y'; fi
+if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 
 ansi::out "${WARN}Both apt and snap require sudo: expect asking for the sudo password.${RESET_ALL}"
 ansi::out "${PROMPT}Run sudo apt...${RESET_ALL}"
@@ -73,7 +73,7 @@ if compgen -G "/run/reb*" > /dev/null; then
 fi
 {{- end }}
 
-if [[ -v args_options["--clean"] ]]; then
+if [[ -v args_options["-c"] ]]; then
   ansi::out "\n${PROMPT}Clean up...${RESET_ALL}\n"
   cln
 fi
