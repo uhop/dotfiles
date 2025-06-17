@@ -127,6 +127,10 @@ alias gre='f() { echoRun "git restore $@"; unset -f f; }; f'
 __git_complete gre _git_restore
 alias gsw='f() { echoRun "git switch $@"; unset -f f; }; f'
 __git_complete gsw _git_switch
+alias gpull='f() { echoRun "git pull $@"; unset -f f; }; f'
+__git_complete gpull _git_pull
+alias gpush='f() { echoRun "git push $@"; unset -f f; }; f'
+__git_complete gpush _git_push
 
 alias gls='f() { echoRun "git ls $@"; unset -f f; }; f'
 alias gll='f() { echoRun "git ll $@"; unset -f f; }; f'
