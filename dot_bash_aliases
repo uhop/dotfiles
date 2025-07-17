@@ -113,6 +113,10 @@ alias wget='command wget -c'
 
 # git aliases
 
+__get_default_git_branch() {
+  git remote show origin | sed -n '/HEAD branch/s/.*: //p'
+}
+
 alias gst='f() { echoRun "git status $@"; unset -f f; }; f'
 __git_complete gst _git_status
 alias gco='f() { echoRun "git checkout $@"; unset -f f; }; f'
@@ -125,12 +129,14 @@ alias gbr='f() { echoRun "git branch $@"; unset -f f; }; f'
 __git_complete gbr _git_branch
 alias gre='f() { echoRun "git restore $@"; unset -f f; }; f'
 __git_complete gre _git_restore
-alias gsw='f() { echoRun "git switch $@"; unset -f f; }; f'
-__git_complete gsw _git_switch
 alias gpull='f() { echoRun "git pull $@"; unset -f f; }; f'
 __git_complete gpull _git_pull
 alias gpush='f() { echoRun "git push $@"; unset -f f; }; f'
 __git_complete gpush _git_push
+
+alias gsw='f() { if [[ "$#" -eq 0 ]]; then echoRun "git switch $(__get_default_git_branch)"; else echoRun "git switch $@"; fi; unset -f f; }; f'
+__git_complete gsw _git_switch
+
 
 alias gls='f() { echoRun "git ls $@"; unset -f f; }; f'
 alias gll='f() { echoRun "git ll $@"; unset -f f; }; f'
