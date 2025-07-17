@@ -16,6 +16,7 @@ script_name=$(basename "$0")
 args::program "$script_name" "1.0" "Clean unused versions and caches of software"
 args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset}"
 
+args::option "-y, --yes" "Assume \"yes\" to all prompts"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 
@@ -25,13 +26,16 @@ eval set -- "${args_cleaned}"
 WARN="${BOLD}${BRIGHT_WHITE}${BG_BLUE}"
 PROMPT="${BOLD}${FG_CYAN}"
 
+ASSUME_YES=''
+if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
+
 {{ if eq .osIdLike "linux-debian" -}}
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
 ansi::out "${WARN}apt requires sudo: expect asking for the sudo password.${RESET_ALL}"
 ansi::out "${PROMPT}Run sudo apt...${RESET_ALL}"
-sudo apt autoremove
-sudo apt autoclean
+sudo apt autoremove $ASSUME_YES
+sudo apt autoclean $ASSUME_YES
 {{- end }}
 
 ansi::out "${PROMPT}Run brew...${RESET_ALL}"

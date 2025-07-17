@@ -27,11 +27,11 @@ eval set -- "${args_cleaned}"
 WARN="${BOLD}${BRIGHT_WHITE}${BG_BLUE}"
 PROMPT="${BOLD}${FG_CYAN}"
 
-{{ if eq .osIdLike "linux-debian" -}}
-command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
-
 ASSUME_YES=''
 if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
+
+{{ if eq .osIdLike "linux-debian" -}}
+command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
 ansi::out "${WARN}Both apt and snap require sudo: expect asking for the sudo password.${RESET_ALL}"
 ansi::out "${PROMPT}Run sudo apt...${RESET_ALL}"
@@ -75,5 +75,5 @@ fi
 
 if [[ -v args_options["-c"] ]]; then
   ansi::out "\n${PROMPT}Clean up...${RESET_ALL}\n"
-  cln
+  cln $ASSUME_YES
 fi

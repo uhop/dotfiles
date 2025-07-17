@@ -181,7 +181,11 @@ permit nopass :sudo cmd apt args upgrade
 permit nopass :sudo cmd apt args -y upgrade
 permit nopass :sudo cmd apt args upgrade -y
 permit nopass :sudo cmd apt args autoremove
+permit nopass :sudo cmd apt args -y autoremove
+permit nopass :sudo cmd apt args autoremove -y
 permit nopass :sudo cmd apt args autoclean
+permit nopass :sudo cmd apt args -y autoclean
+permit nopass :sudo cmd apt args autoclean -y
 
 permit nopass :sudo cmd snap args refresh
 
