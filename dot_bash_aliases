@@ -127,8 +127,8 @@ alias gcm='f() { echoRun "git commit $@"; unset -f f; }; f'
 __git_complete gcm _git_commit
 alias gbr='f() { echoRun "git branch $@"; unset -f f; }; f'
 __git_complete gbr _git_branch
-alias gre='f() { echoRun "git restore $@"; unset -f f; }; f'
-__git_complete gre _git_restore
+alias grs='f() { echoRun "git restore $@"; unset -f f; }; f'
+__git_complete grs _git_restore
 alias gpull='f() { echoRun "git pull $@"; unset -f f; }; f'
 __git_complete gpull _git_pull
 alias gpush='f() { echoRun "git push $@"; unset -f f; }; f'
