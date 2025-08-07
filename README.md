@@ -60,6 +60,7 @@ The following tools are installed and aliased:
 - `diff-so-fancy` &mdash; a nice `diff` pager.
 - `tealdeer`, `cheat` &mdash; a `man` replacement. Alternatives: `tldr`.
 - `exa` &mdash; better `ls`.
+- `lsr` &mdash; better and faster `ls` (uses `io_uring` on Linux).
 - `bat` &mdash; better `cat`.
 - `fd` &mdash; better `find`.
 - `ncdu`, `dust` &mdash; better `du`.
@@ -70,6 +71,7 @@ The following tools are installed and aliased:
 - `prettyping`, `gping` &mdash; better `ping`.
 - `htop` &mdash; better `top`.
 - `btop` &mdash; better `top`.
+- `bottom` &mdash; a system monitor (as `btm`).
 - `awscli`, `aws-iam-authenticator`, `kubernetes-cli`, `helm`, `sops`, `gh`, `hub`, `nginx`, `net-tools`, `xh` &mdash; useful utilities for web development.
 - `parallel` &mdash; shell parallelization.
 - `fzf` &mdash; a command-line fuzzy finder.
@@ -85,7 +87,6 @@ The following tools are installed and aliased:
 - `duf` &mdash; a disk utility.
 - `hyperfine` &mdash; benchmarking better than `time`.
 - `zoxide` &mdash; better `cd`.
-- `bottom` &mdash; a system monitor.
 - `node`, `nvm`, `deno`, `bun` &mdash; JavaScript environments.
 - `pnpm` &mdash; `node`-compatible package manager.
 - `helix` &mdash; a modal text editor.
