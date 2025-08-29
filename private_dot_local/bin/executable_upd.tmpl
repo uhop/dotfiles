@@ -40,16 +40,19 @@ sudo apt update && sudo apt upgrade $ASSUME_YES
 ansi::out "${PROMPT}Run sudo snap...${RESET_ALL}"
 sudo snap refresh
 
-{{ if .hasGui -}}
-ansi::out "${PROMPT}Run flatpak...${RESET_ALL}"
-flatpak update $ASSUME_YES
-{{- end }}
+if command -v flatpak &> /dev/null; then
+  ansi::out "${PROMPT}Run flatpak...${RESET_ALL}"
+  flatpak update $ASSUME_YES
+fi
 {{- else if eq .osIdLike "darwin" -}}
 ansi::out "${WARN}softwareupdate requires sudo: expect asking for the sudo password.${RESET_ALL}"
 ansi::out "${PROMPT}Run sudo softwareupdate...${RESET_ALL}"
 sudo softwareupdate -i -a
-ansi::out "${PROMPT}Run mas...${RESET_ALL}"
-mas upgrade
+
+if command -v mas &> /dev/null; then
+  ansi::out "${PROMPT}Run mas...${RESET_ALL}"
+  mas upgrade
+fi
 {{- end }}
 
 ansi::out "${PROMPT}Run brew...${RESET_ALL}"
