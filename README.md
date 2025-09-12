@@ -65,6 +65,7 @@ The following tools are installed and aliased:
 - `fd` &mdash; better `find`.
 - `ncdu`, `dust` &mdash; better `du`.
 - `ag`, `ripgrep` &mdash; better `ack`.
+  - `ig` &mdash; like `rg` but interactive, part of `igrep`.
 - `tig`, `lazygit` &mdash; text interface for `git`.
   - `onefetch` &mdash; `git` stats.
 - `broot` &mdash; better `tree`.
@@ -103,7 +104,6 @@ The following tools are installed and aliased:
 - `mas` &mdash; Mac App Store CLI
 - `sshfs` &mdash; `sftp`-based user-level file system.
 - `agrep` &mdash; fuzzy `grep` of the `tre` package.
-- `ig` &mdash; interactive `grep` integrated with an editor.
 - `bandwhich`, `bmon` &mdash; real-time network monitoring.
 
 Check `.bash_aliases` for a list of aliases.
