@@ -103,6 +103,7 @@ The following tools are installed and aliased:
 - `mas` &mdash; Mac App Store CLI
 - `sshfs` &mdash; `sftp`-based user-level file system.
 - `agrep` &mdash; fuzzy `grep` of the `tre` package.
+- `ig` &mdash; interactive `grep` integrated with an editor.
 - `bandwhich`, `bmon` &mdash; real-time network monitoring.
 
 Check `.bash_aliases` for a list of aliases.
