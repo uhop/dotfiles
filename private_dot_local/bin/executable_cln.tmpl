@@ -38,6 +38,11 @@ sudo apt autoremove $ASSUME_YES
 sudo apt autoclean $ASSUME_YES
 {{- end }}
 
+if command -v flatpak &> /dev/null; then
+  ansi::out "${PROMPT}Run flatpak...${RESET_ALL}"
+  flatpak uninstall --unused $ASSUME_YES
+fi
+
 ansi::out "${PROMPT}Run brew...${RESET_ALL}"
 brew autoremove
 brew cleanup --prune=all --scrub
