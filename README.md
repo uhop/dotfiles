@@ -105,6 +105,7 @@ The following tools are installed and aliased:
 - `sshfs` &mdash; `sftp`-based user-level file system.
 - `agrep` &mdash; fuzzy `grep` of the `tre` package.
 - `bandwhich`, `bmon` &mdash; real-time network monitoring.
+- `q` &mdash; a command-line DNS client.
 
 Check `.bash_aliases` for a list of aliases.
 
