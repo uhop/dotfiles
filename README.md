@@ -39,6 +39,8 @@ Over time a system should be updated. There are the following scripts that help 
 
 2. `cln` &mdash; runs cleanups on all relevant services (see above) and updates `node`.
 
+Use `upd -c` to run `upd` followed by `cln`.
+
 ## Installed tools
 
 The choice of tools and aliases is influenced by:
