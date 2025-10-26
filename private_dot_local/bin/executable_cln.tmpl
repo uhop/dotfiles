@@ -5,6 +5,9 @@ shopt -s expand_aliases
 
 command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull > /dev/null || true
 
+groups "$(id -un)" | grep -qE '\b(sudo|admin)\b'
+hasSudo=$?
+
 . ~/.local/share/libs/scripts/ansi.sh
 . ~/.local/share/libs/scripts/args.sh
 . ~/.local/share/libs/scripts/args-version.sh
@@ -32,10 +35,12 @@ if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 {{ if eq .osIdLike "linux-debian" -}}
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
-ansi::out "${WARN}apt requires sudo: expect asking for the sudo password.${RESET_ALL}"
-ansi::out "${PROMPT}Run sudo apt...${RESET_ALL}"
-sudo apt autoremove $ASSUME_YES
-sudo apt autoclean $ASSUME_YES
+if [ "$hasSudo" -eq 0 ]; then
+  ansi::out "${WARN}apt requires sudo: expect asking for the sudo password.${RESET_ALL}"
+  ansi::out "${PROMPT}Run sudo apt...${RESET_ALL}"
+  sudo apt autoremove $ASSUME_YES
+  sudo apt autoclean $ASSUME_YES
+fi
 {{- end }}
 
 if command -v flatpak &> /dev/null; then
