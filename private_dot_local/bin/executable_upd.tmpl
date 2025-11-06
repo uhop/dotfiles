@@ -63,7 +63,8 @@ if command -v mas &> /dev/null; then
 fi
 {{- end }}
 
-echoRunBold "brew update && brew upgrade"
+echoRunBold brew update
+echoRunBold brew upgrade
 
 if command -v tmux &> /dev/null; then
   if [ -f "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" ]; then
