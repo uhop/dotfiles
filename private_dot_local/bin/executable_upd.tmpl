@@ -54,7 +54,7 @@ if command -v flatpak &> /dev/null; then
 fi
 {{- else if eq .osIdLike "darwin" -}}
 if [ "$hasSudo" -eq 0 ]; then
-  ansi::out "${WARN}softwareupdate requires sudo: expect asking for the sudo password.${RESET_ALL}"
+  ansi::out "${WARN}softwareupdate may require sudo: expect asking for the sudo password.${RESET_ALL}"
   echoRunBold sudo softwareupdate -i -a
 fi
 
