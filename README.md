@@ -461,3 +461,36 @@ On Mac `texlive` is available with `brew`.
 One of popular choices of mutiplatform GUI editors is `LyX`.
 
 This system does not install TeX by default.
+
+## flatpak
+
+Flatpak has an annoying issue with permissions. Everything works locally, but when run remotely
+via `ssh` it starts to ask for password on every operation several times per item it processes.
+
+The solution is to create a rules file allowing remote sessions to run flatpak commands without
+password. The file should be placed in `/usr/local/share/polkit-1/rules.d/90-flatpak-ssh.rules`
+and should look like that:
+
+```js
+polkit.addRule(function (action, subject) {
+  if (
+    action.id.indexOf('org.freedesktop.Flatpak.') == 0 &&
+    (subject.isInGroup('sudo') || subject.isInGroup('wheel'))
+  ) {
+    return polkit.Result.YES;
+  }
+  return polkit.Result.NOT_HANDLED;
+});
+```
+
+Then the system should be restarted for good measure. Or you can try to reload polkit:
+
+```bash
+sudo systemctl restart polkit
+```
+
+This addition allows to perform any flatpak operations for any member of `sudo` (Debian)
+or `wheel` (Fedora) groups without asking password. Unlike the stock rules it doesn't check
+if the session is local or active, and doesn't list 5 different operations by their names.
+See the stock rules in `/usr/share/polkit-1/rules.d/org.freedesktop.Flatpak.rules`
+for comparison.
