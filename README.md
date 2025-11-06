@@ -401,14 +401,22 @@ The typical minimal configuration looks like that:
 permit persist keepenv setenv { PATH XAUTHORITY LANG LC_ALL } :sudo
 ```
 
-Additional useful permissions, which allow to run common maintenance commands
+The following configuration allows to run common maintenance commands
 without asking password:
 
 ```txt
+permit persist keepenv setenv { PATH XAUTHORITY LANG LC_ALL } :sudo
+
 permit nopass :sudo cmd apt args update
 permit nopass :sudo cmd apt args upgrade
+permit nopass :sudo cmd apt args -y upgrade
+permit nopass :sudo cmd apt args upgrade -y
 permit nopass :sudo cmd apt args autoremove
+permit nopass :sudo cmd apt args -y autoremove
+permit nopass :sudo cmd apt args autoremove -y
 permit nopass :sudo cmd apt args autoclean
+permit nopass :sudo cmd apt args -y autoclean
+permit nopass :sudo cmd apt args autoclean -y
 
 permit nopass :sudo cmd snap args refresh
 
