@@ -468,7 +468,7 @@ Flatpak has an annoying issue with permissions. Everything works locally, but wh
 via `ssh` it starts to ask for password on every operation several times per item it processes.
 
 The solution is to create a rules file allowing remote sessions to run flatpak commands without
-password. The file should be placed in `/usr/local/share/polkit-1/rules.d/90-flatpak-ssh.rules`
+password. The file should be named as `/usr/local/share/polkit-1/rules.d/90-flatpak-ssh.rules`
 and should look like that:
 
 ```js
