@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
+set -euCo pipefail
 shopt -s expand_aliases
-set -e
 
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
-groups "$(id -un)" | grep -qE '\b(sudo|admin)\b'
+groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'
 hasSudo=$?
 
 CYAN="$(tput setaf 6)"
