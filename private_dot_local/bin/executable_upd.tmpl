@@ -5,7 +5,7 @@ shopt -s expand_aliases
 
 command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull > /dev/null || true
 
-groups "$(id -un)" | grep -qE '\b(sudo|admin)\b'
+groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'
 hasSudo=$?
 
 . ~/.local/share/libs/scripts/ansi.sh
@@ -33,39 +33,37 @@ PROMPT="${BOLD}${FG_CYAN}"
 ASSUME_YES=''
 if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 
+. ~/.local/libs/main.sh
+
 {{ if eq .osIdLike "linux-debian" -}}
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
 if [ "$hasSudo" -eq 0 ]; then
-  ansi::out "${WARN}Both apt and snap require sudo: expect asking for the sudo password.${RESET_ALL}"
-  ansi::out "${PROMPT}Run sudo apt...${RESET_ALL}"
-  sudo apt update && sudo apt upgrade $ASSUME_YES
+  ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
+  echoRunBold sudo apt update
+  echoRunBold sudo apt upgrade $ASSUME_YES
 fi
 
 if [ "$hasSudo" -eq 0 ]; then
-  ansi::out "${PROMPT}Run sudo snap...${RESET_ALL}"
-  sudo snap refresh
+  ansi::out "${WARN}snap may require sudo: expect asking for the sudo password.${RESET_ALL}"
+  echoRunBold sudo snap refresh
 fi
 
 if command -v flatpak &> /dev/null; then
-  ansi::out "${PROMPT}Run flatpak...${RESET_ALL}"
-  flatpak update $ASSUME_YES
+  echoRunBold flatpak update $ASSUME_YES
 fi
 {{- else if eq .osIdLike "darwin" -}}
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}softwareupdate requires sudo: expect asking for the sudo password.${RESET_ALL}"
-  ansi::out "${PROMPT}Run sudo softwareupdate...${RESET_ALL}"
-  sudo softwareupdate -i -a
+  echoRunBold sudo softwareupdate -i -a
 fi
 
 if command -v mas &> /dev/null; then
-  ansi::out "${PROMPT}Run mas...${RESET_ALL}"
-  mas upgrade
+  echoRunBold mas upgrade
 fi
 {{- end }}
 
-ansi::out "${PROMPT}Run brew...${RESET_ALL}"
-brew update && brew upgrade
+echoRunBold "brew update && brew upgrade"
 
 if command -v tmux &> /dev/null; then
   if [ -f "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" ]; then
@@ -75,8 +73,7 @@ if command -v tmux &> /dev/null; then
 fi
 
 if command -v bun &> /dev/null; then
-  ansi::out "${PROMPT}Upgrade bun...${RESET_ALL}"
-  bun upgrade --stable
+  echoRunBold bun upgrade --stable
 fi
 
 {{ if eq .osIdLike "linux-debian" -}}
