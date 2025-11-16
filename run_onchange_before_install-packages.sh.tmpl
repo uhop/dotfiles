@@ -25,7 +25,7 @@ if [ "$hasSudo" -eq 0 ]; then
     gcp bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel tree \
     brotli gh mc ripgrep duf hyperfine zoxide nginx shellcheck clangd git-lfs etckeeper \
     grc golang gopls rustc cargo python3 python3-pylsp net-tools firejail waypipe lnav \
-    libfuse2t64 sshfs
+    libfuse2t64 sshfs ttyd
 fi
 {{ if .hasGui -}}
 if [ "$hasSudo" -eq 0 ]; then
@@ -137,7 +137,6 @@ brew "lsr"
 brew "lnav"
 brew "lua"
 brew "lua-language-server"
-brew "mas"
 brew "micro"
 brew "midnight-commander"
 brew "mosh"
@@ -164,6 +163,7 @@ brew "tig"
 brew "tmux"
 brew "tre"
 brew "tree"
+brew "ttyd"
 brew "typescript-language-server"
 brew "util-linux"
 brew "uv"
