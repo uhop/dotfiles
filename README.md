@@ -96,6 +96,8 @@ The following tools are installed and aliased:
 - `whalebrew` &mdash; like `brew` but for Docker images.
 - `xc` &mdash; a task runner.
 - `mosh` &mdash; a mobile shell (alternative to `ssh`).
+- `et` &mdash; an Eternal Terminal (alternative to `ssh`, not pre-installed).
+- `ttyd` &mdash; a tool to share a terminal over the web.
 - `lnav` &mdash; a log navigator
 - `sd` &mdash; better `sed`.
 - `uv` &mdash; fast Python package manager.
@@ -103,7 +105,7 @@ The following tools are installed and aliased:
 - `tree` &mdash; show file directories as trees.
 - `doas` &mdash; a (better) alternative to `sudo`.
 - `etckeeper` &mdash; `git`-backed storage for `/etc` files (Linux only).
-- `mas` &mdash; Mac App Store CLI
+- `mas` &mdash; Mac App Store CLI (not pre-installed).
 - `sshfs` &mdash; `sftp`-based user-level file system.
 - `agrep` &mdash; fuzzy `grep` of the `tre` package.
 - `bandwhich`, `bmon` &mdash; real-time network monitoring.
