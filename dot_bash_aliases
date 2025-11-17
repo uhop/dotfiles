@@ -137,6 +137,9 @@ __git_complete gpush _git_push
 alias gsw='f() { if [[ "$#" -eq 0 ]]; then echoRun "git switch $(__get_default_git_branch)"; else echoRun "git switch $@"; fi; unset -f f; }; f'
 __git_complete gsw _git_switch
 
+alias gme='f() { if [[ "$#" -eq 0 ]]; then echoRun "git merge $(__get_default_git_branch)"; else echoRun "git merge $@"; fi; unset -f f; }; f'
+__git_complete gme _git_merge
+
 alias gls='f() { echoRun "git ls $@"; unset -f f; }; f'
 alias gll='f() { echoRun "git ll $@"; unset -f f; }; f'
 
