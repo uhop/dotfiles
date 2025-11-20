@@ -3,12 +3,7 @@
 set -euCo pipefail
 shopt -s expand_aliases
 
-command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull > /dev/null || true
-
-. ~/.local/share/libs/scripts/ansi.sh
-. ~/.local/share/libs/scripts/args.sh
-. ~/.local/share/libs/scripts/args-version.sh
-. ~/.local/share/libs/scripts/args-help.sh
+. ~/.local/libs/main.sh
 
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
@@ -35,7 +30,5 @@ fi
 
 ansi::out "${WARN}mount requires sudo: expect asking for the sudo password.${RESET_ALL}"
 ansi::out "${PROMPT}Run sudo mount...${RESET_ALL}"
-
-command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
 sudo mount -o {{ if eq .osIdLike "darwin" -}}noowners,tcp,rw,resvport,{{- end -}}hard,timeo=600,rsize=1048576,wsize=1048576 ${server_name}:/media/raid {{ if eq .osIdLike "darwin" -}}/Volumes/raid{{- else if eq .osIdLike "linux-debian" -}}/media/raid{{- end}}

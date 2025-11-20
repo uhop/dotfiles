@@ -3,15 +3,7 @@
 set -euCo pipefail
 shopt -s expand_aliases
 
-command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull > /dev/null || true
-
-groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'
-hasSudo=$?
-
-. ~/.local/share/libs/scripts/ansi.sh
-. ~/.local/share/libs/scripts/args.sh
-. ~/.local/share/libs/scripts/args-version.sh
-. ~/.local/share/libs/scripts/args-help.sh
+. ~/.local/libs/main.sh
 
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
@@ -26,17 +18,16 @@ args::option "-h, --help" "Show help"
 args::parse "$@"
 eval set -- "${args_cleaned}"
 
+groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'
+hasSudo=$?
+
 WARN="${BOLD}${BRIGHT_WHITE}${BG_BLUE}"
 PROMPT="${BOLD}${FG_CYAN}"
 
 ASSUME_YES=''
 if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 
-. ~/.local/libs/main.sh
-
 {{ if eq .osIdLike "linux-debian" -}}
-command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
-
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
   echoRunBold sudo apt autoremove $ASSUME_YES
