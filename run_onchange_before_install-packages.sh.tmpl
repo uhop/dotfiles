@@ -205,6 +205,8 @@ permit nopass :sudo cmd snap args refresh
 
 permit nopass :sudo cmd ping
 permit nopass :sudo cmd prettyping
+
+permit nopass :sudo cmd aa-remove-unknown
 EOF
       {{ if eq .osIdLike "darwin" -}}
         sudo chown root /etc/doas.conf

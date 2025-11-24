@@ -424,6 +424,8 @@ permit nopass :sudo cmd snap args refresh
 
 permit nopass :sudo cmd ping
 permit nopass :sudo cmd prettyping
+
+permit nopass :sudo cmd aa-remove-unknown
 ```
 
 For good measure make this file readable only for `root`:
