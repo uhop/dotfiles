@@ -194,11 +194,11 @@ alias help='tldr'
 # System rebooting
 
 if command -v systemctl &> /dev/null; then
-  alias poweroff="sudo systemctl poweroff"
-  alias reboot="sudo systemctl reboot"
+  alias poweroff='echoRun "sudo systemctl poweroff"'
+  alias reboot='echoRun "sudo systemctl reboot"'
 elif command -v shutdown &>/dev/null; then
-  alias poweroff="sudo shutdown -h now"
-  alias reboot="sudo shutdown -r now"
+  alias poweroff='echoRun "sudo shutdown -h now"'
+  alias reboot='echoRun "sudo shutdown -r now"'
 fi
 if type -t poweroff &>/dev/null; then
   alias shutdown=poweroff
