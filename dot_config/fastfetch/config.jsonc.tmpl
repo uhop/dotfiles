@@ -1,6 +1,6 @@
 {
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/master/doc/json_schema.json",
-  // set stat command: {{ $StatCommand := eq .osIdLike "darwin" | ternary "stat -f %SB /Applications" "stat -c %W /" }}
+  // set stat command: {{ $StatCommand := eq .osIdLike "darwin" | ternary "stat -f %B /Applications" "stat -c %W /" }}
   "modules": [
     "title",
     "separator",
