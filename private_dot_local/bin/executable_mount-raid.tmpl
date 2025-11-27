@@ -29,6 +29,6 @@ if [ -z "$server_name" ]; then
 fi
 
 ansi::out "${WARN}mount requires sudo: expect asking for the sudo password.${RESET_ALL}"
-ansi::out "${PROMPT}Run sudo mount...${RESET_ALL}"
 
-sudo mount -o {{ if eq .osIdLike "darwin" -}}noowners,tcp,rw,resvport,{{- end -}}hard,timeo=600,rsize=1048576,wsize=1048576 ${server_name}:/media/raid {{ if eq .osIdLike "darwin" -}}/Volumes/raid{{- else if eq .osIdLike "linux-debian" -}}/media/raid{{- end}}
+OPTS="{{ if eq .osIdLike "darwin" -}}noowners,tcp,rw,resvport,{{- end -}}hard,timeo=600,rsize=1048576,wsize=1048576 ${server_name}:/media/raid {{ if eq .osIdLike "darwin" -}}/Volumes/raid{{- else if eq .osIdLike "linux-debian" -}}/media/raid{{- end}}"
+echoRun "sudo mount -o $OPTS"
