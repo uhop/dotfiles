@@ -29,8 +29,6 @@ ASSUME_YES=''
 if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 
 {{ if eq .osIdLike "linux-debian" -}}
-command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
-
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
   echoRunBold sudo apt update
@@ -52,7 +50,8 @@ if [ "$hasSudo" -eq 0 ]; then
 fi
 
 if command -v mas &> /dev/null; then
-  echoRunBold mas upgrade
+  ansi::out "${WARN}mas may require sudo: expect asking for the sudo password.${RESET_ALL}"
+  echoRunBold sudo mas upgrade
 fi
 {{- end }}
 
