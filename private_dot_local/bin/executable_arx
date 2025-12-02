@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+. ~/.local/libs/main.sh
+
+script_dir="$(dirname "$(readlink -f "$0")")"
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0" "View/extract archives"
+# args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset} ${args_help_command_arg}<archive>${args_help_reset}"
+args_program_required_command="no"
+
+args::option "list, l" "List available files (default)" "file-name"
+args::option "extract, x" "Extract all files" "file-name [path-to]"
+
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+
+args::parse "$@"
+eval set -- "${args_cleaned}"
+
+ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
+
+if [ -z "${1:-}" ]; then
+  args::option::help
+fi
+
+if [ -z "${args_command:-}" ]; then
+  args_command="list"
+  file_name="${1:-}"
+else
+  file_name="${2:-}"
+fi
+
+if [ -z "${file_name:-}" ]; then
+  ansi::err "${ERROR}No file name is specified.${RESET_ALL}"
+  exit 1
+fi
+
+if [[ "$args_command" == "extract" ]]; then
+  path_to="${3:-}"
+fi
+
+requiresDir () { # usage: requiresDir <file>
+  case "$1" in
+    *.tar.br)    echo yes ;;
+    *.tar.bz2)   echo yes ;;
+    *.tar.gz)    echo yes ;;
+    *.bz2)       echo no  ;;
+    *.rar)       echo yes ;;
+    *.gz)        echo no  ;;
+    *.tar)       echo yes ;;
+    *.tbz2)      echo yes ;;
+    *.tgz)       echo yes ;;
+    *.zip)       echo yes ;;
+    *.Z)         echo no  ;;
+    *.7z)        echo yes ;;
+    *.deb)       echo yes ;;
+    *.tar.xz)    echo yes ;;
+    *.tar.zst)   echo yes ;;
+    *)           echo     ;;
+  esac
+}
+
+extract () { # usage: extract <file> <to>
+  if [ ! -f "$1" ]; then
+    ansi::err "${ERROR}'$1' is not a valid file${RESET_ALL}"
+    exit 1
+  fi
+  if [ -n "$2" ]; then
+    reqDir="$(requiresDir "$1")"
+    if [[ "$reqDir" == "yes" ]]; then
+      if [ ! -d "$2" ]; then
+        echoRun mkdir -p "$2"
+      fi
+    elif [[ "$reqDir" == "no" ]]; then
+      dir="$(dirname "$2")"
+      if [ ! -d "$dir" ]; then
+        echoRun mkdir -p "$dir"
+      fi
+    fi
+  fi
+  case "$1" in
+    *.tar.br)    echoRun tar xvf "$1" -I brotli ${2:+-C "$2"} ;;
+    *.tar.bz2)   echoRun tar xjvf "$1" ${2:+-C "$2"}          ;;
+    *.tar.gz)    echoRun tar xzvf "$1" ${2:+-C "$2"}          ;;
+    *.bz2)       echoRun bunzip2 "$1" ${2:+-c > "$2"}         ;;
+    *.rar)       echoRun unrar x "$1" "$2"                    ;;
+    *.gz)        echoRun gunzip "$1" ${2:+-c > "$2"}          ;;
+    *.tar)       echoRun tar xvf "$1" ${2:+-C "$2"}           ;;
+    *.tbz2)      echoRun tar xjvf "$1" ${2:+-C "$2"}          ;;
+    *.tgz)       echoRun tar xzvf "$1" ${2:+-C "$2"}          ;;
+    *.zip)       echoRun unzip "$1" ${2:+-d "$2"}             ;;
+    *.Z)         echoRun uncompress "$1" ${2:+-c "$2"}        ;;
+    *.7z)        echoRun 7z x "$1" ${2:+-o\""$2"\"}           ;;
+    *.deb)       echoRun ar x "$1" ${2:+--output="$2"}        ;;
+    *.tar.xz)    echoRun tar xJvf "$1" ${2:+-C "$2"}          ;;
+    *.tar.zst)   echoRun tar --zstd -xvf "$1" ${2:+-C "$2"}   ;;
+    *)           ansi::err "${ERROR}'$1' cannot be extracted${RESET_ALL}"; exit 1 ;;
+  esac
+}
+
+list () { # usage: list <file>
+  if [ ! -f "$1" ]; then
+    ansi::err "${ERROR}'$1' is not a valid file${RESET_ALL}"
+    exit 1
+  fi
+  case "$1" in
+    *.tar.br)    echoRun tar tvf "$1" -I brotli ;;
+    *.tar.bz2)   echoRun tar tjvf "$1"          ;;
+    *.tar.gz)    echoRun tar tzvf "$1"          ;;
+    *.bz2)       echoRun bunzip2 -l "$1"        ;;
+    *.rar)       echoRun unrar l "$1"           ;;
+    *.gz)        echoRun gunzip -l "$1"         ;;
+    *.tar)       echoRun tar tvf "$1"           ;;
+    *.tbz2)      echoRun tar tjvf "$1"          ;;
+    *.tgz)       echoRun tar tzvf "$1"          ;;
+    *.zip)       echoRun unzip -l "$1"          ;;
+    *.Z)         echoRun uncompress -l "$1"     ;;
+    *.7z)        echoRun 7z l "$1"              ;;
+    *.deb)       echoRun ar t "$1"              ;;
+    *.tar.xz)    echoRun tar tJvf "$1"          ;;
+    *.tar.zst)   echoRun tar --zstd -tvf "$1"   ;;
+    *)           ansi::err "${ERROR}'$1' cannot be listed${RESET_ALL}"; exit 1 ;;
+  esac
+}
+
+case "$args_command" in
+  "list")
+    list "$file_name"
+    ;;
+  "extract")
+    extract "$file_name" "$path_to"
+    ;;
+  *)
+    ansi::err "${ERROR}Unknown command: $args_command${RESET_ALL}"
+    exit 1
+    ;;
+esac
