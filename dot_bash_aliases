@@ -147,7 +147,7 @@ alias glsf='f() { echoRun "git lsf $@"; unset -f f; }; f'
 
 alias gg='f() { echoRun "git gui $@"; unset -f f; }; f'
 
-if command -v gitk &> /dev/null; then alias gk='gitk --all'; fi
+if command -v gitk &> /dev/null; then alias gk='echoRun gitk --all'; fi
 
 ## Colorize output for ease of use (good for log files)
 alias grep='grep --color=auto'
