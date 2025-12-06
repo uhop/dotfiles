@@ -506,3 +506,18 @@ or `wheel` (Fedora) groups without asking password. Unlike the stock rules it do
 if the session is local or active, and doesn't list 5 different operations by their names.
 See the stock rules in `/usr/share/polkit-1/rules.d/org.freedesktop.Flatpak.rules`
 for comparison.
+
+### Chrome
+
+For some reason Chrome packaged as Flatpak cannot print to actual printers. Only to PDF.
+Apparently it needs some additional permissions (can be set by Flatseal):
+
+- Printing system (under Socket) `socket=cups` is set by default.
+- All user files (under Filesystem) `filesystem=home` **should be set**.
+
+Other custom settings I use:
+
+- Other files (under Filesystem):
+  - `~/.local/share/icons`
+  - `~/.local/share/applications`
+- GPU acceleration (under Device) `device=dri`.
