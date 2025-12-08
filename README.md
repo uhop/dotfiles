@@ -121,6 +121,7 @@ Check `.bash_aliases` for a list of aliases.
 
 These instructions assume a newly installed OS. Otherwise, adjust accordingly.
 
+- Install your private ssh keys suitable to access github, if you use them. Otherwise github-based installations will fail.
 - Install prerequisites:
   ```bash
   sudo apt install build-essential curl git git-gui gitk micro
