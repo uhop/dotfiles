@@ -534,3 +534,9 @@ Other custom settings I use:
   - `~/.local/share/icons`
   - `~/.local/share/applications`
 - GPU acceleration (under Device) `device=dri`.
+
+## CUPS
+
+For some reason GNOME CUPS tools have problems: they set up a network printer
+but it is very slow. Sources recommend to use native CUPS utilities to set it up.
+For example, use "Administration" on https://localhost:631
