@@ -384,7 +384,7 @@ I used the following articles as a guidance:
 
 This is the list of user-installed extensions I use:
 
-- ArcMenu
+- ArcMenu, moderately useful, usually disabled
 - Clipboard History
 - Dash to Dock &mdash; doesn't work for me, sometimes locks GNOME (?), disabled
 - Dash to Panel &mdash; not sure I like how it works, disabled
@@ -455,6 +455,12 @@ For more details see:
 ## etckeeper
 
 See: https://wiki.archlinux.org/title/Etckeeper
+
+I add manually `*.mount` to `/etc/.gitignore`:
+
+```bash
+sudoedit /etc/.gitignore
+```
 
 ## ufw
 
