@@ -225,7 +225,7 @@ if command -v tmux &> /dev/null; then
   fi
   if [ -f "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" ]; then
     echo "${PROMPT}Installing tmux plugins...${RESET}"
-    "$HOME/.config/tmux/plugins/tpm/bin/install_plugins"
+    "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" || true
   fi
 fi
 
@@ -241,8 +241,10 @@ fi
 
 echo "${PROMPT}Installing the latest stable node...${RESET}"
 [ ! -d ~/.nvm ] && mkdir ~/.nvm || true
-\. "$(brew --prefix nvm)/nvm.sh"
-nvm install stable
+if [ -f "$(brew --prefix nvm)/nvm.sh" ]; then
+  \. "$(brew --prefix nvm)/nvm.sh"
+  nvm install stable
+fi
 
 if ! command -v bun &> /dev/null; then
   echo "${PROMPT}Installing bun...${RESET}"
