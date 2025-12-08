@@ -329,6 +329,14 @@ See "Kitty terminal" below if you run Kitty with `tmux` remotely.
 
 ## Micro
 
+Currently installed plugins (including the default ones) can be listed using:
+
+```bash
+mic -plugin list
+```
+
+The list of recommended plugins can be found here: `~/.config/micro/plugins.txt`.
+
 The `prettier` plugin is installed manually: https://github.com/claromes/micro-prettier
 
 Consider its cousin for Python: https://github.com/claromes/micro-yapf
@@ -338,8 +346,6 @@ The rest of plugins (excluding default plugins) are installed using:
 ```bash
 mic -plugin install fzf
 ```
-
-The list of recommended plugins can be found here: `~/.config/micro/plugins.txt`.
 
 Links on customization:
 
