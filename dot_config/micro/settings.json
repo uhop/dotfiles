@@ -19,5 +19,6 @@
     "tabmovement": true,
     "tabsize": 2,
     "tabstospaces": true,
-    "wordwrap": true
+    "wordwrap": true,
+    "yapf.onsave": false
 }
