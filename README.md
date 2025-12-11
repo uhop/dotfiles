@@ -239,6 +239,14 @@ OTOH, connecting console allows to see the boot process and updates before Windo
 - `lazydocker`: https://github.com/jesseduffield/lazydocker
 - `dive`: https://github.com/wagoodman/dive
 
+Periodically Docker system needs to be cleaned up. Use:
+
+```bash
+docker system prune --volumes
+```
+
+This will remove all unused containers, networks, volumes (not used by at least one container), images, and build cache.
+
 Time to time `AppArmor` interferes with `Docker` operations, which result in failures with
 "permission denied" errors. Frequently it can be helped with:
 
