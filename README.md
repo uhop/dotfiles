@@ -242,10 +242,22 @@ OTOH, connecting console allows to see the boot process and updates before Windo
 Periodically Docker system needs to be cleaned up. Use:
 
 ```bash
-docker system prune --volumes
+docker system prune -a
 ```
 
-This will remove all unused containers, networks, volumes (not used by at least one container), images, and build cache.
+This will remove all unused containers, networks, images, and build cache.
+
+To remove all and volumes **not used by currently running containers**:
+
+```bash
+docker system prune -a --volumes
+```
+
+To remove everything (see above) without asking confirmation use "force":
+
+```bash
+docker system prune -af --volumes
+```
 
 Time to time `AppArmor` interferes with `Docker` operations, which result in failures with
 "permission denied" errors. Frequently it can be helped with:
