@@ -82,22 +82,24 @@ extract () { # usage: extract <file> <to>
       fi
     fi
   fi
-  case "$1" in
-    *.tar.br)    echoRun tar xvf "$1" -I brotli ${2:+-C "$2"} ;;
-    *.tar.bz2)   echoRun tar xjvf "$1" ${2:+-C "$2"}          ;;
-    *.tar.gz)    echoRun tar xzvf "$1" ${2:+-C "$2"}          ;;
-    *.bz2)       echoRun bunzip2 "$1" ${2:+-c > "$2"}         ;;
-    *.rar)       echoRun unrar x "$1" "$2"                    ;;
-    *.gz)        echoRun gunzip "$1" ${2:+-c > "$2"}          ;;
-    *.tar)       echoRun tar xvf "$1" ${2:+-C "$2"}           ;;
-    *.tbz2)      echoRun tar xjvf "$1" ${2:+-C "$2"}          ;;
-    *.tgz)       echoRun tar xzvf "$1" ${2:+-C "$2"}          ;;
-    *.zip)       echoRun unzip "$1" ${2:+-d "$2"}             ;;
-    *.Z)         echoRun uncompress "$1" ${2:+-c "$2"}        ;;
-    *.7z)        echoRun 7z x "$1" ${2:+-o\""$2"\"}           ;;
-    *.deb)       echoRun ar x "$1" ${2:+--output="$2"}        ;;
-    *.tar.xz)    echoRun tar xJvf "$1" ${2:+-C "$2"}          ;;
-    *.tar.zst)   echoRun tar --zstd -xvf "$1" ${2:+-C "$2"}   ;;
+  file_name="$(printf '%q' "$1")"
+  path_to="$(printf '%q' "$2")"
+  case "${file_name}" in
+    *.tar.br)    echoRun tar xvf "${file_name}" -I brotli ${path_to:+-C "$path_to"} ;;
+    *.tar.bz2)   echoRun tar xjvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
+    *.tar.gz)    echoRun tar xzvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
+    *.bz2)       echoRun bunzip2 "${file_name}" ${path_to:+-c > "$path_to"}         ;;
+    *.rar)       echoRun unrar x "${file_name}" "$path_to"                    ;;
+    *.gz)        echoRun gunzip "${file_name}" ${path_to:+-c > "$path_to"}          ;;
+    *.tar)       echoRun tar xvf "${file_name}" ${path_to:+-C "$path_to"}           ;;
+    *.tbz2)      echoRun tar xjvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
+    *.tgz)       echoRun tar xzvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
+    *.zip)       echoRun unzip "${file_name}" ${path_to:+-d "$path_to"}             ;;
+    *.Z)         echoRun uncompress "${file_name}" ${path_to:+-c > "$path_to"}        ;;
+    *.7z)        echoRun 7z x "${file_name}" ${path_to:+-o"$path_to"}           ;;
+    *.deb)       echoRun ar x "${file_name}" ${path_to:+--output="$path_to"}        ;;
+    *.tar.xz)    echoRun tar xJvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
+    *.tar.zst)   echoRun tar --zstd -xvf "${file_name}" ${path_to:+-C "$path_to"}   ;;
     *)           ansi::err "${ERROR}'$1' cannot be extracted${RESET_ALL}"; exit 1 ;;
   esac
 }
@@ -107,22 +109,23 @@ list () { # usage: list <file>
     ansi::err "${ERROR}'$1' is not a valid file${RESET_ALL}"
     exit 1
   fi
-  case "$1" in
-    *.tar.br)    echoRun tar tvf "$1" -I brotli ;;
-    *.tar.bz2)   echoRun tar tjvf "$1"          ;;
-    *.tar.gz)    echoRun tar tzvf "$1"          ;;
-    *.bz2)       echoRun bunzip2 -l "$1"        ;;
-    *.rar)       echoRun unrar l "$1"           ;;
-    *.gz)        echoRun gunzip -l "$1"         ;;
-    *.tar)       echoRun tar tvf "$1"           ;;
-    *.tbz2)      echoRun tar tjvf "$1"          ;;
-    *.tgz)       echoRun tar tzvf "$1"          ;;
-    *.zip)       echoRun unzip -l "$1"          ;;
-    *.Z)         echoRun uncompress -l "$1"     ;;
-    *.7z)        echoRun 7z l "$1"              ;;
-    *.deb)       echoRun ar t "$1"              ;;
-    *.tar.xz)    echoRun tar tJvf "$1"          ;;
-    *.tar.zst)   echoRun tar --zstd -tvf "$1"   ;;
+  file_name="$(printf '%q' "$1")"
+  case "${file_name}" in
+    *.tar.br)    echoRun tar tvf "${file_name}" -I brotli ;;
+    *.tar.bz2)   echoRun tar tjvf "${file_name}"          ;;
+    *.tar.gz)    echoRun tar tzvf "${file_name}"          ;;
+    *.bz2)       echoRun bunzip2 -l "${file_name}"        ;;
+    *.rar)       echoRun unrar l "${file_name}"           ;;
+    *.gz)        echoRun gunzip -l "${file_name}"         ;;
+    *.tar)       echoRun tar tvf "${file_name}"           ;;
+    *.tbz2)      echoRun tar tjvf "${file_name}"          ;;
+    *.tgz)       echoRun tar tzvf "${file_name}"          ;;
+    *.zip)       echoRun unzip -l "${file_name}"          ;;
+    *.Z)         echoRun uncompress -l "${file_name}"     ;;
+    *.7z)        echoRun 7z l "${file_name}"              ;;
+    *.deb)       echoRun ar t "${file_name}"              ;;
+    *.tar.xz)    echoRun tar tJvf "${file_name}"          ;;
+    *.tar.zst)   echoRun tar --zstd -tvf "${file_name}"   ;;
     *)           ansi::err "${ERROR}'$1' cannot be listed${RESET_ALL}"; exit 1 ;;
   esac
 }
