@@ -10,6 +10,47 @@ script_name=$(basename "$0")
 
 args::program "$script_name" "1.0" "View/extract archives"
 # args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset} ${args_help_command_arg}<archive>${args_help_reset}"
+
+args_program_header="${BOLD}arx${RESET_BOLD} can view and extract archives of various types.
+It handles compression and archive formats automatically.
+
+It relies on the appropriate tools being installed on your system
+to handle each format. For example, ${BOLD}.tar.bz2${RESET_BOLD} requires ${BOLD}bzip2${RESET_BOLD} and
+${BOLD}tar${RESET_BOLD} to be installed to work properly."
+
+args_program_usage="${BOLD}arx${RESET_BOLD} archive.tar.gz          # List contents
+${BOLD}arx${RESET_BOLD} l archive.tar.gz        # List contents
+${BOLD}arx${RESET_BOLD} list archive.tar.gz     # List contents
+${BOLD}arx${RESET_BOLD} extract archive.tar.gz  # Extract all files to the current directory
+${BOLD}arx${RESET_BOLD} x archive.tar.gz ./dir  # Extract to a specific directory"
+
+args_program_footer="If no arguments are provided, ${BOLD}arx${RESET_BOLD} will show this help.
+If only an archive argument is provided, ${BOLD}arx${RESET_BOLD} will attempt to list files
+in this archive (if supported by the underlying tool). Some formats may not support listing.
+
+Supported file extensions:
+- Tar archives:
+  - ${BOLD}.tar.br${RESET_BOLD}:  Brotli compressed tar archive
+  - ${BOLD}.tar.bz2${RESET_BOLD}: Bzip2 compressed tar archive
+  - ${BOLD}.tar.gz${RESET_BOLD}:  Gzip compressed tar archive
+  - ${BOLD}.tar.xz${RESET_BOLD}:  XZ compressed tar archive
+  - ${BOLD}.tar.zst${RESET_BOLD}: Zstandard compressed tar archive
+  - ${BOLD}.tar${RESET_BOLD}:     Uncompressed tar archive
+  - ${BOLD}.tbz2${RESET_BOLD}:    Bzip2 compressed tar archive
+  - ${BOLD}.tgz${RESET_BOLD}:     Gzip compressed tar archive
+- Archives:
+  - ${BOLD}.7z${RESET_BOLD}:      7-Zip archive
+  - ${BOLD}.deb${RESET_BOLD}:     Debian package
+  - ${BOLD}.rar${RESET_BOLD}:     RAR archive
+  - ${BOLD}.zip${RESET_BOLD}:     ZIP archive
+- Single files:
+  - ${BOLD}.br${RESET_BOLD}:      Brotli compressed file
+  - ${BOLD}.bz2${RESET_BOLD}:     Bzip2 compressed file
+  - ${BOLD}.gz${RESET_BOLD}:      Gzip compressed file
+  - ${BOLD}.xz${RESET_BOLD}:      XZ compressed file
+  - ${BOLD}.zst${RESET_BOLD}:     Zstandard compressed file
+  - ${BOLD}.Z${RESET_BOLD}:       Compress (LZW) compressed file"
+
 args_program_required_command="no"
 
 args::option "list, l" "List available files (default)" "file-name"
@@ -48,18 +89,21 @@ requiresDir () { # usage: requiresDir <file>
     *.tar.br)    echo yes ;;
     *.tar.bz2)   echo yes ;;
     *.tar.gz)    echo yes ;;
-    *.bz2)       echo no  ;;
-    *.rar)       echo yes ;;
-    *.gz)        echo no  ;;
+    *.tar.xz)    echo yes ;;
+    *.tar.zst)   echo yes ;;
     *.tar)       echo yes ;;
     *.tbz2)      echo yes ;;
     *.tgz)       echo yes ;;
-    *.zip)       echo yes ;;
-    *.Z)         echo no  ;;
     *.7z)        echo yes ;;
     *.deb)       echo yes ;;
-    *.tar.xz)    echo yes ;;
-    *.tar.zst)   echo yes ;;
+    *.rar)       echo yes ;;
+    *.zip)       echo yes ;;
+    *.br)        echo no  ;;
+    *.bz2)       echo no  ;;
+    *.gz)        echo no  ;;
+    *.xz)        echo no  ;;
+    *.zst)       echo no  ;;
+    *.Z)         echo no  ;;
     *)           echo     ;;
   esac
 }
@@ -88,18 +132,21 @@ extract () { # usage: extract <file> <to>
     *.tar.br)    echoRun tar xvf "${file_name}" -I brotli ${path_to:+-C "$path_to"} ;;
     *.tar.bz2)   echoRun tar xjvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
     *.tar.gz)    echoRun tar xzvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
-    *.bz2)       echoRun bunzip2 "${file_name}" ${path_to:+-c > "$path_to"}         ;;
-    *.rar)       echoRun unrar x "${file_name}" "$path_to"                    ;;
-    *.gz)        echoRun gunzip "${file_name}" ${path_to:+-c > "$path_to"}          ;;
+    *.tar.xz)    echoRun tar xJvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
+    *.tar.zst)   echoRun tar --zstd -xvf "${file_name}" ${path_to:+-C "$path_to"}   ;;
     *.tar)       echoRun tar xvf "${file_name}" ${path_to:+-C "$path_to"}           ;;
     *.tbz2)      echoRun tar xjvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
     *.tgz)       echoRun tar xzvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
-    *.zip)       echoRun unzip "${file_name}" ${path_to:+-d "$path_to"}             ;;
-    *.Z)         echoRun uncompress "${file_name}" ${path_to:+-c > "$path_to"}        ;;
     *.7z)        echoRun 7z x "${file_name}" ${path_to:+-o"$path_to"}           ;;
     *.deb)       echoRun ar x "${file_name}" ${path_to:+--output="$path_to"}        ;;
-    *.tar.xz)    echoRun tar xJvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
-    *.tar.zst)   echoRun tar --zstd -xvf "${file_name}" ${path_to:+-C "$path_to"}   ;;
+    *.rar)       echoRun unrar x "${file_name}" "$path_to"                    ;;
+    *.zip)       echoRun unzip "${file_name}" ${path_to:+-d "$path_to"}             ;;
+    *.br)        echoRun brotli -d "${file_name}" ${path_to:+-o "$path_to"}         ;;
+    *.bz2)       echoRun bunzip2 "${file_name}" ${path_to:+-c > "$path_to"}         ;;
+    *.gz)        echoRun gunzip "${file_name}" ${path_to:+-c > "$path_to"}          ;;
+    *.xz)        echoRun unxz "${file_name}" ${path_to:+-c > "$path_to"}            ;;
+    *.zst)       echoRun zstd -d "${file_name}" ${path_to:+-o "$path_to"}           ;;
+    *.Z)         echoRun uncompress "${file_name}" ${path_to:+-c > "$path_to"}        ;;
     *)           ansi::err "${ERROR}'$1' cannot be extracted${RESET_ALL}"; exit 1 ;;
   esac
 }
@@ -114,18 +161,21 @@ list () { # usage: list <file>
     *.tar.br)    echoRun tar tvf "${file_name}" -I brotli ;;
     *.tar.bz2)   echoRun tar tjvf "${file_name}"          ;;
     *.tar.gz)    echoRun tar tzvf "${file_name}"          ;;
-    *.bz2)       echoRun bunzip2 -l "${file_name}"        ;;
-    *.rar)       echoRun unrar l "${file_name}"           ;;
-    *.gz)        echoRun gunzip -l "${file_name}"         ;;
+    *.tar.xz)    echoRun tar tJvf "${file_name}"          ;;
+    *.tar.zst)   echoRun tar --zstd -tvf "${file_name}"   ;;
     *.tar)       echoRun tar tvf "${file_name}"           ;;
     *.tbz2)      echoRun tar tjvf "${file_name}"          ;;
     *.tgz)       echoRun tar tzvf "${file_name}"          ;;
-    *.zip)       echoRun unzip -l "${file_name}"          ;;
-    *.Z)         echoRun uncompress -l "${file_name}"     ;;
     *.7z)        echoRun 7z l "${file_name}"              ;;
     *.deb)       echoRun ar t "${file_name}"              ;;
-    *.tar.xz)    echoRun tar tJvf "${file_name}"          ;;
-    *.tar.zst)   echoRun tar --zstd -tvf "${file_name}"   ;;
+    *.rar)       echoRun unrar l "${file_name}"           ;;
+    *.zip)       echoRun unzip -l "${file_name}"          ;;
+    *.br)        echoRun brotli -l "${file_name}"         ;;
+    *.bz2)       echoRun bunzip2 -l "${file_name}"        ;;
+    *.gz)        echoRun gunzip -l "${file_name}"         ;;
+    *.xz)        echoRun unxz -l "${file_name}"           ;;
+    *.zst)       echoRun zstd -l "${file_name}"           ;;
+    *.Z)         echoRun uncompress -l "${file_name}"     ;;
     *)           ansi::err "${ERROR}'$1' cannot be listed${RESET_ALL}"; exit 1 ;;
   esac
 }
