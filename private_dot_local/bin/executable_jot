@@ -9,6 +9,7 @@ script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
 args::program "$script_name" "1.0" "Jot notes keeping them in S3"
+
 args_program_header="${BOLD}Jot${RESET_BOLD} can read and write notes as text files using S3 as a storage.
 While doing so it decodes files using their extensions. For example,
 ${BOLD}notes.md.gz.age${RESET_BOLD} will be decrypted by ${BOLD}age${RESET_BOLD} and then decompressed by ${BOLD}gzip${RESET_BOLD}.
@@ -17,6 +18,7 @@ After editing, the file will be compressed and encrypted back.
 If the file does not exist, an empty file will be created.
 Additionally the standard set of file commands is supported:
 - ${BOLD}list${RESET_BOLD}, ${BOLD}edit${RESET_BOLD}, ${BOLD}get${RESET_BOLD}, ${BOLD}put${RESET_BOLD}, ${BOLD}rename${RESET_BOLD}, ${BOLD}delete${RESET_BOLD}."
+
 args_program_footer="If no arguments are provided, ${BOLD}Jot${RESET_BOLD} will list available files.
 If only one argument is provided, ${BOLD}Jot${RESET_BOLD} will edit this file.
 Commands ${BOLD}edit${RESET_BOLD}, ${BOLD}get${RESET_BOLD}, and ${BOLD}rename${RESET_BOLD} treat their 1st arguments as prefixes
@@ -37,6 +39,7 @@ Supported file extensions:
 - ${BOLD}.gz${RESET_BOLD}:  Gzip compressed file
 - ${BOLD}.xz${RESET_BOLD}:  XZ compressed file
 - ${BOLD}.zst${RESET_BOLD}: Zstandard compressed file"
+
 args_program_required_command="no"
 
 args::option "edit, e" "Edit file" "file_name"
