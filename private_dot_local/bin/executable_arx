@@ -137,17 +137,17 @@ extract () { # usage: extract <file> <to>
     *.tar)       echoRun tar xvf "${file_name}" ${path_to:+-C "$path_to"}           ;;
     *.tbz2)      echoRun tar xjvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
     *.tgz)       echoRun tar xzvf "${file_name}" ${path_to:+-C "$path_to"}          ;;
-    *.7z)        echoRun 7z x "${file_name}" ${path_to:+-o"$path_to"}           ;;
+    *.7z)        echoRun 7z x "${file_name}" ${path_to:+-o"$path_to"}               ;;
     *.deb)       echoRun ar x "${file_name}" ${path_to:+--output="$path_to"}        ;;
-    *.rar)       echoRun unrar x "${file_name}" "$path_to"                    ;;
+    *.rar)       echoRun unrar x "${file_name}" "$path_to"                          ;;
     *.zip)       echoRun unzip "${file_name}" ${path_to:+-d "$path_to"}             ;;
     *.br)        echoRun brotli -d "${file_name}" ${path_to:+-o "$path_to"}         ;;
     *.bz2)       echoRun bunzip2 "${file_name}" ${path_to:+-c > "$path_to"}         ;;
     *.gz)        echoRun gunzip "${file_name}" ${path_to:+-c > "$path_to"}          ;;
     *.xz)        echoRun unxz "${file_name}" ${path_to:+-c > "$path_to"}            ;;
     *.zst)       echoRun zstd -d "${file_name}" ${path_to:+-o "$path_to"}           ;;
-    *.Z)         echoRun uncompress "${file_name}" ${path_to:+-c > "$path_to"}        ;;
-    *)           ansi::err "${ERROR}'$1' cannot be extracted${RESET_ALL}"; exit 1 ;;
+    *.Z)         echoRun uncompress "${file_name}" ${path_to:+-c > "$path_to"}      ;;
+    *)           ansi::err "${ERROR}'$1' cannot be extracted${RESET_ALL}"; exit 1   ;;
   esac
 }
 
