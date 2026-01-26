@@ -33,15 +33,13 @@ if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
   echoRunBold sudo apt update
   echoRunBold sudo apt upgrade $ASSUME_YES
-fi
 
-if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}snap may require sudo: expect asking for the sudo password.${RESET_ALL}"
   echoRunBold sudo snap refresh
-fi
 
-if command -v flatpak &> /dev/null; then
-  echoRunBold flatpak update $ASSUME_YES
+  if command -v flatpak &> /dev/null; then
+    echoRunBold flatpak update $ASSUME_YES
+  fi
 fi
 {{- else if eq .osIdLike "darwin" -}}
 if [ "$hasSudo" -eq 0 ]; then
