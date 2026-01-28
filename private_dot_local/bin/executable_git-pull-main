@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+__get_default_git_branch() {
+  git remote show origin | sed -n '/HEAD branch/s/.*: //p'
+}
+
+MAIN="$(__get_default_git_branch)"
+git checkout "$MAIN"
+git pull origin "$MAIN"

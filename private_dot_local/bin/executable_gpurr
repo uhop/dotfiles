@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+echoRun() {
+  echo -e "\033[36m$@\033[0m"
+  eval "$@"
+}
+
+echoRun "git pull --recurse-submodules"
+echoRun "git submodule foreach git-pull-main"
