@@ -337,10 +337,10 @@ is the new `bash`, while the latter is the old one.
 
 The alias to invoke `ssh` with `tmux` is `ssht`: `ssht srv`.
 
-When running locally `tmux` uses
-the standard prefix: <kbd>Ctrl</kbd>+<kbd>b</kbd>. When invoked remotely through `ssht` it uses
-the prefix: <kbd>Ctrl</kbd>+<kbd>a</kbd>. This way you can use different prefixes for local and
-remote sessions.
+When running locally `tmux` uses the standard prefix: <kbd>Ctrl+b</kbd>.
+If you are running a remote session from a local session press <kbd>Ctrl+b</kbd>
+twice to send commands to the remote session. For example, to detach from the remote session,
+but not the local one: <kbd>Ctrl+b</kbd> <kbd>Ctrl+b</kbd> <kbd>d</kbd>.
 
 When running `tmux` for the first time, install plugins by pressing <kbd>Prefix</kbd>+<kbd>I</kbd>.
 To update plugins, press <kbd>Prefix</kbd>+<kbd>U</kbd>. Note that `I` and `U` are uppercase.
