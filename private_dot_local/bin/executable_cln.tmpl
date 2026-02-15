@@ -42,6 +42,10 @@ fi
 echoRunBold brew autoremove
 echoRunBold brew cleanup --prune=all --scrub
 
+if command -v docker &> /dev/null; then
+  echoRunBold docker system prune -a ${ASSUME_YES/-y/-f}
+fi
+
 . "$(brew --prefix nvm)/nvm.sh"
 ansi::out "${PROMPT}Update major node versions...${RESET_ALL}"
 update-node-versions.js
