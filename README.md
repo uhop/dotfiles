@@ -412,7 +412,8 @@ This is the list of user-installed extensions I use:
 - Just Perfection
 - LAN IP Address
 - Tray Icons: Reloaded
-- User id in top panel
+- User id in top panel &mdash; not updated and deemed incompatible with GNOME 46, disabled
+  - Hostname On Panel &mdash; similar to the previous one but just a hostname
 - Vitals &mdash; useful, but I usually disable it on low-powered systems
 
 ## MakeMKV
