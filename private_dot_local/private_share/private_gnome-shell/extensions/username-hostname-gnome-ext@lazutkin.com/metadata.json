@@ -1,0 +1,14 @@
+{
+  "name": "username @ hostname",
+  "description": "Shows the user name and the host name in the bar.",
+  "uuid": "username-hostname-gnome-ext@lazutkin.com",
+  "shell-version": [
+    "49",
+    "50",
+    "51",
+    "52",
+    "53",
+    "54",
+    "55"
+  ]
+}
