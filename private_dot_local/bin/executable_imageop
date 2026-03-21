@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+
+usage() {
+  echo "Usage: imageop <file> [options...]"
+  echo
+  echo "Optimize image files using format-specific tools."
+  echo
+  echo "Supported formats:"
+  echo "  .jpg, .jpeg  — jpegoptim"
+  echo "  .png         — optipng"
+  echo "  .webp        — cwebp (re-encode)"
+  echo
+  echo "Extra options are passed to the underlying tool."
+}
+
+if [ $# -eq 0 ] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+file="$1"
+shift
+
+if [ ! -f "$file" ]; then
+  echo "Error: '$file' is not a valid file" >&2
+  exit 1
+fi
+
+case "$file" in
+  *.jpg|*.jpeg)
+    if ! command -v jpegoptim &> /dev/null; then
+      echo "Error: jpegoptim is not installed" >&2
+      exit 1
+    fi
+    jpegoptim "$file" "$@"
+    ;;
+  *.png)
+    if ! command -v optipng &> /dev/null; then
+      echo "Error: optipng is not installed" >&2
+      exit 1
+    fi
+    optipng "$file" "$@"
+    ;;
+  *.webp)
+    if ! command -v cwebp &> /dev/null; then
+      echo "Error: cwebp is not installed" >&2
+      exit 1
+    fi
+    cwebp "$file" "$@" -o "$file"
+    ;;
+  *)
+    echo "Error: '$file' — unsupported format" >&2
+    echo "Supported: .jpg, .jpeg, .png, .webp" >&2
+    exit 1
+    ;;
+esac

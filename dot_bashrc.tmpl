@@ -112,7 +112,7 @@ fi
 unset BP
 
 # git completion
-if [ "$unameOut" != Darwin* ]; then
+if [[ "$unameOut" != Darwin* ]]; then
   [ -s ~/.config/git/git-completion.bash ] && \. ~/.config/git/git-completion.bash
 fi
 

@@ -42,7 +42,7 @@ l.() {
     echo "Use: l. [dir]"
     return 1
   fi
-  l -d $(join_path "$1" ".*")
+  l -d "$(join_path "$1" ".*")"
 }
 
 # traversing directories (better `cd`) AKA `z`
@@ -162,7 +162,13 @@ alias bc='command bc -l'
 alias sha1='command openssl sha1'
 
 ## Make mount command output pretty and human readable format
-alias mount='command mount | command column -t'
+mount() {
+  if [ $# -eq 0 ]; then
+    command mount | command column -t
+  else
+    command mount "$@"
+  fi
+}
 
 ## Command short cuts to save time
 alias h='command history'
@@ -186,9 +192,17 @@ if command -v bat &> /dev/null; then
 elif command -v batcat &> /dev/null; then
   alias cat='batcat'
 fi
-alias ping='sudo prettyping --nolegend'
-alias top="sudo htop"
-alias du="ncdu --color dark -rr -x --exclude .git --exclude node_modules"
+if command -v prettyping &> /dev/null; then
+  alias ping='sudo prettyping --nolegend'
+fi
+alias top="htop"
+du() {
+  if [ $# -eq 0 ]; then
+    ncdu --color dark -rr -x --exclude .git --exclude node_modules
+  else
+    command du "$@"
+  fi
+}
 alias help='tldr'
 
 # System rebooting
@@ -243,20 +257,6 @@ nowrap() {
 # exclude useless directories
 alias tre='tree -I "*__pycache__|venv|*static|node_modules|.venv|.git|env|.env|.idea|.vscode|.fleet|CMakeFiles"'
 alias gre='grep -r --exclude-dir={node_modules,venv,out,.git,.idea,.metadata,dist,build}'
-
-# TODO: redo the optimization with better utilities
-imageop () { # usage: imageop <file> <options>
-  if [ -f $1 ] ; then
-    case $1 in
-      *.jpg)   jpegoptim $1 "${@:2}";;
-      *.jpeg)  jpegoptim $1 "${@:2}";;
-      *.png)   optipng $1 "${@:2}";;
-      *)       echo "'$1' cannot be optimised via imageoptim()" ;;
-    esac
-  else
-    echo "'$1' is not a valid file"
-  fi
-}
 
 ## get top process eating memory
 if [[ $OSTYPE != 'darwin'* ]]; then
