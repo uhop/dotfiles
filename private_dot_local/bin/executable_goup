@@ -14,7 +14,7 @@ args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 
 args::parse "$@"
-eval set -- "${args_cleaned}"
+set -- "${args_cleaned[@]}"
 
 current_dir="$PWD"
 trap 'cd "$current_dir"' EXIT

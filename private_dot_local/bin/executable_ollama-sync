@@ -15,7 +15,7 @@ args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 
 args::parse "$@"
-eval set -- "${args_cleaned}"
+set -- "${args_cleaned[@]}"
 
 if ! command -v ollama &> /dev/null; then
   ERROR="$BOLD$BRIGHT_WHITE$BG_RED"

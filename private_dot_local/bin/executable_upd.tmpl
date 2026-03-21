@@ -17,7 +17,7 @@ args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 
 args::parse "$@"
-eval set -- "${args_cleaned}"
+set -- "${args_cleaned[@]}"
 
 groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'
 hasSudo=$?
