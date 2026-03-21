@@ -19,12 +19,10 @@ set -- "${args_cleaned[@]}"
 current_dir="$PWD"
 trap 'cd "$current_dir"' EXIT
 
-last_dir="/"
-
 while true; do
-  eval "$@"
   dir="$PWD"
-  [[ "$dir" == "$last_dir" ]] && break
+  eval "$@"
+  cd "$dir"
   [[ "$dir" == "/" ]] && break
   cd ..
 done

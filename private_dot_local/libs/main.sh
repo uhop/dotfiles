@@ -8,12 +8,12 @@ command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull > /dev/nu
 
 # echo the first argument and run
 echoRun() {
-  echo -e "\033[36m$@\033[0m"
+  ansi::out "${FG_CYAN}$@${RESET_ALL}"
   eval "$@"
 }
 
 echoRunBold() {
-  echo -e "\033[1;36m$@\033[0m"
+  ansi::out "${BOLD}${FG_CYAN}$@${RESET_ALL}"
   eval "$@"
 }
 

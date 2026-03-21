@@ -80,10 +80,8 @@ if [ -z "${1:-}" ] || [[ "$args_command" == "list" ]]; then
   echo
   ansi::out "Listing available files:"
   echo
-  aws s3 ls "s3://$JOT_AWS_S3_BUCKET/$prefix"
-  if [ $? -ne 0 ]; then
-    ansi::err "${ERROR}The previous command failed: make sure that the bucket ${REVERSE}${JOT_AWS_S3_BUCKET}${RESET_REVERSE} exists and accessible.${RESET_ALL}"
-    exit 1
+  if ! aws s3 ls "s3://$JOT_AWS_S3_BUCKET/$prefix"; then
+    ansi::err "${ERROR}The previous command failed: make sure that the bucket ${REVERSE}${JOT_AWS_S3_BUCKET}${RESET_REVERSE} exists and accessible.${RESET_ALL}" || exit 1
   fi
   echo
   ansi::out "To edit a file: jot ${ITALIC}file_name${RESET_ALL}"
