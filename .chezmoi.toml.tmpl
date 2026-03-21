@@ -9,6 +9,9 @@
 {{- $wsl := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 {{- $codespaces := env "CODESPACES" | not | not -}}
 {{- $hasGui := promptBoolOnce . "hasGui" "Does this machine have GUI" -}}
+{{- $name := promptStringOnce . "name" "Full name" "Eugene Lazutkin" -}}
+{{- $email := promptStringOnce . "email" "Email address" "eugene.lazutkin@gmail.com" -}}
+{{- $githubUsername := promptStringOnce . "githubUsername" "GitHub username" "uhop" -}}
 
 [data]
 osId = {{ $osId | quote }}
@@ -16,6 +19,9 @@ osIdLike = {{ $osIdLike | quote }}
 wsl = {{ $wsl }}
 codespaces = {{ $codespaces }}
 hasGui = {{ $hasGui }}
+name = {{ $name | quote }}
+email = {{ $email | quote }}
+githubUsername = {{ $githubUsername | quote }}
 
 [diff]
 pager = "diff-so-fancy"
@@ -26,4 +32,4 @@ command = "plutil"
 args = ["-convert", "xml1", "-o", "-", "-"]
 
 [scriptEnv]
-GITHUB_USERNAME = "uhop"
+GITHUB_USERNAME = {{ $githubUsername | quote }}
