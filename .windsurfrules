@@ -1,0 +1,65 @@
+<!-- Canonical source: AGENTS.md — keep this file in sync -->
+# dotfiles — AI Agent Rules
+
+## Project identity
+
+Personal dotfiles managed by [chezmoi](https://www.chezmoi.io/). Bash-based CLI utilities use [options.bash](https://github.com/uhop/options.bash) for option parsing and rich terminal output. Targets Ubuntu (Debian) and macOS.
+
+## Critical rules
+
+- **Bash 4.0+** for all shell scripts. Start with `#!/usr/bin/env bash`.
+- **`set -euCo pipefail`** and **`shopt -s expand_aliases`** at the top of every utility.
+- **Do not add comments or remove comments** unless explicitly asked.
+- All CLI utilities source options.bash via `. ~/.local/libs/main.sh`.
+- **`args_cleaned` is an array.** Use `set -- "${args_cleaned[@]}"` (not `eval set -- "${args_cleaned}"`).
+- Templates (`.tmpl`) use Go template syntax with chezmoi data (`osIdLike`, `hasGui`, etc.).
+- Files in `.chezmoiignore` are not deployed to target machines.
+- `doas` is aliased to `sudo` when available.
+
+## Chezmoi naming
+
+- `dot_` → `.` (e.g., `dot_bashrc` → `~/.bashrc`)
+- `private_` → restricted permissions
+- `executable_` → `chmod +x`
+- `.tmpl` suffix → Go template with chezmoi data
+- `run_onchange_before_` / `run_once_after_` → lifecycle scripts
+
+## Code style
+
+- 2-space indentation (`.editorconfig`).
+- `echoRun` / `echoRunBold` for colored command execution.
+- `ansi::out` / `ansi::err` for terminal-aware output.
+- ANSI globals (`RED`, `BOLD`, `RESET_ALL`, etc.) available via `main.sh`.
+- Platform guards: `{{ if eq .osIdLike "linux-debian" }}` / `{{ if eq .osIdLike "darwin" }}`.
+
+## CLI utility pattern
+
+```bash
+#!/usr/bin/env bash
+set -euCo pipefail
+shopt -s expand_aliases
+. ~/.local/libs/main.sh
+script_dir="$(dirname "$(readlink -f "$0")")"
+script_name=$(basename "$0")
+args::program "$script_name" "1.0" "Description"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+```
+
+## File layout
+
+- Shell config: `dot_bashrc`, `dot_bash_aliases`, `dot_bash_profile`, `dot_profile`
+- App configs: `dot_config/` (alacritty, cheat, fastfetch, ghostty, git, kitty, micro, nano, tmux)
+- CLI utilities: `private_dot_local/bin/executable_*` (arx, cln, goup, jot, upd, ollama-sync, etc.)
+- Bootstrap: `private_dot_local/libs/main.sh` (auto-updates options.bash, sources core modules)
+- JS helpers: `private_dot_local/bin/*.js` (nvm-utils, semver-utils, comp-utils)
+- Vendors: `private_dot_local/vendors/fzf-git.sh`
+- Package install: `run_onchange_before_install-packages.sh.tmpl`
+
+## When reading the codebase
+
+- Start with `ARCHITECTURE.md` for the project map.
+- `AGENTS.md` has the full rules and conventions.
+- `llms.txt` is a compact reference of all utilities and their options.

@@ -1,0 +1,242 @@
+# dotfiles
+
+> Personal dotfiles managed by chezmoi. Bash-based CLI utilities use options.bash for option parsing and rich terminal output. Targets Ubuntu (Debian) and macOS.
+
+## Chezmoi config
+
+Template data from `.chezmoi.toml.tmpl`:
+- `osId` — exact OS (e.g., `linux-ubuntu`, `darwin`)
+- `osIdLike` — OS family (e.g., `linux-debian`, `darwin`)
+- `wsl` — bool, running under WSL
+- `codespaces` — bool, running in GitHub Codespaces
+- `hasGui` — bool, machine has GUI
+
+## Bootstrap: main.sh
+
+`~/.local/libs/main.sh` auto-updates options.bash and sources core modules:
+
+```bash
+. ~/.local/share/libs/scripts/ansi.sh
+. ~/.local/share/libs/scripts/args.sh
+. ~/.local/share/libs/scripts/args-version.sh
+. ~/.local/share/libs/scripts/args-help.sh
+```
+
+Defines `echoRun` / `echoRunBold` (colored command echo + eval).
+Aliases `doas` as `sudo` when available.
+
+## CLI utilities (options.bash-based)
+
+All source `~/.local/libs/main.sh`. Pattern:
+
+```bash
+#!/usr/bin/env bash
+set -euCo pipefail
+shopt -s expand_aliases
+. ~/.local/libs/main.sh
+args::program "$script_name" "1.0" "Description"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+```
+
+### arx
+
+Archive viewer/extractor.
+
+Commands:
+- `arx archive.tar.gz` — list contents (default)
+- `arx list archive.tar.gz` / `arx l archive.tar.gz` — list contents
+- `arx extract archive.tar.gz` / `arx x archive.tar.gz [dir]` — extract
+
+Options: `-v, --version`, `-h, --help`
+
+Supported formats: `.tar.br`, `.tar.bz2`, `.tar.gz`, `.tar.xz`, `.tar.zst`, `.tar`, `.tbz2`, `.tgz`, `.7z`, `.deb`, `.rar`, `.zip`, `.br`, `.bz2`, `.gz`, `.xz`, `.zst`, `.Z`
+
+### upd
+
+System updater. Template: `executable_upd.tmpl`.
+
+Options:
+- `-c, --clean` — run `cln` after updating
+- `-y, --yes` — assume yes to all prompts
+- `-v, --version`, `-h, --help`
+
+Updates: `apt` (Debian), `snap` (Debian), `flatpak`, `softwareupdate` (macOS), `mas` (macOS), `brew`, `tmux` plugins, `bun`.
+
+### cln
+
+System cleanup. Template: `executable_cln.tmpl`.
+
+Options:
+- `-y, --yes` — assume yes to all prompts
+- `-v, --version`, `-h, --help`
+
+Cleans: `apt autoremove/autoclean` (Debian), `flatpak uninstall --unused`, `brew autoremove/cleanup`, `docker system prune`, node version management.
+
+### jot
+
+Encrypted S3 notes editor.
+
+Commands:
+- `jot` — list files (default)
+- `jot file.md.gz.age` / `jot edit file` / `jot e file` — edit file
+- `jot list [prefix]` / `jot l [prefix]` — list files
+- `jot get file` / `jot g file` — download to current directory
+- `jot put local_file remote_name` / `jot p ...` — upload file
+- `jot delete file` / `jot del file` / `jot rm file` / `jot d file` — delete
+- `jot rename old new` / `jot mv old new` / `jot r old new` — rename
+
+Options:
+- `-x, --exact` — exact file name match (not prefix)
+- `-y, --yes` — create new file without confirmation
+- `-n, --no` — don't create new file
+- `-v, --version`, `-h, --help`
+
+Environment variables:
+- `JOT_AWS_S3_BUCKET` — AWS bucket name (required)
+- `JOT_AGE_KEY` — age key path (default: `~/.ssh/age.key`)
+- `JOT_SSH_PUB` — SSH public key (default: `~/.ssh/id_rsa.pub`)
+- `JOT_SSH_PRV` — SSH private key (default: `~/.ssh/id_rsa`)
+
+Supported codecs: `.age`, `.br`, `.bz2`, `.gz`, `.xz`, `.zst`
+
+### goup
+
+Run a command in the current directory and each parent directory up to `/`.
+
+Options: `-v, --version`, `-h, --help`
+
+Usage: `goup "make test"` — runs `make test` in `.`, `..`, `../..`, etc.
+
+### ollama-sync
+
+Update all installed ollama models.
+
+Options: `-v, --version`, `-h, --help`
+
+### mount-raid
+
+Mount a remote NFS filesystem. Template: `executable_mount-raid.tmpl`.
+
+Options: `-v, --version`, `-h, --help`
+
+Usage: `mount-raid server-name`
+
+## CLI utilities (standalone)
+
+### gpurr
+
+Git pull with submodule recursion + pull main branch in each submodule.
+
+### gpwiki
+
+Git pull + pull main in `wiki/` submodule if present.
+
+### update-dependencies
+
+Clone or update `options.bash` sparse worktree at `~/.local/share/libs/scripts`.
+
+### git-br
+
+Pretty-formatted `git branch` with date, author, subject.
+
+### git-brr
+
+Remote branches sorted by committer date (`git-br --remote --sort=-committerdate`).
+
+### git-bs
+
+Branch list sorted by author date in columnar format.
+
+### git-mbs
+
+Filter `git-bs --all` to show only branches by the current git user.
+
+### git-pull-main
+
+Checkout and pull the default branch (auto-detected from `origin`).
+
+### git-super-clean
+
+`git reset --hard` + `git clean --force -d -x`.
+
+## Shell aliases (dot_bash_aliases)
+
+Key aliases and functions:
+
+### File listing (eza)
+- `l` → `eza`
+- `ls` → `eza --grid --color auto --icons --sort=type`
+- `ll` → `eza --long ...`
+- `la` → `eza --grid --all ...`
+- `lla` → `eza --long --all ...`
+- `ltr` → `eza -l -t modified -r`
+- `l.` → list dotfiles only
+
+### Navigation (zoxide)
+- `..` → `z ..`
+- `...` → `z ../../`
+- `up N` → go up N directories
+- `zl [dir]` → `z dir && l`
+- `mkz dir` → `mkdir dir && z dir`
+
+### File operations
+- `rm` → `rm -I --preserve-root`
+- `mv` → `mv -iv`
+- `cp` → `cp -iv`
+- `cpg` / `mvg` → rsync-based copy/move with progress
+- `rcp` / `rmv` / `rup` / `rsy` → rsync variants
+
+### Git
+- `gst` → `git status`
+- `gco` → `git checkout`
+- `gcob` → `git checkout -b`
+- `gcm` → `git commit`
+- `gbr` → `git branch`
+- `grs` → `git restore`
+- `gpull` → `git pull`
+- `gpush` → `git push`
+- `gsw` → `git switch` (default branch if no args)
+- `gme` → `git merge` (default branch if no args)
+- `gls` / `gll` → `git ls` / `git ll`
+
+### Better replacements
+- `cat` → `bat` / `batcat`
+- `ping` → `sudo prettyping`
+- `top` → `sudo htop`
+- `du` → `ncdu`
+- `help` → `tldr`
+
+### SSH helpers
+- `ssht host [session]` → SSH + tmux attach/new
+- `mosht host [session]` → mosh + tmux
+- `ett host [session]` → Eternal Terminal + tmux
+- `kssh` → `kitten ssh`
+- `kssht host [session]` → kitten ssh + tmux
+
+### Other
+- `where "pattern" [path/wildcard]` — recursive grep in files
+- `upfind` / `upfd` — search up directory tree
+- `upsearch` → `upfd -gH` (no glob expansion)
+- `tre` → `tree` excluding common junk dirs
+- `gre` → `grep -r` excluding common junk dirs
+- `oports` → list open ports
+- `psr` / `psm` / `psg` / `pst` — process listing variants
+- `nowrap [col] [-col]` — truncate output to terminal width
+
+## Environment
+
+Set in `dot_bashrc`:
+- `EDITOR=micro`
+- `VISUAL=micro`
+- `GITHUB_USERNAME=uhop`
+- `JOT_AWS_S3_BUCKET=${GITHUB_USERNAME}-notes`
+- `FORCE_COLOR=3`
+
+## Links
+
+- Chezmoi: https://www.chezmoi.io/
+- options.bash: https://github.com/uhop/options.bash
+- options.bash wiki: https://github.com/uhop/options.bash/wiki
