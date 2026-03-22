@@ -365,13 +365,12 @@ optimize_file() {
           run_or_dry "$TOOL_AVIFENC" --lossless "$input" "$output"
         fi
       else
-        local avif_q=$(( 63 - QUALITY * 63 / 100 ))
         if [ "$in_place" -eq 1 ]; then
           local tmp="${input}.tmp.avif"
-          run_or_dry "$TOOL_AVIFENC" --min "$avif_q" --max "$avif_q" "$input" "$tmp"
+          run_or_dry "$TOOL_AVIFENC" -q "$QUALITY" "$input" "$tmp"
           [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
         else
-          run_or_dry "$TOOL_AVIFENC" --min "$avif_q" --max "$avif_q" "$input" "$output"
+          run_or_dry "$TOOL_AVIFENC" -q "$QUALITY" "$input" "$output"
         fi
       fi
       ;;
@@ -443,8 +442,7 @@ convert_file() {
       if [ "$OPT_LOSSLESS" -eq 1 ]; then
         run_or_dry "$TOOL_AVIFENC" --lossless "$input" "$output"
       else
-        local avif_q=$(( 63 - QUALITY * 63 / 100 ))
-        run_or_dry "$TOOL_AVIFENC" --min "$avif_q" --max "$avif_q" "$input" "$output"
+        run_or_dry "$TOOL_AVIFENC" -q "$QUALITY" "$input" "$output"
       fi
       ;;
 
