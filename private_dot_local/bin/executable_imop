@@ -3,7 +3,7 @@
 set -euCo pipefail
 
 usage() {
-  echo "Usage: imageop <file> [options...]"
+  echo "Usage: imop <file> [options...]"
   echo
   echo "Optimize image files using format-specific tools."
   echo

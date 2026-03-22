@@ -8,4 +8,5 @@ llms.txt
 .editorconfig
 .prettierrc
 .windsurfrules
+dev-docs
 external_wiki
