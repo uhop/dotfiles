@@ -58,6 +58,7 @@ args::option "extract, x" "Extract all files" "file-name [path-to]"
 
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
 
 args::parse "$@"
 set -- "${args_cleaned[@]}"

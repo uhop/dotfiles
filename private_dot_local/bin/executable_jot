@@ -54,6 +54,7 @@ args::option "-y, --yes" "Create new file without confirmation"
 args::option "-n, --no" "Don't create new file"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
 
 args::parse "$@"
 set -- "${args_cleaned[@]}"

@@ -41,6 +41,7 @@ args::option "--no-prune" "Skip image pruning after update"
 args::option "-n, --dry-run" "Show commands without running"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
 
 args::parse "$@"
 set -- "${args_cleaned[@]}"

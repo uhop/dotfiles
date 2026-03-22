@@ -13,6 +13,7 @@ args_program_usage="${args_help_program}${args_program_name}${args_help_reset} $
 
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
 
 args::parse "$@"
 set -- "${args_cleaned[@]}"

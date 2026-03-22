@@ -5,6 +5,7 @@ command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull > /dev/nu
 . ~/.local/share/libs/scripts/args.sh
 . ~/.local/share/libs/scripts/args-version.sh
 . ~/.local/share/libs/scripts/args-help.sh
+. ~/.local/share/libs/scripts/args-completion.sh
 
 # echo the first argument and run
 echoRun() {

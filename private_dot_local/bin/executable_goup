@@ -12,6 +12,7 @@ args::program "$script_name" "1.0" "Invoke a command in the current directory an
 
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
 
 args::parse "$@"
 set -- "${args_cleaned[@]}"
