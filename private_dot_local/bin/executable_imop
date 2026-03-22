@@ -1,58 +1,618 @@
 #!/usr/bin/env bash
 
 set -euCo pipefail
+shopt -s expand_aliases
 
-usage() {
-  echo "Usage: imop <file> [options...]"
-  echo
-  echo "Optimize image files using format-specific tools."
-  echo
-  echo "Supported formats:"
-  echo "  .jpg, .jpeg  — jpegoptim"
-  echo "  .png         — optipng"
-  echo "  .webp        — cwebp (re-encode)"
-  echo
-  echo "Extra options are passed to the underlying tool."
+. ~/.local/libs/main.sh
+
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0" "Optimize and convert images for the web"
+
+args_program_header="${BOLD}imop${RESET_BOLD} optimizes and converts images for web use.
+It selects the best available tool for each format automatically."
+
+args_program_usage="${BOLD}imop${RESET_BOLD} photo.jpg                # Optimize in place
+${BOLD}imop${RESET_BOLD} photo.jpg out.jpg        # Optimize to new file
+${BOLD}imop${RESET_BOLD} photo.jpg photo.webp     # Convert to WebP
+${BOLD}imop${RESET_BOLD} images/                  # Batch optimize in place
+${BOLD}imop${RESET_BOLD} images/ output/           # Batch to output dir
+${BOLD}imop${RESET_BOLD} --to webp images/         # Batch convert to WebP"
+
+args_program_footer="Supported formats: ${BOLD}JPEG${RESET_BOLD}, ${BOLD}PNG${RESET_BOLD}, ${BOLD}WebP${RESET_BOLD}, ${BOLD}AVIF${RESET_BOLD}
+
+Tools (preference order):
+  JPEG lossless: jpegoptim
+  JPEG lossy:    mozjpeg (cjpeg) > jpegoptim
+  JPEG best:     guetzli (very slow, quality >= 84)
+  PNG lossless:  oxipng > optipng
+  PNG lossy:     pngquant + oxipng > pngquant + optipng
+  PNG best:      zopflipng (very slow)
+  WebP:          cwebp
+  AVIF:          avifenc
+
+Install: ${BOLD}brew install jpegoptim mozjpeg oxipng pngquant webp libavif${RESET_BOLD}
+Slow:    ${BOLD}brew install guetzli zopfli${RESET_BOLD}"
+
+args_program_required_command="no"
+
+args::option "optimize, o" "Re-compress in same format" "file [output]"
+args::option "convert, c" "Convert to format of output file" "file output"
+args::option "batch, b" "Process images in a directory" "dir [output-dir]"
+
+args::option "-q, --quality" "Quality 0-100 (default: 80)" "N"
+args::option "--lossy" "Force lossy compression"
+args::option "--lossless" "Force lossless compression"
+args::option "--best" "Use slow-but-best compressor"
+args::option "--to" "Target format for batch conversion" "EXT"
+args::option "--suffix" "Append tag to output names" "TAG"
+args::option "-n, --dry-run" "Show commands without running"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+# --- Defaults and option extraction ---
+
+ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
+INFO="$FG_CYAN"
+WARN="$BOLD$FG_YELLOW"
+OK="$BOLD$FG_GREEN"
+
+QUALITY=80
+[[ -v args_options["-q"] ]] && QUALITY="${args_options["-q"]}"
+
+OPT_LOSSY=0
+[[ -v args_options["--lossy"] ]] && OPT_LOSSY=1
+
+OPT_LOSSLESS=0
+[[ -v args_options["--lossless"] ]] && OPT_LOSSLESS=1
+
+OPT_BEST=0
+[[ -v args_options["--best"] ]] && OPT_BEST=1
+
+DRY_RUN=0
+[[ -v args_options["-n"] ]] && DRY_RUN=1
+
+OPT_TO=""
+[[ -v args_options["--to"] ]] && OPT_TO="${args_options["--to"]}"
+
+OPT_SUFFIX=""
+[[ -v args_options["--suffix"] ]] && OPT_SUFFIX="${args_options["--suffix"]}"
+
+# --- Tool detection ---
+
+TOOL_JPEGOPTIM=""
+TOOL_MOZJPEG=""
+TOOL_GUETZLI=""
+TOOL_OXIPNG=""
+TOOL_OPTIPNG=""
+TOOL_PNGQUANT=""
+TOOL_ZOPFLIPNG=""
+TOOL_CWEBP=""
+TOOL_AVIFENC=""
+
+detect_tools() {
+  command -v jpegoptim &>/dev/null && TOOL_JPEGOPTIM="jpegoptim" || true
+  command -v guetzli &>/dev/null && TOOL_GUETZLI="guetzli" || true
+  command -v oxipng &>/dev/null && TOOL_OXIPNG="oxipng" || true
+  command -v optipng &>/dev/null && TOOL_OPTIPNG="optipng" || true
+  command -v pngquant &>/dev/null && TOOL_PNGQUANT="pngquant" || true
+  command -v zopflipng &>/dev/null && TOOL_ZOPFLIPNG="zopflipng" || true
+  command -v cwebp &>/dev/null && TOOL_CWEBP="cwebp" || true
+  command -v avifenc &>/dev/null && TOOL_AVIFENC="avifenc" || true
+
+  # mozjpeg is keg-only; check brew prefix
+  if command -v brew &>/dev/null; then
+    local mj_prefix
+    mj_prefix="$(brew --prefix mozjpeg 2>/dev/null)" || true
+    if [ -n "$mj_prefix" ] && [ -x "$mj_prefix/bin/cjpeg" ]; then
+      TOOL_MOZJPEG="$mj_prefix/bin/cjpeg"
+    fi
+  fi
 }
 
-if [ $# -eq 0 ] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
-  usage
-  exit 0
-fi
+declare -A WARNED_TOOLS=()
+warn_once() {
+  local key="$1" msg="$2"
+  if [[ ! -v WARNED_TOOLS["$key"] ]]; then
+    ansi::err "${WARN}$msg${RESET_ALL}"
+    WARNED_TOOLS["$key"]=1
+  fi
+}
 
-file="$1"
-shift
-
-if [ ! -f "$file" ]; then
-  echo "Error: '$file' is not a valid file" >&2
+require_tool() {
+  local name="$1" install="$2"
+  ansi::err "${ERROR}$name is not installed. Install: brew install $install${RESET_ALL}"
   exit 1
+}
+
+# --- Helpers ---
+
+get_ext() {
+  local name="${1##*/}"
+  local ext="${name##*.}"
+  echo "${ext,,}" # lowercase
+}
+
+normalize_ext() {
+  case "${1,,}" in
+    jpg|jpeg) echo "jpeg" ;;
+    png)      echo "png" ;;
+    webp)     echo "webp" ;;
+    avif)     echo "avif" ;;
+    *)        echo "$1" ;;
+  esac
+}
+
+is_image() {
+  case "$(get_ext "$1")" in
+    jpg|jpeg|png|webp|avif) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+format_size() {
+  local bytes="$1"
+  if [ "$bytes" -ge 1048576 ]; then
+    local whole=$((bytes / 1048576))
+    local frac=$(( (bytes % 1048576) * 10 / 1048576 ))
+    printf "%d.%d MB" "$whole" "$frac"
+  elif [ "$bytes" -ge 1024 ]; then
+    local whole=$((bytes / 1024))
+    local frac=$(( (bytes % 1024) * 10 / 1024 ))
+    printf "%d.%d KB" "$whole" "$frac"
+  else
+    printf "%d B" "$bytes"
+  fi
+}
+
+report_savings() {
+  local size_in="$1" size_out="$2"
+  if [ "$size_in" -gt 0 ]; then
+    local saved=$((size_in - size_out))
+    local pct=$((saved * 100 / size_in))
+    ansi::out "  ${INFO}$(format_size "$size_in") → $(format_size "$size_out") (${pct}% saved)${RESET_ALL}"
+  fi
+}
+
+run_or_dry() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    ansi::out "${INFO}[dry-run] $*${RESET_ALL}"
+  else
+    echoRun "$@"
+  fi
+}
+
+# --- Quality mapping ---
+
+quality_oxipng() {
+  echo $(( QUALITY * 6 / 100 ))
+}
+
+quality_pngquant() {
+  local lo=$(( QUALITY - 5 ))
+  local hi=$(( QUALITY + 5 ))
+  [ "$lo" -lt 0 ] && lo=0
+  [ "$hi" -gt 100 ] && hi=100
+  echo "${lo}-${hi}"
+}
+
+quality_guetzli() {
+  local q=$QUALITY
+  [ "$q" -lt 84 ] && q=84
+  echo "$q"
+}
+
+# --- Output naming ---
+
+make_output_name() {
+  local input="$1" target_ext="$2"
+  local dir base in_ext
+  dir="$(dirname "$input")"
+  base="${input%.*}"
+
+  if [ -n "$OPT_SUFFIX" ]; then
+    echo "${base}.${OPT_SUFFIX}.${target_ext}"
+  else
+    echo "${base}.${target_ext}"
+  fi
+}
+
+# --- Single-file optimize ---
+
+optimize_file() {
+  local input="$1"
+  local output="${2:-}"
+  local in_place=0
+  local ext
+  ext="$(get_ext "$input")"
+
+  if [ -z "$output" ]; then
+    in_place=1
+    output="$input"
+  fi
+
+  if [ ! -f "$input" ]; then
+    ansi::err "${ERROR}'$input' is not a valid file${RESET_ALL}"
+    return 1
+  fi
+
+  local size_before
+  size_before=$(stat -c%s "$input" 2>/dev/null || stat -f%z "$input")
+  local is_lossy=$OPT_LOSSY
+
+  ansi::out "${INFO}Optimizing: $input${RESET_ALL}"
+
+  case "$ext" in
+    jpg|jpeg)
+      if [ "$OPT_BEST" -eq 1 ] && [ -n "$TOOL_GUETZLI" ]; then
+        local q
+        q="$(quality_guetzli)"
+        if [ "$in_place" -eq 1 ]; then
+          local tmp="${input}.tmp.jpg"
+          run_or_dry "$TOOL_GUETZLI" --quality "$q" "$input" "$tmp"
+          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+        else
+          run_or_dry "$TOOL_GUETZLI" --quality "$q" "$input" "$output"
+        fi
+      elif [ "$is_lossy" -eq 1 ] && [ -n "$TOOL_MOZJPEG" ]; then
+        if [ "$in_place" -eq 1 ]; then
+          local tmp="${input}.tmp.jpg"
+          run_or_dry "$TOOL_MOZJPEG" -quality "$QUALITY" -outfile "$tmp" "$input"
+          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+        else
+          run_or_dry "$TOOL_MOZJPEG" -quality "$QUALITY" -outfile "$output" "$input"
+        fi
+      elif [ "$is_lossy" -eq 1 ] && [ -n "$TOOL_JPEGOPTIM" ]; then
+        warn_once "mozjpeg" "mozjpeg not found, using jpegoptim for lossy JPEG"
+        if [ "$in_place" -eq 1 ]; then
+          run_or_dry "$TOOL_JPEGOPTIM" -m"$QUALITY" --strip-all "$input"
+        else
+          [ "$DRY_RUN" -eq 0 ] && cp "$input" "$output"
+          run_or_dry "$TOOL_JPEGOPTIM" -m"$QUALITY" --strip-all "$output"
+        fi
+      elif [ -n "$TOOL_JPEGOPTIM" ]; then
+        if [ "$in_place" -eq 1 ]; then
+          run_or_dry "$TOOL_JPEGOPTIM" --strip-all "$input"
+        else
+          [ "$DRY_RUN" -eq 0 ] && cp "$input" "$output"
+          run_or_dry "$TOOL_JPEGOPTIM" --strip-all "$output"
+        fi
+      else
+        require_tool "jpegoptim" "jpegoptim"
+      fi
+      ;;
+
+    png)
+      if [ "$OPT_BEST" -eq 1 ] && [ -n "$TOOL_ZOPFLIPNG" ]; then
+        if [ "$in_place" -eq 1 ]; then
+          run_or_dry "$TOOL_ZOPFLIPNG" -y "$input" "$input"
+        else
+          run_or_dry "$TOOL_ZOPFLIPNG" "$input" "$output"
+        fi
+      elif [ "$is_lossy" -eq 1 ] && [ -n "$TOOL_PNGQUANT" ]; then
+        local png_opt="${TOOL_OXIPNG:-$TOOL_OPTIPNG}"
+        if [ "$in_place" -eq 1 ]; then
+          run_or_dry "$TOOL_PNGQUANT" --quality="$(quality_pngquant)" --force --output "$input" "$input"
+        else
+          run_or_dry "$TOOL_PNGQUANT" --quality="$(quality_pngquant)" --output "$output" "$input"
+        fi
+        if [ -n "$png_opt" ] && [ "$DRY_RUN" -eq 0 ]; then
+          local target="$output"
+          [ "$in_place" -eq 1 ] && target="$input"
+          if [ "$png_opt" = "$TOOL_OXIPNG" ]; then
+            run_or_dry "$TOOL_OXIPNG" -o "$(quality_oxipng)" "$target"
+          else
+            run_or_dry "$TOOL_OPTIPNG" -o "$(quality_oxipng)" "$target"
+          fi
+        fi
+      elif [ -n "$TOOL_OXIPNG" ]; then
+        if [ "$in_place" -eq 1 ]; then
+          run_or_dry "$TOOL_OXIPNG" -o "$(quality_oxipng)" "$input"
+        else
+          run_or_dry "$TOOL_OXIPNG" -o "$(quality_oxipng)" --out "$output" "$input"
+        fi
+      elif [ -n "$TOOL_OPTIPNG" ]; then
+        warn_once "oxipng" "oxipng not found, using optipng"
+        if [ "$in_place" -eq 1 ]; then
+          run_or_dry "$TOOL_OPTIPNG" -o "$(quality_oxipng)" "$input"
+        else
+          local tmp="${output}.tmp.png"
+          run_or_dry "cp" "$input" "$tmp"
+          run_or_dry "$TOOL_OPTIPNG" -o "$(quality_oxipng)" "$tmp"
+          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$output"
+        fi
+      else
+        require_tool "oxipng" "oxipng"
+      fi
+      ;;
+
+    webp)
+      if [ -z "$TOOL_CWEBP" ]; then
+        require_tool "cwebp" "webp"
+      fi
+      if [ "$OPT_LOSSLESS" -eq 1 ] || [ "$is_lossy" -eq 0 ]; then
+        if [ "$in_place" -eq 1 ]; then
+          local tmp="${input}.tmp.webp"
+          run_or_dry "$TOOL_CWEBP" -lossless "$input" -o "$tmp"
+          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+        else
+          run_or_dry "$TOOL_CWEBP" -lossless "$input" -o "$output"
+        fi
+      else
+        if [ "$in_place" -eq 1 ]; then
+          local tmp="${input}.tmp.webp"
+          run_or_dry "$TOOL_CWEBP" -q "$QUALITY" "$input" -o "$tmp"
+          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+        else
+          run_or_dry "$TOOL_CWEBP" -q "$QUALITY" "$input" -o "$output"
+        fi
+      fi
+      ;;
+
+    avif)
+      if [ -z "$TOOL_AVIFENC" ]; then
+        require_tool "avifenc" "libavif"
+      fi
+      if [ "$OPT_LOSSLESS" -eq 1 ]; then
+        if [ "$in_place" -eq 1 ]; then
+          local tmp="${input}.tmp.avif"
+          run_or_dry "$TOOL_AVIFENC" --lossless "$input" "$tmp"
+          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+        else
+          run_or_dry "$TOOL_AVIFENC" --lossless "$input" "$output"
+        fi
+      else
+        local avif_q=$(( 63 - QUALITY * 63 / 100 ))
+        if [ "$in_place" -eq 1 ]; then
+          local tmp="${input}.tmp.avif"
+          run_or_dry "$TOOL_AVIFENC" --min "$avif_q" --max "$avif_q" "$input" "$tmp"
+          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+        else
+          run_or_dry "$TOOL_AVIFENC" --min "$avif_q" --max "$avif_q" "$input" "$output"
+        fi
+      fi
+      ;;
+
+    *)
+      ansi::err "${ERROR}'$input' — unsupported format ($(get_ext "$input"))${RESET_ALL}"
+      return 1
+      ;;
+  esac
+
+  if [ "$DRY_RUN" -eq 0 ] && [ -f "$output" ]; then
+    local size_after
+    size_after=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output")
+    report_savings "$size_before" "$size_after"
+  fi
+}
+
+# --- Single-file convert ---
+
+convert_file() {
+  local input="$1" output="$2"
+  local out_ext
+  out_ext="$(get_ext "$output")"
+
+  if [ ! -f "$input" ]; then
+    ansi::err "${ERROR}'$input' is not a valid file${RESET_ALL}"
+    return 1
+  fi
+
+  local size_before
+  size_before=$(stat -c%s "$input" 2>/dev/null || stat -f%z "$input")
+
+  ansi::out "${INFO}Converting: $input → $output${RESET_ALL}"
+
+  case "$out_ext" in
+    jpg|jpeg)
+      if [ "$OPT_BEST" -eq 1 ] && [ -n "$TOOL_GUETZLI" ]; then
+        run_or_dry "$TOOL_GUETZLI" --quality "$(quality_guetzli)" "$input" "$output"
+      elif [ -n "$TOOL_MOZJPEG" ]; then
+        run_or_dry "$TOOL_MOZJPEG" -quality "$QUALITY" -outfile "$output" "$input"
+      elif [ -n "$TOOL_JPEGOPTIM" ]; then
+        ansi::err "${ERROR}Cannot convert to JPEG: mozjpeg (cjpeg) is required. Install: brew install mozjpeg${RESET_ALL}"
+        return 1
+      else
+        require_tool "mozjpeg (cjpeg)" "mozjpeg"
+      fi
+      ;;
+
+    png)
+      ansi::err "${ERROR}Converting to PNG is not supported (use an image editor)${RESET_ALL}"
+      return 1
+      ;;
+
+    webp)
+      if [ -z "$TOOL_CWEBP" ]; then
+        require_tool "cwebp" "webp"
+      fi
+      if [ "$OPT_LOSSLESS" -eq 1 ]; then
+        run_or_dry "$TOOL_CWEBP" -lossless "$input" -o "$output"
+      else
+        run_or_dry "$TOOL_CWEBP" -q "$QUALITY" "$input" -o "$output"
+      fi
+      ;;
+
+    avif)
+      if [ -z "$TOOL_AVIFENC" ]; then
+        require_tool "avifenc" "libavif"
+      fi
+      if [ "$OPT_LOSSLESS" -eq 1 ]; then
+        run_or_dry "$TOOL_AVIFENC" --lossless "$input" "$output"
+      else
+        local avif_q=$(( 63 - QUALITY * 63 / 100 ))
+        run_or_dry "$TOOL_AVIFENC" --min "$avif_q" --max "$avif_q" "$input" "$output"
+      fi
+      ;;
+
+    *)
+      ansi::err "${ERROR}Unsupported output format: .$out_ext${RESET_ALL}"
+      return 1
+      ;;
+  esac
+
+  if [ "$DRY_RUN" -eq 0 ] && [ -f "$output" ]; then
+    local size_after
+    size_after=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output")
+    report_savings "$size_before" "$size_after"
+  fi
+}
+
+# --- Batch processing ---
+
+batch_process() {
+  local input_dir="${1%/}"
+  local output_dir="${2:-}"
+  local in_place=0
+  local count=0 total_in=0 total_out=0
+
+  if [ -z "$output_dir" ]; then
+    in_place=1
+    output_dir="$input_dir"
+  else
+    output_dir="${output_dir%/}"
+  fi
+
+  if [ ! -d "$input_dir" ]; then
+    ansi::err "${ERROR}'$input_dir' is not a directory${RESET_ALL}"
+    return 1
+  fi
+
+  ansi::out "${INFO}Batch processing: $input_dir${RESET_ALL}"
+  [ -n "$OPT_TO" ] && ansi::out "${INFO}Converting to: $OPT_TO${RESET_ALL}"
+  [ "$DRY_RUN" -eq 1 ] && ansi::out "${WARN}[dry-run mode]${RESET_ALL}"
+
+  while IFS= read -r -d '' file; do
+    if ! is_image "$file"; then
+      continue
+    fi
+
+    local rel_path="${file#"$input_dir"/}"
+    local out_file
+
+    if [ -n "$OPT_TO" ]; then
+      # Convert mode
+      out_file="$output_dir/$(make_output_name "$rel_path" "$OPT_TO")"
+    elif [ "$in_place" -eq 1 ]; then
+      out_file=""
+    else
+      out_file="$output_dir/$rel_path"
+    fi
+
+    # Create output directory if needed
+    if [ -n "$out_file" ]; then
+      local out_dir
+      out_dir="$(dirname "$out_file")"
+      if [ ! -d "$out_dir" ] && [ "$DRY_RUN" -eq 0 ]; then
+        mkdir -p "$out_dir"
+      fi
+    fi
+
+    local size_before=0
+    [ -f "$file" ] && size_before=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file")
+
+    if [ -n "$OPT_TO" ]; then
+      convert_file "$file" "$out_file" || continue
+    elif [ -n "$out_file" ]; then
+      optimize_file "$file" "$out_file" || continue
+    else
+      optimize_file "$file" || continue
+    fi
+
+    local actual_out="${out_file:-$file}"
+    if [ "$DRY_RUN" -eq 0 ] && [ -f "$actual_out" ]; then
+      local size_after
+      size_after=$(stat -c%s "$actual_out" 2>/dev/null || stat -f%z "$actual_out")
+      total_in=$((total_in + size_before))
+      total_out=$((total_out + size_after))
+    fi
+    count=$((count + 1))
+  done < <(find "$input_dir" -type f -print0 | sort -z)
+
+  echo
+  ansi::out "${OK}Processed $count files${RESET_ALL}"
+  if [ "$DRY_RUN" -eq 0 ] && [ "$total_in" -gt 0 ]; then
+    local saved=$((total_in - total_out))
+    local pct=$((saved * 100 / total_in))
+    ansi::out "${OK}Total: $(format_size "$total_in") → $(format_size "$total_out") (${pct}% saved)${RESET_ALL}"
+  fi
+}
+
+# --- Main ---
+
+detect_tools
+
+if [ -z "${1:-}" ]; then
+  args::option::help
 fi
 
-case "$file" in
-  *.jpg|*.jpeg)
-    if ! command -v jpegoptim &> /dev/null; then
-      echo "Error: jpegoptim is not installed" >&2
+# Determine command
+cmd="${args_command:-}"
+
+if [ -n "$cmd" ]; then
+  # Explicit subcommand — skip it in positional args
+  shift
+fi
+
+if [ -z "$cmd" ]; then
+  # Infer from arguments
+  arg1="${1:-}"
+  arg2="${2:-}"
+
+  if [ -d "$arg1" ]; then
+    cmd="batch"
+  elif [ -f "$arg1" ] || [[ "$arg1" == *"."* ]]; then
+    if [ -n "$arg2" ]; then
+      local_ext1="$(normalize_ext "$(get_ext "$arg1")")"
+      local_ext2="$(normalize_ext "$(get_ext "$arg2")")"
+      if [ "$local_ext1" = "$local_ext2" ]; then
+        cmd="optimize"
+      else
+        cmd="convert"
+      fi
+    else
+      cmd="optimize"
+    fi
+  else
+    ansi::err "${ERROR}Cannot determine operation for: $arg1${RESET_ALL}"
+    args::try_help
+    exit 1
+  fi
+fi
+
+case "$cmd" in
+  optimize)
+    input="${1:-}"
+    output="${2:-}"
+    if [ -z "$input" ]; then
+      ansi::err "${ERROR}No input file specified${RESET_ALL}" || true
       exit 1
     fi
-    jpegoptim "$file" "$@"
+    optimize_file "$input" "$output" || exit 1
     ;;
-  *.png)
-    if ! command -v optipng &> /dev/null; then
-      echo "Error: optipng is not installed" >&2
+  convert)
+    input="${1:-}"
+    output="${2:-}"
+    if [ -z "$input" ] || [ -z "$output" ]; then
+      ansi::err "${ERROR}Convert requires input and output files${RESET_ALL}" || true
       exit 1
     fi
-    optipng "$file" "$@"
+    convert_file "$input" "$output" || exit 1
     ;;
-  *.webp)
-    if ! command -v cwebp &> /dev/null; then
-      echo "Error: cwebp is not installed" >&2
+  batch)
+    input_dir="${1:-}"
+    output_dir="${2:-}"
+    if [ -z "$input_dir" ]; then
+      ansi::err "${ERROR}No directory specified${RESET_ALL}" || true
       exit 1
     fi
-    cwebp "$file" "$@" -o "$file"
+    batch_process "$input_dir" "$output_dir" || exit 1
     ;;
   *)
-    echo "Error: '$file' — unsupported format" >&2
-    echo "Supported: .jpg, .jpeg, .png, .webp" >&2
+    ansi::err "${ERROR}Unknown command: $cmd${RESET_ALL}" || true
     exit 1
     ;;
 esac
