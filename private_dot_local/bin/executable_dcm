@@ -28,12 +28,12 @@ ${BOLD}dcm${RESET_BOLD} down                     # Bring down current setup"
 
 args_program_required_command="no"
 
-args::option "update, u" "Pull images, recreate changed containers, prune" "[dir]"
-args::option "down, d" "Compose down (stop and remove)" "[dir]"
-args::option "stop" "Compose stop (pause without removing)" "[dir]"
-args::option "start" "Compose start (resume stopped services)" "[dir]"
-args::option "restart" "Compose restart" "[dir]"
-args::option "status, s" "Compose ps (show running services)" "[dir]"
+args::option "update, u" "Pull images, recreate changed containers, prune" "dir" "opt"
+args::option "down, d" "Compose down (stop and remove)" "dir" "opt"
+args::option "stop" "Compose stop (pause without removing)" "dir" "opt"
+args::option "start" "Compose start (resume stopped services)" "dir" "opt"
+args::option "restart" "Compose restart" "dir" "opt"
+args::option "status, s" "Compose ps (show running services)" "dir" "opt"
 
 args::option "--all" "Operate on every setup under ~/servers"
 args::option "--force" "Pass --force-recreate to docker compose up"
