@@ -112,9 +112,7 @@ fi
 unset BP
 
 # git completion
-if [[ "$unameOut" != Darwin* ]]; then
-  [ -s ~/.config/git/git-completion.bash ] && \. ~/.config/git/git-completion.bash
-fi
+[ -s ~/.config/git/git-completion.bash ] && \. ~/.config/git/git-completion.bash
 
 # NVM for node.js
 BPN="$(brew --prefix nvm)"
@@ -195,18 +193,18 @@ if [ -s ~/.env ]; then
 fi
 unset unameOut
 
+# enable programmable completion features (you don't need to enable
+# this, if it's already enabled in /etc/bash.bashrc and /etc/profile
+# sources /etc/bash.bashrc).
+
+[ -s /etc/bash_completion ] && ! shopt -oq posix && \. /etc/bash_completion || true
+
 # Alias definitions.
 # You may want to put all your additions into a separate file like
 # ~/.bash_aliases, instead of adding them here directly.
 # See /usr/share/doc/bash-doc/examples in the bash-doc package.
 
 [ -s ~/.bash_aliases ] && \. ~/.bash_aliases || true
-
-# enable programmable completion features (you don't need to enable
-# this, if it's already enabled in /etc/bash.bashrc and /etc/profile
-# sources /etc/bash.bashrc).
-
-[ -s /etc/bash_completion ] && ! shopt -oq posix && \. /etc/bash_completion || true
 
 # dedupe path (based on https://www.linuxjournal.com/content/removing-duplicate-path-entries)
 # export PATH=$(echo -n "$PATH" | awk -v RS=: '!($0 in a) {a[$0]; printf("%s%s", length(a) > 1 ? ":" : "", $0)}')
