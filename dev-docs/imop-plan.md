@@ -116,7 +116,7 @@ With `--suffix TAG`: **multi-extension** — `image.jpg` → `image.jpg.TAG.webp
 
 ### Phase 1 — Core single-file operations
 
-1. Rewrite `executable_imop` with `options.bash` (source `main.sh`).
+1. Rewrite `executable_imop` with `options.bash` (source `bootstrap.sh`).
 2. Implement `optimize` command (lossless re-compression, single file).
 3. Implement `convert` command (format conversion, single file).
 4. Tool detection with fallback chain.

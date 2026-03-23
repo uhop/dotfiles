@@ -12,7 +12,7 @@ Implementation plan for `dcm`, a CLI utility that manages Docker Compose setups.
 | Image pruning | Prune by default; `--no-prune` to skip |
 | Force recreate | Opt-in with `--force` |
 | Argument parsing | `options.bash` (consistent with `imop`, `upd`, `jot`, etc.) |
-| Privilege escalation | Plain `sudo` (aliased to `doas` when available via `main.sh`) |
+| Privilege escalation | Plain `sudo` (aliased to `doas` when available via `bootstrap.sh`) |
 
 ## Commands
 
@@ -63,7 +63,7 @@ killing containers. The typical stderr signatures are:
    b. Otherwise, print the captured stderr and exit with the error code.
       The user must always see what went wrong, even for unexpected failures.
 
-Since `main.sh` aliases `sudo` to `doas` when available, scripts just use plain `sudo`.
+Since `bootstrap.sh` aliases `sudo` to `doas` when available, scripts just use plain `sudo`.
 For non-interactive use, configure passwordless access in `/etc/doas.conf`:
 
 ```

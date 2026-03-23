@@ -55,7 +55,7 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── *.js                       # Node.js helper scripts (nvm, semver, sorting)
 │   │   └── comp-utils.js             # Sorting comparator/less-function adapters
 │   ├── libs/
-│   │   └── main.sh                   # Bootstrap: auto-updates options.bash, sources core modules
+│   │   └── bootstrap.sh              # Bootstrap: auto-updates options.bash, sources core modules
 │   └── vendors/
 │       └── fzf-git.sh               # fzf git integration
 ├── private_dot_ssh/                   # → ~/.ssh/ (SSH config)
@@ -87,11 +87,11 @@ Template data is defined in `.chezmoi.toml.tmpl`:
 - **`set -euCo pipefail`** and **`shopt -s expand_aliases`** at the top of every utility script.
 - **Do not add comments or remove comments** unless explicitly asked.
 - **Do not modify or delete test scripts** without understanding what they verify.
-- All CLI utilities that use `options.bash` source it via `. ~/.local/libs/main.sh`.
+- All CLI utilities that use `options.bash` source it via `. ~/.local/libs/bootstrap.sh`.
 - **`args_cleaned` is an array.** Use `set -- "${args_cleaned[@]}"` (not `eval set -- "${args_cleaned}"`).
 - Templates (`.tmpl` files) use Go template syntax with chezmoi data. Guard platform-specific blocks with `{{ if eq .osIdLike "linux-debian" }}` or `{{ if eq .osIdLike "darwin" }}`.
 - Files listed in `.chezmoiignore` are not deployed to target machines.
-- `doas` is aliased to `sudo` when available (in `dot_bash_aliases` and `main.sh`).
+- `doas` is aliased to `sudo` when available (in `dot_bash_aliases` and `bootstrap.sh`).
 
 ## Code style
 
@@ -99,7 +99,7 @@ Template data is defined in `.chezmoi.toml.tmpl`:
 - Shell functions use either `name()` style (aliases, helpers) or `module::name` style (options.bash convention).
 - `echoRun` / `echoRunBold` for colored command execution with echo.
 - `ansi::out` / `ansi::err` for terminal-aware output (auto-strips ANSI when piped).
-- ANSI color globals (`RED`, `BOLD`, `RESET_ALL`, `FG_CYAN`, `BG_RED`, etc.) are available in all utilities that source `main.sh`.
+- ANSI color globals (`RED`, `BOLD`, `RESET_ALL`, `FG_CYAN`, `BG_RED`, etc.) are available in all utilities that source `bootstrap.sh`.
 
 ## CLI utility pattern
 
@@ -111,7 +111,7 @@ Every `options.bash`-based utility in `private_dot_local/bin/` follows this patt
 set -euCo pipefail
 shopt -s expand_aliases
 
-. ~/.local/libs/main.sh
+. ~/.local/libs/bootstrap.sh
 
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
@@ -127,9 +127,9 @@ set -- "${args_cleaned[@]}"
 # ... script logic ...
 ```
 
-## Bootstrap: main.sh
+## Bootstrap: bootstrap.sh
 
-`private_dot_local/libs/main.sh` is the bridge between dotfiles and options.bash:
+`private_dot_local/libs/bootstrap.sh` is the bridge between dotfiles and options.bash:
 
 1. Auto-updates `options.bash` from git on every invocation.
 2. Sources core modules: `ansi.sh`, `args.sh`, `args-version.sh`, `args-help.sh`.

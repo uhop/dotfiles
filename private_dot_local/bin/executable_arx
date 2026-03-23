@@ -3,7 +3,7 @@
 set -euCo pipefail
 shopt -s expand_aliases
 
-. ~/.local/libs/main.sh
+. ~/.local/libs/bootstrap.sh
 
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")

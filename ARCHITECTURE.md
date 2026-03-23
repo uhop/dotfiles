@@ -54,7 +54,7 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_trim-node-versions.js       # trim old node versions
 │   │   └── executable_update-node-versions.js     # update node major versions
 │   ├── libs/
-│   │   └── main.sh                                # options.bash bootstrap
+│   │   └── bootstrap.sh                           # options.bash bootstrap
 │   ├── vendors/
 │   │   └── fzf-git.sh                             # fzf git integration
 │   └── private_share/
@@ -70,7 +70,7 @@ dotfiles/                                          # chezmoi source directory
 ```
 options.bash (external)
     ↑
-main.sh (bootstrap)           ← auto-updates options.bash, sources ansi.sh + args.sh + args-help.sh + args-version.sh
+bootstrap.sh                  ← auto-updates options.bash, sources ansi.sh + args.sh + args-help.sh + args-version.sh
     ↑
 executable_arx                ← archive viewer/extractor
 executable_cln.tmpl           ← system cleanup (apt, brew, flatpak, docker, node)
@@ -123,9 +123,9 @@ Defined in `.chezmoi.toml.tmpl`:
 | `codespaces` | bool | `false` | Running in GitHub Codespaces |
 | `hasGui` | bool | `true` | Machine has a GUI |
 
-## Bootstrap: main.sh
+## Bootstrap: bootstrap.sh
 
-`private_dot_local/libs/main.sh` bridges dotfiles and options.bash:
+`private_dot_local/libs/bootstrap.sh` bridges dotfiles and options.bash:
 
 1. `git -C ~/.local/share/libs/scripts pull` — auto-update the library.
 2. Source `ansi.sh` — ANSI color globals and terminal-aware output.
@@ -138,7 +138,7 @@ Defined in `.chezmoi.toml.tmpl`:
 ## CLI utility conventions
 
 - Every utility starts with `set -euCo pipefail` + `shopt -s expand_aliases`.
-- Source `~/.local/libs/main.sh` for options.bash access.
+- Source `~/.local/libs/bootstrap.sh` for options.bash access.
 - Register options with `args::option`, parse with `args::parse "$@"`.
 - **`args_cleaned` is an array** — use `set -- "${args_cleaned[@]}"` to restore positional parameters.
 - Use `ansi::out` / `ansi::err` for terminal-aware output.
