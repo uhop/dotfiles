@@ -36,7 +36,19 @@ echoRunTee() {
   local stderr_file="$2"
   shift 2
   ansi::out "${FG_CYAN}$@${RESET_ALL}"
-  eval "$@" > >(tee "$stdout_file") 2> >(tee "$stderr_file" >&2)
+  # Build redirections conditionally to preserve TTY when not capturing
+  local redir=""
+  if [ "$stdout_file" != "/dev/null" ]; then
+    redir="> >(tee \"$stdout_file\")"
+  fi
+  if [ "$stderr_file" != "/dev/null" ]; then
+    redir="$redir 2> >(tee \"$stderr_file\" >&2)"
+  fi
+  if [ -n "$redir" ]; then
+    eval "$@" $redir
+  else
+    eval "$@"
+  fi
 }
 
 # set up doas
