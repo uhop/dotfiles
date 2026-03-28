@@ -27,5 +27,17 @@ echoRunBold() {
   eval "$@"
 }
 
+# echo the command, run it, and capture stdout and/or stderr to files while still displaying them
+# Usage: echoRunTee <stdout_file> <stderr_file> <command...>
+# Pass /dev/null for a file if you don't want to capture that stream
+# Returns: exit code of the command
+echoRunTee() {
+  local stdout_file="$1"
+  local stderr_file="$2"
+  shift 2
+  ansi::out "${FG_CYAN}$@${RESET_ALL}"
+  eval "$@" > >(tee "$stdout_file") 2> >(tee "$stderr_file" >&2)
+}
+
 # set up doas
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true

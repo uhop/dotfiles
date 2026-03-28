@@ -7,10 +7,6 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-# --- Configuration ---
-
-SERVERS_DIR="$HOME/servers"
-
 # --- Program definition ---
 
 args::program "$script_name" "1.0" "Manage Docker Compose setups"
@@ -22,9 +18,7 @@ with automatic AppArmor recovery on Linux."
 args_program_usage="${BOLD}dcm${RESET_BOLD}                          # Update current dir (pull + up + prune)
 ${BOLD}dcm${RESET_BOLD} update                   # Same as above
 ${BOLD}dcm${RESET_BOLD} update ~/servers/monitor # Update specific setup
-${BOLD}dcm${RESET_BOLD} update --all             # Update all setups under ~/servers
-${BOLD}dcm${RESET_BOLD} status --all             # Show status of all setups
-${BOLD}dcm${RESET_BOLD} down                     # Bring down current setup"
+${BOLD}dcm${RESET_BOLD} status ~/servers         # Status for all setups under ~/servers"
 
 args_program_required_command="no"
 
@@ -35,7 +29,6 @@ args::option "start" "Compose start (resume stopped services)" "dir" "opt"
 args::option "restart" "Compose restart" "dir" "opt"
 args::option "status, s" "Compose ps (show running services)" "dir" "opt"
 
-args::option "--all" "Operate on every setup under ~/servers"
 args::option "--force" "Pass --force-recreate to docker compose up"
 args::option "--no-prune" "Skip image pruning after update"
 args::option "-n, --dry-run" "Show commands without running"
@@ -55,9 +48,6 @@ OK="$BOLD$FG_GREEN"
 
 DRY_RUN=0
 [[ -v args_options["-n"] ]] && DRY_RUN=1
-
-OPT_ALL=0
-[[ -v args_options["--all"] ]] && OPT_ALL=1
 
 OPT_FORCE=0
 [[ -v args_options["--force"] ]] && OPT_FORCE=1
@@ -116,56 +106,53 @@ is_apparmor_error() {
   return 1
 }
 
+# Global temp file for cleanup (set by run_compose)
+_RUN_COMPOSE_TEMP_FILE=""
+
+# Cleanup function for temp files
+_cleanup_run_compose() {
+  if [ -n "$_RUN_COMPOSE_TEMP_FILE" ] && [ -f "$_RUN_COMPOSE_TEMP_FILE" ]; then
+    rm -f "$_RUN_COMPOSE_TEMP_FILE"
+  fi
+}
+
 # Run a docker compose command with AppArmor recovery.
 # Must be called from within the target compose directory.
-# Captures stderr; on failure checks for AppArmor pattern and retries once.
-# On any failure (AppArmor or not), prints stderr and returns the exit code.
+# Captures stderr via tee so user sees errors in real-time; on failure checks for AppArmor pattern and retries once.
 run_compose() {
-  local stderr_file
-  stderr_file="$(mktemp)"
+  _RUN_COMPOSE_TEMP_FILE="$(mktemp)"
+  trap _cleanup_run_compose EXIT
 
-  local rc=0
   if [ "$DRY_RUN" -eq 1 ]; then
     ansi::out "${INFO}[dry-run] docker compose $*${RESET_ALL}"
-    rm -f "$stderr_file"
     return 0
   fi
 
-  echoRun docker compose "$@" 2>|"$stderr_file" || rc=$?
+  echoRunTee /dev/null "$_RUN_COMPOSE_TEMP_FILE" docker compose "$@" || true
+
+  local rc=$?
 
   if [ "$rc" -eq 0 ]; then
-    rm -f "$stderr_file"
     return 0
   fi
 
   local stderr_text
-  stderr_text="$(cat "$stderr_file")"
+  stderr_text="$(cat "$_RUN_COMPOSE_TEMP_FILE")"
 
   if is_apparmor_error "$stderr_text"; then
     ansi::err "${WARN}AppArmor conflict detected, clearing stale profiles...${RESET_ALL}"
     sudo aa-remove-unknown || true
 
     # Retry once
-    rc=0
-    echoRun docker compose "$@" 2>|"$stderr_file" || rc=$?
+    echoRunTee /dev/null "$_RUN_COMPOSE_TEMP_FILE" docker compose "$@" || true
+    rc=$?
 
     if [ "$rc" -eq 0 ]; then
       ansi::out "${OK}Retry succeeded after AppArmor fix${RESET_ALL}"
-      rm -f "$stderr_file"
       return 0
     fi
-    stderr_text="$(cat "$stderr_file")"
   fi
 
-  # Print captured stderr and return error
-  if [ -n "$stderr_text" ]; then
-    ansi::err "${ERROR}docker compose failed (exit $rc):${RESET_ALL}"
-    echo "$stderr_text" >&2
-  else
-    ansi::err "${ERROR}docker compose failed with exit code $rc${RESET_ALL}"
-  fi
-
-  rm -f "$stderr_file"
   return "$rc"
 }
 
@@ -188,7 +175,12 @@ cmd_update() (
 
   ansi::out "\n${OK}Updating: ${BOLD}$dir_name${RESET_ALL}"
 
-  run_compose pull || return $?
+  # Pull doesn't need AppArmor wrapper - just show output directly
+  if [ "$DRY_RUN" -eq 1 ]; then
+    ansi::out "${INFO}[dry-run] docker compose pull${RESET_ALL}"
+  else
+    echoRun docker compose pull || return $?
+  fi
   if [ "$OPT_FORCE" -eq 1 ]; then
     run_compose up -d --force-recreate || return $?
   else
@@ -251,22 +243,33 @@ cmd_status() (
   run_compose ps || return $?
 )
 
-# --- Discover setups for --all ---
+# --- Discover setups ---
+# If target_dir contains a compose file, return just that dir.
+# Otherwise, return all immediate subdirs that contain compose files.
+find_compose_dirs() {
+  local target_dir="$1"
 
-discover_setups() {
-  local base="$1"
+  if [ -n "$(find_compose_file "$target_dir")" ]; then
+    # Target dir has a compose file - use it directly
+    echo "$target_dir"
+    return 0
+  fi
+
+  # No compose file in target - check immediate subdirectories
   local dirs=()
   local d
-  for d in "$base"/*/; do
+  for d in "$target_dir"/*/; do
     [ -d "$d" ] || continue
     if [ -n "$(find_compose_file "${d%/}")" ]; then
       dirs+=("${d%/}")
     fi
   done
+
   if [ ${#dirs[@]} -eq 0 ]; then
-    ansi::err "${WARN}No compose setups found under '$base'${RESET_ALL}"
+    ansi::err "${ERROR}No compose file found in '$target_dir' or its immediate subdirectories${RESET_ALL}"
     return 1
   fi
+
   printf '%s\n' "${dirs[@]}"
 }
 
@@ -278,36 +281,31 @@ dispatch() {
   local target_dir="${1:-.}"
   local succeeded=0 failed=0 failures=""
 
-  if [ "$OPT_ALL" -eq 1 ]; then
-    if [ ! -d "$SERVERS_DIR" ]; then
-      ansi::err "${ERROR}Servers directory '$SERVERS_DIR' does not exist${RESET_ALL}" || true
-      exit 1
+  local setups
+  setups="$(find_compose_dirs "$target_dir")" || exit 1
+
+  local total
+  total="$(echo "$setups" | wc -l)"
+
+  if [ "$total" -gt 1 ]; then
+    ansi::out "${INFO}Found ${BOLD}$total${RESET_BOLD} compose setup(s) under ${BOLD}$target_dir${RESET_ALL}"
+  fi
+
+  while IFS= read -r dir; do
+    if "cmd_$cmd" "$dir"; then
+      succeeded=$((succeeded + 1))
+    else
+      failed=$((failed + 1))
+      failures="${failures}\n  - $(basename "$dir")"
     fi
+  done <<< "$setups"
 
-    local setups
-    setups="$(discover_setups "$SERVERS_DIR")" || exit 1
-
-    local total
-    total="$(echo "$setups" | wc -l)"
-    ansi::out "${INFO}Found ${BOLD}$total${RESET_BOLD} compose setup(s) under $SERVERS_DIR${RESET_ALL}"
-
-    while IFS= read -r dir; do
-      if "cmd_$cmd" "$dir"; then
-        succeeded=$((succeeded + 1))
-      else
-        failed=$((failed + 1))
-        failures="${failures}\n  - $(basename "$dir")"
-      fi
-    done <<< "$setups"
-
+  if [ "$total" -gt 1 ]; then
     echo
     ansi::out "${OK}Results: ${BOLD}$succeeded${RESET_BOLD} succeeded, ${BOLD}$failed${RESET_BOLD} failed${RESET_ALL}"
     if [ "$failed" -gt 0 ]; then
       ansi::err "${WARN}Failed:${failures}${RESET_ALL}"
     fi
-  else
-    validate_compose_dir "$target_dir" || exit 1
-    "cmd_$cmd" "$target_dir" || exit $?
   fi
 }
 

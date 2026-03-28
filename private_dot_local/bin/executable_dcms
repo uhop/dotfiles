@@ -9,7 +9,7 @@ echoRun() {
 }
 
 if [ -d ~/servers ]; then
-  echoRun "dcm --all ~/servers"
+  echoRun "dcm ~/servers"
 else
   echo -e "No \033[1m~/servers\033[0m found: skipping \033[1mdcm\033[0m."
 fi
