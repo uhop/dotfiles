@@ -15,22 +15,23 @@ args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service life
 It handles pulling, updating, stopping, and restarting services,
 with automatic AppArmor recovery on Linux."
 
-args_program_usage="${BOLD}dcm${RESET_BOLD}                          # Update current dir (pull + up + prune)
+args_program_usage="${BOLD}dcm${RESET_BOLD}                          # Update current dir (pull + up)
 ${BOLD}dcm${RESET_BOLD} update                   # Same as above
 ${BOLD}dcm${RESET_BOLD} update ~/servers/monitor # Update specific setup
-${BOLD}dcm${RESET_BOLD} status ~/servers         # Status for all setups under ~/servers"
+${BOLD}dcm${RESET_BOLD} status ~/servers         # Status for all setups under ~/servers
+${BOLD}dcm${RESET_BOLD} prune                    # Prune unused Docker images globally"
 
 args_program_required_command="no"
 
-args::option "update, u" "Pull images, recreate changed containers, prune" "dir" "opt"
+args::option "update, u" "Pull images, recreate changed containers" "dir" "opt"
 args::option "down, d" "Compose down (stop and remove)" "dir" "opt"
 args::option "stop" "Compose stop (pause without removing)" "dir" "opt"
 args::option "start" "Compose start (resume stopped services)" "dir" "opt"
 args::option "restart" "Compose restart" "dir" "opt"
 args::option "status, s" "Compose ps (show running services)" "dir" "opt"
+args::option "prune, p" "Prune unused Docker images globally"
 
 args::option "--force" "Pass --force-recreate to docker compose up"
-args::option "--no-prune" "Skip image pruning after update"
 args::option "-n, --dry-run" "Show commands without running"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
@@ -51,9 +52,6 @@ DRY_RUN=0
 
 OPT_FORCE=0
 [[ -v args_options["--force"] ]] && OPT_FORCE=1
-
-OPT_NO_PRUNE=0
-[[ -v args_options["--no-prune"] ]] && OPT_NO_PRUNE=1
 
 IS_LINUX=0
 [[ "$(uname -s)" == "Linux" ]] && IS_LINUX=1
@@ -186,10 +184,6 @@ cmd_update() (
     run_compose up -d || return $?
   fi
 
-  if [ "$OPT_NO_PRUNE" -eq 0 ]; then
-    run_or_dry docker image prune -af
-  fi
-
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
 )
 
@@ -241,6 +235,14 @@ cmd_status() (
   ansi::out "\n${INFO}Status: ${BOLD}$dir_name${RESET_ALL}"
   run_compose ps || return $?
 )
+
+cmd_prune() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    ansi::out "${INFO}[dry-run] docker image prune -af${RESET_ALL}"
+  else
+    echoRun docker image prune -af
+  fi
+}
 
 # --- Discover setups ---
 # If target_dir contains a compose file, return just that dir.
@@ -331,6 +333,7 @@ case "$cmd" in
   start)   dispatch start "$target_dir" ;;
   restart) dispatch restart "$target_dir" ;;
   status)  dispatch status "$target_dir" ;;
+  prune)   cmd_prune ;;
   *)
     ansi::err "${ERROR}Unknown command: $cmd${RESET_ALL}" || true
     exit 1
