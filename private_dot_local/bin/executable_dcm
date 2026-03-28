@@ -128,9 +128,8 @@ run_compose() {
     return 0
   fi
 
-  echoRunTee /dev/null "$_RUN_COMPOSE_TEMP_FILE" docker compose "$@" || true
-
-  local rc=$?
+  local rc=0
+  echoRunTee /dev/null "$_RUN_COMPOSE_TEMP_FILE" docker compose "$@" || rc=$?
 
   if [ "$rc" -eq 0 ]; then
     return 0
@@ -144,8 +143,8 @@ run_compose() {
     sudo aa-remove-unknown || true
 
     # Retry once
-    echoRunTee /dev/null "$_RUN_COMPOSE_TEMP_FILE" docker compose "$@" || true
-    rc=$?
+    rc=0
+    echoRunTee /dev/null "$_RUN_COMPOSE_TEMP_FILE" docker compose "$@" || rc=$?
 
     if [ "$rc" -eq 0 ]; then
       ansi::out "${OK}Retry succeeded after AppArmor fix${RESET_ALL}"
