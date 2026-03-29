@@ -17,25 +17,31 @@ command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull --no-recu
 . ~/.local/share/libs/scripts/args-completion.sh
 
 # echo the first argument and run
+# Usage: echoRun [--bold] <command...>
 echoRun() {
-  ansi::out "${FG_CYAN}$@${RESET_ALL}"
-  eval "$@"
-}
-
-echoRunBold() {
-  ansi::out "${BOLD}${FG_CYAN}$@${RESET_ALL}"
+  local style="${FG_CYAN}"
+  if [[ "$1" == "--bold" ]]; then
+    style="${BOLD}${FG_CYAN}"
+    shift
+  fi
+  ansi::out "${style}$@${RESET_ALL}"
   eval "$@"
 }
 
 # echo the command, run it, and capture stdout and/or stderr to files while still displaying them
-# Usage: echoRunTee <stdout_file> <stderr_file> <command...>
+# Usage: echoRunTee [--bold] <stdout_file> <stderr_file> <command...>
 # Pass /dev/null for a file if you don't want to capture that stream
 # Returns: exit code of the command
 echoRunTee() {
+  local style="${FG_CYAN}"
+  if [[ "$1" == "--bold" ]]; then
+    style="${BOLD}${FG_CYAN}"
+    shift
+  fi
   local stdout_file="$1"
   local stderr_file="$2"
   shift 2
-  ansi::out "${FG_CYAN}$@${RESET_ALL}"
+  ansi::out "${style}$@${RESET_ALL}"
   # Build redirections conditionally to preserve TTY when not capturing
   local redir=""
   if [ "$stdout_file" != "/dev/null" ]; then

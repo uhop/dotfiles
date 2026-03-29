@@ -132,7 +132,7 @@ Defined in `.chezmoi.toml.tmpl`:
 3. Source `args.sh` — option/command parsing via `getopt`.
 4. Source `args-version.sh` — `--version` handler.
 5. Source `args-help.sh` — auto-generated colored help screens.
-6. Define `echoRun` / `echoRunBold` — colored command execution with echo.
+6. Define `echoRun` / `echoRun --bold` — colored command execution with echo.
 7. Alias `doas` as `sudo` if available.
 
 ## CLI utility conventions

@@ -3,13 +3,10 @@
 set -euCo pipefail
 shopt -s expand_aliases
 
-echoRun() {
-  echo -e "\033[36m$@\033[0m"
-  eval "$@"
-}
+. ~/.local/libs/bootstrap.sh
 
 if [ -d ~/servers ]; then
-  echoRun "dcm ~/servers"
+  echoRun --bold "dcm ~/servers"
 else
   echo -e "No \033[1m~/servers\033[0m found: skipping \033[1mdcm\033[0m."
 fi

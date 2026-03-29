@@ -97,7 +97,7 @@ Template data is defined in `.chezmoi.toml.tmpl`:
 
 - 2-space indentation (`.editorconfig`).
 - Shell functions use either `name()` style (aliases, helpers) or `module::name` style (options.bash convention).
-- `echoRun` / `echoRunBold` for colored command execution with echo.
+- `echoRun` / `echoRun --bold` for colored command execution with echo.
 - `ansi::out` / `ansi::err` for terminal-aware output (auto-strips ANSI when piped).
 - ANSI color globals (`RED`, `BOLD`, `RESET_ALL`, `FG_CYAN`, `BG_RED`, etc.) are available in all utilities that source `bootstrap.sh`.
 
@@ -133,7 +133,7 @@ set -- "${args_cleaned[@]}"
 
 1. Auto-updates `options.bash` from git on every invocation.
 2. Sources core modules: `ansi.sh`, `args.sh`, `args-version.sh`, `args-help.sh`.
-3. Defines `echoRun` / `echoRunBold` for colored command execution.
+3. Defines `echoRun` / `echoRun --bold` for colored command execution.
 4. Aliases `doas` as `sudo` if available.
 
 ## options.bash dependency

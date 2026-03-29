@@ -139,7 +139,7 @@ run_compose <args...>:
 Consistent with other utilities (`imop`, `upd`, `ollama-sync`):
 
 - `ansi::out` / `ansi::err` for terminal-aware colored output.
-- `echoRun` / `echoRunBold` for showing commands before execution.
+- `echoRun` / `echoRun --bold` for colored command execution.
 - Color scheme: `$FG_CYAN` for info, `$BOLD$FG_YELLOW` for warnings,
   `$BOLD$BRIGHT_WHITE$BG_RED` for errors, `$BOLD$FG_GREEN` for success.
 

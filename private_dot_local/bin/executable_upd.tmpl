@@ -32,28 +32,28 @@ if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 {{ if eq .osIdLike "linux-debian" -}}
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
-  echoRunBold sudo apt update
-  echoRunBold sudo apt upgrade $ASSUME_YES
+  echoRun --bold sudo apt update
+  echoRun --bold sudo apt upgrade $ASSUME_YES
 
   ansi::out "${WARN}snap may require sudo: expect asking for the sudo password.${RESET_ALL}"
-  echoRunBold sudo snap refresh
+  echoRun --bold sudo snap refresh
 
   if command -v flatpak &> /dev/null; then
-    echoRunBold flatpak update $ASSUME_YES
+    echoRun --bold flatpak update $ASSUME_YES
   fi
 fi
 {{- else if eq .osIdLike "darwin" -}}
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}softwareupdate may require sudo: expect asking for the sudo password.${RESET_ALL}"
-  echoRunBold sudo softwareupdate -i -a
+  echoRun --bold sudo softwareupdate -i -a
 
   ansi::out "${WARN}mas may require sudo: expect asking for the sudo password.${RESET_ALL}"
-  echoRunBold sudo mas upgrade
+  echoRun --bold sudo mas upgrade
 fi
 {{- end }}
 
-echoRunBold brew update
-echoRunBold brew upgrade
+echoRun --bold brew update
+echoRun --bold brew upgrade
 
 if command -v tmux &> /dev/null; then
   if [ -f "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" ]; then
@@ -63,7 +63,7 @@ if command -v tmux &> /dev/null; then
 fi
 
 if command -v bun &> /dev/null; then
-  echoRunBold bun upgrade --stable
+  echoRun --bold bun upgrade --stable
 fi
 
 {{ if eq .osIdLike "linux-debian" -}}

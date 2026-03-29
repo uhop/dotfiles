@@ -31,20 +31,20 @@ if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 {{ if eq .osIdLike "linux-debian" -}}
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
-  echoRunBold sudo apt autoremove $ASSUME_YES
-  echoRunBold sudo apt autoclean $ASSUME_YES
+  echoRun --bold sudo apt autoremove $ASSUME_YES
+  echoRun --bold sudo apt autoclean $ASSUME_YES
 fi
 {{- end }}
 
 if command -v flatpak &> /dev/null; then
-  echoRunBold flatpak uninstall --unused $ASSUME_YES
+  echoRun --bold flatpak uninstall --unused $ASSUME_YES
 fi
 
-echoRunBold brew autoremove
-echoRunBold brew cleanup --prune=all --scrub
+echoRun --bold brew autoremove
+echoRun --bold brew cleanup --prune=all --scrub
 
 if command -v docker &> /dev/null; then
-  echoRunBold docker system prune -a ${ASSUME_YES/-y/-f}
+  echoRun --bold docker system prune -a ${ASSUME_YES/-y/-f}
 fi
 
 . "$(brew --prefix nvm)/nvm.sh"

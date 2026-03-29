@@ -27,7 +27,7 @@ Personal dotfiles managed by [chezmoi](https://www.chezmoi.io/). Bash-based CLI 
 ## Code style
 
 - 2-space indentation (`.editorconfig`).
-- `echoRun` / `echoRunBold` for colored command execution.
+- `echoRun` / `echoRun --bold` for colored command execution.
 - `ansi::out` / `ansi::err` for terminal-aware output.
 - ANSI globals (`RED`, `BOLD`, `RESET_ALL`, etc.) available via `main.sh`.
 - Platform guards: `{{ if eq .osIdLike "linux-debian" }}` / `{{ if eq .osIdLike "darwin" }}`.
