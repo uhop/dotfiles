@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Transfer Ansible inventory to a remote server
+# Usage: ansible-inventory-transfer <host>
+#
+# Reads current inventory via `ansible-inventory --list`, adds current host to OS-appropriate
+# group (Linux/Darwin), excludes the target host, and copies result to target via SSH
+# as ~/ansible/inventory.yml in YAML format.
+#
+# Example:
+#   ansible-inventory-transfer croc
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: ansible-inventory-transfer <host>" >&2
+  exit 1
+fi
+
+TARGET_HOST="$1"
+CURRENT_HOST="$(hostname)"
+LOCAL_OS="$(uname -s)"  # Linux or Darwin
+
+# Get current inventory as JSON
+INVENTORY_JSON=$(ansible-inventory --list 2>/dev/null || echo '{}')
+
+# Generate new inventory
+generate_inventory() {
+  local target="$1"
+  local current="$2"
+  local os_name="$3"
+  local json="$4"
+
+  # Parse hosts from JSON by group
+  local linux_hosts=()
+  local darwin_hosts=()
+
+  # Extract hosts from ubuntu/Linux group
+  if command -v jq &>/dev/null; then
+    linux_hosts=($(echo "$json" | jq -r '.Linux.hosts[]? // .ubuntu.hosts[]? // empty' 2>/dev/null || true))
+    darwin_hosts=($(echo "$json" | jq -r '.Darwin.hosts[]? // .mac.hosts[]? // empty' 2>/dev/null || true))
+  else
+    # Fallback without jq - use grep/sed (simplistic parsing)
+    linux_hosts=($(echo "$json" | grep -oE '"(Linux|ubuntu)":\{[^}]*"hosts":\[[^\]]*' | grep -oE '"[a-z0-9]+"' | tr -d '"' | grep -vE '^(Linux|ubuntu|hosts)$' || true))
+    darwin_hosts=($(echo "$json" | grep -oE '"(Darwin|mac)":\{[^}]*"hosts":\[[^\]]*' | grep -oE '"[a-z0-9]+"' | tr -d '"' | grep -vE '^(Darwin|mac|hosts)$' || true))
+  fi
+
+  # Build unique lists, adding current host to appropriate group
+  declare -A linux_map
+  declare -A darwin_map
+
+  for h in "${linux_hosts[@]}"; do
+    [[ "$h" != "$target" ]] && linux_map["$h"]=1
+  done
+  for h in "${darwin_hosts[@]}"; do
+    [[ "$h" != "$target" ]] && darwin_map["$h"]=1
+  done
+
+  # Add current host to OS-appropriate group (unless it's the target)
+  if [[ "$current" != "$target" ]]; then
+    if [[ "$os_name" == "Linux" ]]; then
+      linux_map["$current"]=1
+    elif [[ "$os_name" == "Darwin" ]]; then
+      darwin_map["$current"]=1
+    fi
+  fi
+
+  # Output YAML inventory
+  echo "all:"
+  echo "  children:"
+  echo "    Linux:"
+  echo "      hosts:"
+  for h in "${!linux_map[@]}"; do echo "        $h:"; done | sort
+  echo "    Darwin:"
+  echo "      hosts:"
+  for h in "${!darwin_map[@]}"; do echo "        $h:"; done | sort
+}
+
+# Generate and transfer
+if generate_inventory "$TARGET_HOST" "$CURRENT_HOST" "$LOCAL_OS" "$INVENTORY_JSON" | ssh "$TARGET_HOST" 'mkdir -p ~/ansible && cat > ~/ansible/inventory.yml'; then
+  echo "Inventory transferred to $TARGET_HOST:~/ansible/inventory.yml (excludes $TARGET_HOST, includes $CURRENT_HOST in $LOCAL_OS group)"
+else
+  echo "Failed to transfer inventory to $TARGET_HOST" >&2
+  exit 1
+fi
