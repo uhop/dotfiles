@@ -41,6 +41,11 @@ dotfiles/                              # chezmoi source directory
 │   └── tmux/
 ├── private_dot_local/
 │   ├── bin/                           # → ~/.local/bin/ (CLI utilities)
+│   │   ├── executable_ansible-chezmoi    # Ansible: chezmoi update on all servers
+│   │   ├── executable_ansible-daily      # Ansible: daily maintenance stack
+│   │   ├── executable_ansible-dcms       # Ansible: dcms on all servers
+│   │   ├── executable_ansible-upd        # Ansible: upd on all servers
+│   │   ├── executable_ansible-weekly     # Ansible: weekly maintenance stack (with cleanup)
 │   │   ├── executable_arx             # Archive viewer/extractor
 │   │   ├── executable_cln.tmpl        # Cleanup script (apt, brew, flatpak, docker, node)
 │   │   ├── executable_goup            # Run command in current + parent directories
@@ -56,6 +61,13 @@ dotfiles/                              # chezmoi source directory
 │   │   └── comp-utils.js             # Sorting comparator/less-function adapters
 │   ├── libs/
 │   │   └── bootstrap.sh              # Bootstrap: auto-updates options.bash, sources core modules
+│   ├── ansible/
+│   │   └── playbooks/                # Ansible playbooks for server management
+│   │       ├── command-chezmoi.yml
+│   │       ├── command-dcms.yml
+│   │       ├── command-upd.yml
+│   │       ├── stack-daily.yml
+│   │       └── stack-weekly.yml
 │   └── vendors/
 │       └── fzf-git.sh               # fzf git integration
 ├── private_dot_ssh/                   # → ~/.ssh/ (SSH config)

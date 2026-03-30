@@ -52,7 +52,7 @@ set -- "${args_cleaned[@]}"
 
 - Shell config: `dot_bashrc`, `dot_bash_aliases`, `dot_bash_profile`, `dot_profile`
 - App configs: `dot_config/` (alacritty, cheat, fastfetch, ghostty, git, kitty, micro, nano, tmux)
-- CLI utilities: `private_dot_local/bin/executable_*` (arx, cln, goup, jot, upd, ollama-sync, etc.)
+- CLI utilities: `private_dot_local/bin/executable_*` (ansible-*, arx, cln, goup, jot, upd, ollama-sync, etc.)
 - Bootstrap: `private_dot_local/libs/main.sh` (auto-updates options.bash, sources core modules)
 - JS helpers: `private_dot_local/bin/*.js` (nvm-utils, semver-utils, comp-utils)
 - Vendors: `private_dot_local/vendors/fzf-git.sh`

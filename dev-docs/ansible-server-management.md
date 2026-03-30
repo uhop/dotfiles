@@ -2,6 +2,8 @@
 
 Ansible-based automation to run maintenance commands across all inventory servers, supporting both individual command execution and sequenced daily/weekly stacks with colored terminal output for failure notifications.
 
+**User documentation:** See [Ansible Server Management](../external_wiki/Ansible-Server-Management) in the wiki.
+
 ## Requirements Summary
 
 | Aspect | Decision |
@@ -198,7 +200,7 @@ force_color = 1
 **Sample failure output:**
 ```
 TASK [chezmoi update] ********************************************************
-fatal: [server1]: FAILED! => changed=true 
+fatal: [server1]: FAILED! => changed=true
   cmd: chezmoi update
   rc: 1
   stderr: 'chezmoi: source state does not exist'
@@ -206,8 +208,8 @@ fatal: [server1]: FAILED! => changed=true
     - 'chezmoi: source state does not exist'
 
 PLAY RECAP *********************************************************************
-server1                    : ok=0    changed=0    unreachable=0    failed=1    skipped=0    rescued=0    ignored=0   
-server2                    : ok=0    changed=0    unreachable=0    failed=0    skipped=3    rescued=0    ignored=0   
+server1                    : ok=0    changed=0    unreachable=0    failed=1    skipped=0    rescued=0    ignored=0
+server2                    : ok=0    changed=0    unreachable=0    failed=0    skipped=3    rescued=0    ignored=0
 ```
 
 ### 6. Wrapper Scripts for Easy Execution

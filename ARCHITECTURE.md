@@ -32,6 +32,11 @@ dotfiles/                                          # chezmoi source directory
 │
 ├── private_dot_local/
 │   ├── bin/                                       # → ~/.local/bin/ (CLI utilities)
+│   │   ├── executable_ansible-chezmoi         # ansible: chezmoi update on all servers
+│   │   ├── executable_ansible-daily             # ansible: daily maintenance stack
+│   │   ├── executable_ansible-dcms              # ansible: dcms on all servers
+│   │   ├── executable_ansible-upd               # ansible: upd on all servers
+│   │   ├── executable_ansible-weekly            # ansible: weekly maintenance (with cleanup)
 │   │   ├── executable_arx                         # archive viewer/extractor
 │   │   ├── executable_cln.tmpl                    # system cleanup
 │   │   ├── executable_goup                        # run command up directory tree
@@ -55,6 +60,8 @@ dotfiles/                                          # chezmoi source directory
 │   │   └── executable_update-node-versions.js     # update node major versions
 │   ├── libs/
 │   │   └── bootstrap.sh                           # options.bash bootstrap
+│   ├── ansible/
+│   │   └── playbooks/                             # ansible server management
 │   ├── vendors/
 │   │   └── fzf-git.sh                             # fzf git integration
 │   └── private_share/

@@ -22,7 +22,7 @@ Template data from `.chezmoi.toml.tmpl`:
 . ~/.local/share/libs/scripts/args-help.sh
 ```
 
-Defines `echoRun` / `echoRunBold` (colored command echo + eval).
+Defines `echoRun` / `echoRun --bold` (colored command echo + eval).
 Aliases `doas` as `sudo` when available.
 
 ## CLI utilities (options.bash-based)
@@ -48,11 +48,33 @@ Archive viewer/extractor.
 Commands:
 - `arx archive.tar.gz` — list contents (default)
 - `arx list archive.tar.gz` / `arx l archive.tar.gz` — list contents
-- `arx extract archive.tar.gz` / `arx x archive.tar.gz [dir]` — extract
+- `arx extract archive.tar.gz` — extract to current directory
 
 Options: `-v, --version`, `-h, --help`
 
 Supported formats: `.tar.br`, `.tar.bz2`, `.tar.gz`, `.tar.xz`, `.tar.zst`, `.tar`, `.tbz2`, `.tgz`, `.7z`, `.deb`, `.rar`, `.zip`, `.br`, `.bz2`, `.gz`, `.xz`, `.zst`, `.Z`
+
+### Ansible Server Management
+
+Remote server automation using Ansible. All commands use colored terminal output and target the Ansible inventory.
+
+**Individual commands:**
+- `ansible-chezmoi` — `chezmoi update` on all servers
+- `ansible-dcms` — `dcms` (Docker Compose update) on all servers
+- `ansible-upd` — `upd -y` (software update) on all servers
+
+**Maintenance stacks (fail-fast, stop on first error):**
+- `ansible-daily` — Daily sequence: chezmoi → dcms → upd -y
+- `ansible-weekly` — Weekly sequence with cleanup: chezmoi → dcms → upd -cy
+
+**Common options:**
+- `--limit <host>` — run on specific server only (e.g., `--limit croc`)
+- `--limit <group>` — run on group only (e.g., `--limit ubuntu` or `--limit mac`)
+- `--check` — dry run (check mode)
+
+**Inventory groups:** `ubuntu` (croc, mini, nuke), `mac` (mini2)
+
+**Playbook location:** `~/ansible/playbooks/`
 
 ### upd
 
