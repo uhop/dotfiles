@@ -35,6 +35,7 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_ansible-chezmoi         # ansible: chezmoi update on all servers
 │   │   ├── executable_ansible-daily             # ansible: daily maintenance stack
 │   │   ├── executable_ansible-dcms              # ansible: dcms on all servers
+│   │   ├── executable_ansible-inventory-export  # ansible: generate inventory (excludes current host)
 │   │   ├── executable_ansible-upd               # ansible: upd on all servers
 │   │   ├── executable_ansible-weekly            # ansible: weekly maintenance (with cleanup)
 │   │   ├── executable_arx                         # archive viewer/extractor

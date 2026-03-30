@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Generate Ansible inventory excluding a specified host and optionally copy it to a remote server
+# Usage: ansible-inventory-export [--to <host>]
+#
+# Examples:
+#   ansible-inventory-export                    # Exclude current host, write to ~/.ansible/hosts
+#   ansible-inventory-export --to croc            # Exclude croc, copy to croc via SSH
+
+EXCLUDE_HOST="$(hostname)"
+TARGET_HOST=""
+
+# Parse optional --to argument
+if [[ "${1:-}" == "--to" && -n "${2:-}" ]]; then
+  TARGET_HOST="$2"
+  EXCLUDE_HOST="$2"
+fi
+
+# Full list of all hosts by group
+UBUNTU_HOSTS=("croc" "mini" "nuke" "uhop")
+MAC_HOSTS=("mini2")
+
+generate_inventory() {
+  echo "[ubuntu]"
+  for host in "${UBUNTU_HOSTS[@]}"; do
+    if [[ "$host" != "$EXCLUDE_HOST" ]]; then
+      echo "$host"
+    fi
+  done
+
+  echo ""
+  echo "[mac]"
+  for host in "${MAC_HOSTS[@]}"; do
+    if [[ "$host" != "$EXCLUDE_HOST" ]]; then
+      echo "$host"
+    fi
+  done
+
+  echo ""
+  echo "[all_servers:children]"
+  echo "ubuntu"
+  echo "mac"
+}
+
+if [[ -n "$TARGET_HOST" ]]; then
+  # Copy to remote host
+  generate_inventory | ssh "$TARGET_HOST" 'cat > ~/.ansible/hosts'
+  echo "Inventory copied to $TARGET_HOST (excludes $EXCLUDE_HOST)"
+else
+  # Write locally
+  generate_inventory > ~/.ansible/hosts
+  echo "Inventory written to ~/.ansible/hosts (excludes $EXCLUDE_HOST)"
+fi

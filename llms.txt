@@ -76,6 +76,16 @@ Remote server automation using Ansible. All commands use colored terminal output
 
 **Playbook location:** `~/ansible/playbooks/`
 
+### ansible-inventory-export
+
+Generate Ansible inventory excluding current host to avoid loops. Writes locally or copies to remote via SSH.
+
+**Usage:**
+```bash
+ansible-inventory-export              # Write to ~/.ansible/hosts (excludes current host)
+ansible-inventory-export --to croc    # Copy to croc via SSH (excludes croc)
+```
+
 ### upd
 
 System updater. Template: `executable_upd.tmpl`.
