@@ -185,6 +185,10 @@ export GITHUB_USERNAME={{ .githubUsername }}
 
 export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
 
+if [ -f ~/ansible/inventory.yml ]; then
+  export ANSIBLE_INVENTORY=~/ansible/inventory.yml
+fi
+
 if [ -s ~/.env ]; then
   case "${unameOut}" in
       Linux*)             export $(grep -v '^#' ~/.env | xargs -d '\n');;
