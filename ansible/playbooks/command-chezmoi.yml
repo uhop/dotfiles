@@ -1,0 +1,10 @@
+---
+- name: Run chezmoi update
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Execute chezmoi update
+      ansible.builtin.command: chezmoi update
+      register: chezmoi_result
+      changed_when: chezmoi_result.rc == 0
+      failed_when: chezmoi_result.rc != 0

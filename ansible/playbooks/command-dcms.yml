@@ -1,0 +1,10 @@
+---
+- name: Run dcms (dcm for all servers)
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Execute dcms
+      ansible.builtin.command: "{{ lookup('env', 'HOME') }}/.local/bin/dcms"
+      register: dcms_result
+      changed_when: true
+      failed_when: dcms_result.rc != 0

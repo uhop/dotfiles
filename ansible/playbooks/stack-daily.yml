@@ -1,0 +1,21 @@
+---
+- name: Daily maintenance stack
+  hosts: all
+  gather_facts: no
+  serial: 1
+  any_errors_fatal: true
+  tasks:
+    - name: chezmoi update
+      ansible.builtin.command: chezmoi update
+      register: result
+      failed_when: result.rc != 0
+
+    - name: dcms
+      ansible.builtin.command: "{{ lookup('env', 'HOME') }}/.local/bin/dcms"
+      register: result
+      failed_when: result.rc != 0
+
+    - name: upd -y
+      ansible.builtin.command: "{{ lookup('env', 'HOME') }}/.local/bin/upd -y"
+      register: result
+      failed_when: result.rc != 0

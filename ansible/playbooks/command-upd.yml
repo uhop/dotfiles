@@ -1,0 +1,12 @@
+---
+- name: Run upd
+  hosts: all
+  gather_facts: no
+  vars:
+    upd_flags: "-y"
+  tasks:
+    - name: Execute upd
+      ansible.builtin.command: "{{ lookup('env', 'HOME') }}/.local/bin/upd {{ upd_flags }}"
+      register: upd_result
+      changed_when: true
+      failed_when: upd_result.rc != 0
