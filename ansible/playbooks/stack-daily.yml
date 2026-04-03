@@ -1,6 +1,6 @@
 ---
 - name: Daily maintenance stack
-  hosts: all
+  hosts: Linux
   gather_facts: no
   serial: 1
   any_errors_fatal: true
@@ -11,11 +11,11 @@
       failed_when: result.rc != 0
 
     - name: dcms
-      ansible.builtin.command: "{{ lookup('env', 'HOME') }}/.local/bin/dcms"
+      ansible.builtin.command: dcms
       register: result
       failed_when: result.rc != 0
 
     - name: upd -y
-      ansible.builtin.command: "{{ lookup('env', 'HOME') }}/.local/bin/upd -y"
+      ansible.builtin.command: 'upd -y'
       register: result
       failed_when: result.rc != 0

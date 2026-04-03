@@ -4,7 +4,7 @@
   gather_facts: no
   tasks:
     - name: Execute dcms
-      ansible.builtin.command: "{{ lookup('env', 'HOME') }}/.local/bin/dcms"
+      ansible.builtin.command: dcms
       register: dcms_result
       changed_when: true
       failed_when: dcms_result.rc != 0
