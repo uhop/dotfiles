@@ -190,16 +190,8 @@ if command -v pet &> /dev/null; then
   bind -x '"\C-n": _pet_move_cursor_to_next_parameter' 2>/dev/null
 
   if command -v fzf &> /dev/null; then
-    export FZF_CTRL_R_OPTS="
-      --reverse
-      --cycle
-      --info=right
-      --color header:italic
-      --header 'alt+s (pet new)'
-      --preview 'echo {}' --preview-window down:3:hidden:wrap
-      --bind '?:toggle-preview'
-      --bind 'alt-s:execute(pet new --tag {2..})+abort'"
-    fi
+    export FZF_CTRL_R_OPTS="--reverse --cycle --info=right --color header:italic --header 'alt+s (pet new)' --preview 'echo {}' --preview-window down:3:hidden:wrap --bind '?:toggle-preview' --bind 'alt-s:execute(pet new --tag {2..})+abort'"
+  fi
 fi
 
 if [[ $TERM_PROGRAM != "WarpTerminal" ]]; then
