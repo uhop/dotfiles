@@ -23,7 +23,7 @@
 [Gist]
   Public = false
   access_token = ""
-  auto_sync = false
+  auto_sync = true
   file_name = "pet-snippet.toml"
   gist_id = "755f1cf7c9d94414bd54573fcfa61e82"
 
