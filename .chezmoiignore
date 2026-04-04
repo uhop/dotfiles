@@ -4,9 +4,11 @@ ARCHITECTURE.md
 CLAUDE.md
 llms.txt
 .clinerules
+.cursor
 .cursorrules
 .editorconfig
 .prettierrc
+.windsurf
 .windsurfrules
 dev-docs
 external_wiki
