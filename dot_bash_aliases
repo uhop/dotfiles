@@ -178,8 +178,15 @@ alias j='command jobs -l'
 alias df='command df -kh'
 alias dd='command dd status=progress'
 alias free='free -m'
-alias env='command env | sort'
 alias path='command echo -e ${PATH//:/\\n}'
+
+env() {
+  if [ $# -eq 0 ]; then
+    command env | sort
+  else
+    command env "$@"
+  fi
+}
 
 alias mic='micro'
 alias lzd='lazydocker'
