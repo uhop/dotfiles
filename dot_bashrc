@@ -160,6 +160,48 @@ if command -v fzf &> /dev/null; then
 	[ -s ~/.local/vendors/fzf-git.sh ] && \. ~/.local/vendors/fzf-git.sh || true
 fi
 
+if command -v pet &> /dev/null; then
+  function ppet() {
+    PREV=$(echo `history | tail -n2 | head -n1` | sed 's/[0-9]* //')
+    sh -c "pet new `printf %q "$PREV"`"
+  }
+
+  function pet-select() {
+    BUFFER=$(pet search --query "$READLINE_LINE")
+    READLINE_LINE=$BUFFER
+    READLINE_POINT=${#BUFFER}
+  }
+  bind -x '"\C-x\C-r": pet-select'
+
+  function _pet_move_cursor_to_next_parameter() {
+    match="$(echo "$READLINE_LINE" | perl -nle 'print $& if /<.*?>/')"
+    if [ -n "$match" ]; then
+      default="$(echo "$match" | perl -nle 'print $& if /(?<==).*(?=>)/')"
+      match_len=${#match}
+      default_len=${#default}
+
+      pre_match=${READLINE_LINE%%$match*}
+      parameter_offset=${#pre_match}
+
+      READLINE_POINT="$((${parameter_offset} + ${default_len}))"
+      READLINE_LINE="${READLINE_LINE:0:$parameter_offset}${default}${READLINE_LINE:$parameter_offset+$match_len}"
+    fi
+  }
+  bind -x '"\C-n": _pet_move_cursor_to_next_parameter'
+
+  if command -v fzf &> /dev/null; then
+    export FZF_CTRL_R_OPTS="
+      --reverse
+      --cycle
+      --info=right
+      --color header:italic
+      --header 'alt+s (pet new)'
+      --preview 'echo {}' --preview-window down:3:hidden:wrap
+      --bind '?:toggle-preview'
+      --bind 'alt-s:execute(pet new --tag {2..})+abort'"
+    fi
+fi
+
 if [[ $TERM_PROGRAM != "WarpTerminal" ]]; then
   [ -s ~/.iterm2_shell_integration.bash ] && \. ~/.iterm2_shell_integration.bash || true
 fi
@@ -181,9 +223,6 @@ export EDITOR=micro
 export VISUAL=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export FORCE_COLOR=3
-export GITHUB_USERNAME={{ .githubUsername }}
-
-export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
 
 if [ -f ~/ansible/inventory.yml ]; then
   export ANSIBLE_INVENTORY=~/ansible/inventory.yml
@@ -196,6 +235,8 @@ if [ -s ~/.env ]; then
   esac
 fi
 unset unameOut
+
+export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
 
 # enable programmable completion features (you don't need to enable
 # this, if it's already enabled in /etc/bash.bashrc and /etc/profile
