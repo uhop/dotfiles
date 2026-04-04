@@ -67,7 +67,7 @@ if command -v bun &> /dev/null; then
 fi
 
 if command -v pet &> /dev/null; then
-  touch ~/.config/pet/snippet.toml
+  if [ ! -f "$HOME/.config/pet/snippet.toml" ]; then touch "$HOME/.config/pet/snippet.toml"; fi
   echoRun --bold pet sync
 fi
 
