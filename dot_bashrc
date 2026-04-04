@@ -171,7 +171,7 @@ if command -v pet &> /dev/null; then
     READLINE_LINE=$BUFFER
     READLINE_POINT=${#BUFFER}
   }
-  bind -x '"\C-x\C-r": pet-select'
+  bind -x '"\C-x\C-r": pet-select' 2>/dev/null
 
   function _pet_move_cursor_to_next_parameter() {
     match="$(echo "$READLINE_LINE" | perl -nle 'print $& if /<.*?>/')"
@@ -187,7 +187,7 @@ if command -v pet &> /dev/null; then
       READLINE_LINE="${READLINE_LINE:0:$parameter_offset}${default}${READLINE_LINE:$parameter_offset+$match_len}"
     fi
   }
-  bind -x '"\C-n": _pet_move_cursor_to_next_parameter'
+  bind -x '"\C-n": _pet_move_cursor_to_next_parameter' 2>/dev/null
 
   if command -v fzf &> /dev/null; then
     export FZF_CTRL_R_OPTS="
