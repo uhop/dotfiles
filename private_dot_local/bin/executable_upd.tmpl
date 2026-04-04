@@ -66,6 +66,11 @@ if command -v bun &> /dev/null; then
   echoRun --bold bun upgrade --stable
 fi
 
+if command -v pet &> /dev/null; then
+  touch ~/.config/pet/snippet.toml
+  echoRun --bold pet sync
+fi
+
 {{ if eq .osIdLike "linux-debian" -}}
 if compgen -G "/run/reb*" > /dev/null; then
 	ansi::out "${WARN}WARNING: reboot is ${BLINK}${REVERSE}required${RESET_ALL}${WARN}. To reboot run: ${ITALIC}reboot${RESET_ALL}${WARN} or ${ITALIC}sudo shutdown -r now${RESET_ALL}"
