@@ -110,6 +110,7 @@ The following tools are installed and aliased:
 - `agrep` &mdash; fuzzy `grep` of the `tre` package.
 - `bandwhich`, `bmon` &mdash; real-time network monitoring.
 - `q` &mdash; a command-line DNS client.
+- `pet` &mdash; a snippet manager.
 
 Check `.bash_aliases` for a list of aliases.
 
