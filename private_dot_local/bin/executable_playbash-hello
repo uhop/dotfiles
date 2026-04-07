@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# playbash-hello — minimal playbook used by milestone 1 step (b).
+# Prints one line and exits. Directly runnable by hand: `playbash-hello`.
+
+echo "hello from $(hostname) at $(date -Iseconds)"

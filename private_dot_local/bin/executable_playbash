@@ -1,0 +1,68 @@
+#!/usr/bin/env node
+// playbash — run bash playbooks on remote hosts.
+// Milestone 1, step (b): playbook is a preinstalled script at
+// ~/.local/bin/playbash-<name> on the target host (deployed via chezmoi).
+// The runner just invokes it over ssh and tees output to a per-run log.
+
+import {spawn} from 'node:child_process';
+import {mkdirSync, createWriteStream} from 'node:fs';
+import {homedir} from 'node:os';
+import {join} from 'node:path';
+import {parseArgs} from 'node:util';
+
+const USAGE = `usage: playbash run <playbook> <host>
+
+<playbook> resolves to ~/.local/bin/playbash-<playbook> on the target host
+(deployed there by chezmoi). <host> is passed verbatim to ssh, so any
+~/.ssh/config alias works.`;
+
+function die(msg, code = 2) {
+  process.stderr.write(`playbash: ${msg}\n`);
+  process.exit(code);
+}
+
+const {positionals} = parseArgs({allowPositionals: true});
+if (positionals.length === 0) die(USAGE);
+
+const [command, ...rest] = positionals;
+if (command !== 'run') die(`unknown command "${command}"\n${USAGE}`);
+if (rest.length !== 2) die(`run takes <playbook> <host>\n${USAGE}`);
+
+const [playbook, host] = rest;
+if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
+
+// Primary mode: the playbook script is preinstalled on the target host.
+// The remote login shell expands ~ for us.
+const remoteCommand = `~/.local/bin/playbash-${playbook}`;
+
+// Open the per-run log file.
+const logDir = join(homedir(), '.cache', 'playbash', 'runs');
+mkdirSync(logDir, {recursive: true});
+const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+const logPath = join(logDir, `${stamp}-${host}-${playbook}.log`);
+const log = createWriteStream(logPath);
+
+// Tee a chunk to both the local stream and the log file.
+function tee(chunk, localStream) {
+  localStream.write(chunk);
+  log.write(chunk);
+}
+
+const sshArgs = [host, '--', remoteCommand];
+const child = spawn('ssh', sshArgs, {stdio: ['ignore', 'pipe', 'pipe']});
+
+child.stdout.on('data', chunk => tee(chunk, process.stdout));
+child.stderr.on('data', chunk => tee(chunk, process.stderr));
+
+child.on('error', err => {
+  die(`failed to spawn ssh: ${err.message}`, 1);
+});
+
+child.on('close', (code, signal) => {
+  log.end(() => {
+    const status = signal ? `signal ${signal}` : `exit ${code}`;
+    process.stderr.write(`\nplaybash: ${host} ${playbook} — ${status}\n`);
+    process.stderr.write(`playbash: log ${logPath}\n`);
+    process.exit(code ?? 1);
+  });
+});
