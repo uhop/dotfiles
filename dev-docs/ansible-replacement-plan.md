@@ -22,16 +22,18 @@ Proceeding with the plan below.
 
 In:
 - One host at a time, sequential execution.
-- Connect / run / upload / download / close.
+- Run preinstalled playbooks (chezmoi-deployed to `~/.local/bin/playbash-*`) over ssh.
 - Sidecar event collection (post-hoc, see below).
-- Live "last N lines" output rectangle via PTY capture.
+- Live "last N lines" output rectangle via PTY capture; `-n 0` opts out.
 - Per-host summary at end with warnings, suggested actions, and errors.
-- A trivial new inventory format (see below).
-- A debug runner that streams everything verbatim against a single host.
+- JSON inventory at `~/.config/playbash/inventory.json`. Self detection by IP at runtime — no marker file.
+- `playbash list` / `playbash hosts` / `playbash debug` (raw streaming + verbose).
+- Local execution on the self host via `--self`.
 
 Out (deferred to v2+):
 - Parallel fan-out across hosts.
-- Groups, tags, host patterns beyond a flat list.
+- Groups, tags, host patterns beyond a flat list (schema reserved; CLI deferred).
+- Upload / download mode for ad-hoc playbooks not yet in the chezmoi tree.
 - Idempotency primitives.
 - Interactive "do you want to reboot now?" prompts (just *report* the suggestion in v1).
 - Extraction into a standalone project.
@@ -39,26 +41,78 @@ Out (deferred to v2+):
 ## CLI surface
 
 ```
-playbash run <playbook> <host>            # run one playbook on one host
-playbash debug <playbook> <host>          # same, but stream raw output
-playbash list                             # list playbooks
-playbash hosts                            # list inventory entries
+playbash run   <playbook> <host> [-n N] [--self]   # run one playbook on one host
+playbash debug <playbook> <host> [--self]          # same, but raw output + verbose
+playbash list                                      # list playbooks
+playbash hosts                                     # list inventory entries
 ```
 
-Playbooks live in a fixed directory (e.g. `~/.config/playbash/playbooks/*.sh`). Inventory in a fixed file (e.g. `~/.config/playbash/inventory.json`).
+Playbooks live at `~/.local/bin/playbash-*` on every managed host (deployed by chezmoi). Inventory at `~/.config/playbash/inventory.json`. Self detection is runtime by IP comparison — no marker file.
 
-## Inventory format (v1)
+## Inventory
 
-Plain JSON, flat object. Chosen because `jq` is already installed everywhere we care about, Node parses it natively (no extra dep), and it's the same format as the sidecar — one parser to learn. Groups can come later.
+Plain JSON, flat object. Chosen because Node parses it natively (no extra dep) and it's the same format as the sidecar — one parser to learn. Lives at `~/.config/playbash/inventory.json`, deployed identically to every managed host via chezmoi (`dot_config/playbash/inventory.json`).
+
+### Schema
+
+A value in the top-level object is one of:
+
+- **String** — host address shorthand. `"web1": "web1.example.com"` is sugar for `{"address": "web1.example.com"}`.
+- **Object with `address`** — host with extra attributes. Anything beyond `address` (`user`, `port`, ...) is currently informational; ssh-side overrides should live in `~/.ssh/config`.
+- **Array of strings** — group. Members are host names. Loaded by the parser today, listed by `playbash hosts`, but not yet resolvable on the CLI; using one as a host argument is rejected with a clear error. Groups land in a later milestone (see [Groups (future)](#groups-future)).
 
 ```json
 {
-  "web1": { "address": "web1.example.com", "user": "eugene", "port": 22 },
-  "db1":  { "address": "10.0.0.5" }
+  "web1":      "web1.example.com",
+  "db1":       { "address": "10.0.0.5", "user": "eugene", "port": 2222 },
+  "mac":       "mac.local",
+  "databases": ["db1"]
 }
 ```
 
-Any field beyond `address` falls through to `~/.ssh/config`.
+### Host argument resolution
+
+When the user passes a host name, the runner looks it up in the inventory:
+
+- **Found, host entry** → use the inventory's `address` for ssh; keep the inventory name for display, log filenames, and `$PLAYBASH_HOST`.
+- **Found, group entry** → reject with "groups not yet supported" (until the groups milestone lands).
+- **Not found** → pass the literal string to ssh, so `~/.ssh/config` aliases keep working unchanged. The inventory is purely additive.
+
+The inventory is **optional**. If `~/.config/playbash/inventory.json` is missing, `run`/`debug` work as before and `hosts` prints a friendly "no inventory" message.
+
+### Self host
+
+The inventory is shared across hosts, so on each managed machine one entry refers to *that* machine. Running a playbook against self via ssh is wasteful (extra hop) and uses a slightly different code path (PTY behavior, environment, sudo whitelisting) than running it directly. The runner has to know which target is "me."
+
+**Detection is runtime, by IP comparison. No config file, no chezmoi templating.**
+
+At startup, the runner enumerates IPs bound to local interfaces via `os.networkInterfaces()` and adds the loopback ranges (`127.0.0.0/8`, `::1`). When about to ssh to a host, the runner does a `dns.lookup` on the address; if the resolved IP is in the local-IP set, the target is **self**. If DNS resolution fails (e.g. an `~/.ssh/config` `Host` alias that resolves only at ssh time), the target is treated as **remote** — a conservative miss the user can override with `--self`.
+
+This treats "the same physical machine, however addressed" as one thing. On a host known as `think` (127.0.0.1) and `think.lan` (192.168.86.40), both names resolve to local IPs, so both are self. There is no scenario where you'd want a "remote" run to a LAN address that lands on the same `apt` lock and the same filesystem as a local run — they do the same thing, just with extra ssh plumbing.
+
+**Default behavior:** running a playbook on self is **refused** with a clear error pointing at `--self` or the bare script (`playbash-upd`).
+
+**`--self` flag:** opts in to running the playbook on the self host. Implementation runs the playbook **locally as a child process**, no ssh — same pipeline (Rectangle, sidecar, summary) as a remote run, with the sidecar at a local `mktemp` path. Same UX as a remote run; that's the whole point of using the runner on the self host.
+
+`playbash hosts` marks self entries by resolving each entry's address against the local-IP set at command time (a few DNS lookups for a few hosts; cheap).
+
+**Known blind spots, deferred fixes:**
+
+- **VPN false positive.** If a VPN brings up an interface, addresses on it are detected as self. Fix when it bites: an optional `~/.config/playbash/not-self` allowlist of IPs to exclude from the local-IP set.
+- **ssh-config alias false negative.** A `Host myalias` line in `~/.ssh/config` is invisible to `dns.lookup`. Fix when it bites: an optional `~/.config/playbash/self-aliases` allowlist of names that should always be considered self.
+
+Both are speculative until real use surfaces them. The cost of adding a file later is one option name; the cost of building it speculatively is documenting and testing a feature nobody asked for.
+
+### Groups (future)
+
+Deferred to a later milestone (after dogfooding `upd`/`cln`). Design is fixed now so milestone-4 inventories don't need to migrate:
+
+- **Schema:** array values in `inventory.json` (already accepted by the parser).
+- **CLI:** comma-separated host targets, mixing host and group names: `playbash run upd db1,web,prod`. Resolution flattens to a unique ordered set of host names.
+- **Recursion:** groups are flat lists of *host* names. No groups-of-groups in v1 — keeps the mental model and dedup logic simple. Revisit only if real use demands it.
+- **`all`:** implicit group, equals every host entry in the inventory. Not stored; computed.
+- **Self exclusion:** any list, however constructed (group, ad-hoc comma-separated CLI list, `all`), silently drops the self host by default. `--self` flips this for the entire invocation. Explicitly naming self as a single argument still requires `--self` (consistent with single-host behavior).
+- **Parallel fan-out:** lands together with groups. A serial walk over many hosts would be worse than running them by hand; the two features only make sense together.
 
 ## Connection management
 
