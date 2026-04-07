@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // playbash — run bash playbooks on remote hosts.
 //
-// Milestone 2: primary mode (preinstalled playbook script) plus sidecar
-// reporting. The runner generates a remote sidecar path, exports it as
-// $PLAYBASH_REPORT for the playbook, downloads and parses the sidecar
-// after the playbook exits, and renders a per-host summary.
+// Milestone 3: live output rectangle. The runner spawns ssh with -tt to
+// force a remote PTY, reads the merged byte stream back through a normal
+// pipe, and renders the last N raw lines as a fixed-height rectangle in
+// the local terminal. Full uncut output still goes to the per-run log.
 
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
@@ -13,20 +13,28 @@ import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {parseArgs} from 'node:util';
 
-const USAGE = `usage: playbash run <playbook> <host>
+const USAGE = `usage: playbash run <playbook> <host> [-n LINES]
 
 <playbook> resolves to ~/.local/bin/playbash-<playbook> on the target host
 (deployed there by chezmoi). <host> is passed verbatim to ssh, so any
-~/.ssh/config alias works.`;
+~/.ssh/config alias works.
+
+Options:
+  -n, --lines N    height of the live output rectangle (default 5)`;
 
 function die(msg, code = 2) {
   process.stderr.write(`playbash: ${msg}\n`);
   process.exit(code);
 }
 
-const {positionals} = parseArgs({allowPositionals: true});
-if (positionals.length === 0) die(USAGE);
+const {values, positionals} = parseArgs({
+  options: {
+    lines: {type: 'string', short: 'n', default: '5'},
+  },
+  allowPositionals: true,
+});
 
+if (positionals.length === 0) die(USAGE);
 const [command, ...rest] = positionals;
 if (command !== 'run') die(`unknown command "${command}"\n${USAGE}`);
 if (rest.length !== 2) die(`run takes <playbook> <host>\n${USAGE}`);
@@ -34,30 +42,127 @@ if (rest.length !== 2) die(`run takes <playbook> <host>\n${USAGE}`);
 const [playbook, host] = rest;
 if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
 
-// Pick a random sidecar path on the remote. Random hex avoids collisions
-// without an extra `mktemp` round trip. /tmp is assumed writable.
+const rectHeight = parseInt(values.lines, 10);
+if (!Number.isFinite(rectHeight) || rectHeight < 1) die(`--lines must be a positive integer`);
+
+// Sidecar path: random hex avoids the extra mktemp round trip.
 const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
 
-// Build the remote command. Env vars are set inline so we don't depend
-// on `ssh -o SendEnv` or sshd's AcceptEnv whitelist.
+// Forward our terminal size so the remote PTY is the right width — `apt`,
+// progress bars, and `tput cols` will read it. Defaults are safe fallbacks
+// when stdout is not a tty.
+const cols = process.stdout.columns || 80;
+const rows = process.stdout.rows || 24;
+
 const remoteCommand =
   `PLAYBASH_REPORT=${reportPath} ` +
   `PLAYBASH_HOST=${host} ` +
+  `COLUMNS=${cols} LINES=${rows} ` +
   `~/.local/bin/playbash-${playbook}`;
 
-// Open the per-run log file.
+// Per-run log file (full uncut stream, ANSI and CRs intact).
 const logDir = join(homedir(), '.cache', 'playbash', 'runs');
 mkdirSync(logDir, {recursive: true});
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const logPath = join(logDir, `${stamp}-${host}-${playbook}.log`);
 const log = createWriteStream(logPath);
 
-function tee(chunk, localStream) {
-  localStream.write(chunk);
-  log.write(chunk);
+// --- Live rectangle renderer ---
+
+const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
+
+function visibleLength(s) {
+  return s.replace(ANSI_RE, '').length;
 }
 
-// Run a one-shot ssh command and return {code, stdout, stderr}.
+// Truncate to `width` visible columns, copying ANSI codes through verbatim
+// (they take zero columns). Always closes with a reset to avoid bleeding
+// colors past the rectangle edge.
+function truncateToWidth(s, width) {
+  if (visibleLength(s) <= width) return s;
+  let out = '';
+  let visible = 0;
+  let i = 0;
+  while (i < s.length && visible < width) {
+    if (s[i] === '\x1b' && s[i + 1] === '[') {
+      let j = i + 2;
+      while (j < s.length && !/[a-zA-Z]/.test(s[j])) j++;
+      out += s.slice(i, j + 1);
+      i = j + 1;
+    } else {
+      out += s[i];
+      visible++;
+      i++;
+    }
+  }
+  return out + '\x1b[0m';
+}
+
+class Rectangle {
+  constructor(height) {
+    this.height = height;
+    this.committed = []; // last (height - 1) completed lines
+    this.current = '';   // line being built
+    this.active = process.stdout.isTTY;
+  }
+
+  start() {
+    if (!this.active) return;
+    // Reserve `height` rows by scrolling them in. Cursor ends up on the
+    // line immediately below the rectangle, which is our anchor for every
+    // subsequent redraw.
+    process.stdout.write('\n'.repeat(this.height));
+  }
+
+  feed(chunk) {
+    const text = chunk.toString('utf8');
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '\n') {
+        this.commit();
+      } else if (ch === '\r') {
+        // Progress-bar style overwrite: drop the in-progress line.
+        this.current = '';
+      } else {
+        this.current += ch;
+      }
+    }
+    this.redraw();
+  }
+
+  commit() {
+    this.committed.push(this.current);
+    if (this.committed.length > this.height - 1) this.committed.shift();
+    this.current = '';
+  }
+
+  redraw() {
+    if (!this.active) return;
+    const width = process.stdout.columns || 80;
+    let out = `\x1b[${this.height}A`; // up to top of rectangle
+    for (let i = 0; i < this.height - 1; i++) {
+      const line = this.committed[i] || '';
+      out += '\r\x1b[2K' + truncateToWidth(line, width) + '\n';
+    }
+    // In-progress line at the bottom row.
+    out += '\r\x1b[2K' + truncateToWidth(this.current, width) + '\n';
+    process.stdout.write(out);
+  }
+
+  finish() {
+    if (!this.active) return;
+    // Erase the rectangle and park the cursor at its former top-left, so
+    // the summary lines print exactly where the rectangle was.
+    let out = `\x1b[${this.height}A`;
+    for (let i = 0; i < this.height; i++) out += '\r\x1b[2K\n';
+    out += `\x1b[${this.height}A`;
+    process.stdout.write(out);
+  }
+}
+
+const rect = new Rectangle(rectHeight);
+
+// One-shot ssh, used to fetch the sidecar. Plain pipes, no PTY.
 function sshCapture(remote) {
   return new Promise((resolve, reject) => {
     const proc = spawn('ssh', [host, '--', remote], {stdio: ['ignore', 'pipe', 'pipe']});
@@ -69,12 +174,25 @@ function sshCapture(remote) {
   });
 }
 
-// Stream the playbook through ssh, teeing to the terminal and the log.
+// Run the playbook with -tt to force a remote PTY. The double t suppresses
+// the "Pseudo-terminal will not be allocated" warning when our stdin isn't
+// a tty. Output is merged on stdout (single PTY stream).
 function runPlaybook() {
   return new Promise((resolve, reject) => {
-    const child = spawn('ssh', [host, '--', remoteCommand], {stdio: ['ignore', 'pipe', 'pipe']});
-    child.stdout.on('data', c => tee(c, process.stdout));
-    child.stderr.on('data', c => tee(c, process.stderr));
+    const child = spawn('ssh', ['-tt', host, '--', remoteCommand], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stdout.on('data', chunk => {
+      log.write(chunk);
+      if (rect.active) {
+        rect.feed(chunk);
+      } else {
+        process.stdout.write(chunk);
+      }
+    });
+    // ssh's own stderr (e.g. "Connection closed") — log it, don't disturb
+    // the rectangle. It will appear in the summary's log file.
+    child.stderr.on('data', chunk => log.write(chunk));
     child.on('error', reject);
     child.on('close', (code, signal) => resolve({code, signal}));
   });
@@ -96,9 +214,7 @@ function parseSidecar(text) {
 function renderSummary(events) {
   if (events.length === 0) return;
   const byLevel = {info: [], warn: [], error: [], action: []};
-  for (const ev of events) {
-    if (byLevel[ev.level]) byLevel[ev.level].push(ev);
-  }
+  for (const ev of events) if (byLevel[ev.level]) byLevel[ev.level].push(ev);
 
   if (byLevel.action.length) {
     process.stderr.write('  actions:\n');
@@ -117,29 +233,25 @@ function renderSummary(events) {
   }
   if (byLevel.error.length) {
     process.stderr.write('  errors:\n');
-    for (const ev of byLevel.error) {
-      process.stderr.write(`    ${ev.msg}\n`);
-    }
+    for (const ev of byLevel.error) process.stderr.write(`    ${ev.msg}\n`);
   }
-  // info events are not surfaced unless --verbose (deferred).
 }
 
 (async () => {
   const start = Date.now();
+  rect.start();
 
   let result;
   try {
     result = await runPlaybook();
   } catch (err) {
+    rect.finish();
     die(`failed to spawn ssh: ${err.message}`, 1);
   }
 
-  // Always close the log before printing the summary.
+  rect.finish();
   await new Promise(resolve => log.end(resolve));
 
-  // Fetch and remove the sidecar. Combined into one ssh call.
-  // The `cat` may fail if the playbook never created the file (e.g. it
-  // crashed before the first helper call); that's fine.
   let events = [];
   try {
     const fetch = await sshCapture(`cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`);
@@ -154,7 +266,7 @@ function renderSummary(events) {
     : result.code === 0
       ? 'ok'
       : `exit ${result.code}`;
-  process.stderr.write(`\nplaybash: ${host} ${playbook} — ${status} (${elapsed}s)\n`);
+  process.stderr.write(`playbash: ${host} ${playbook} — ${status} (${elapsed}s)\n`);
   renderSummary(events);
   process.stderr.write(`playbash: log ${logPath}\n`);
 
