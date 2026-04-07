@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x /home/eugene/.local/share/chezmoi/private_dot_local/bin/executable_playbash)"
+    ]
+  }
+}
