@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# playbash-demo — exercises the live output rectangle.
+# Mixes regular lines, sleeps, a fake \r progress bar, and a few sidecar
+# events. Long enough to actually see the rectangle update.
+
+set -euo pipefail
+
+source ~/.local/libs/playbash.sh
+
+playbash_step "demo"
+
+echo "starting demo on $(hostname)"
+sleep 0.5
+
+playbash_info "phase 1: warm-up"
+for i in 1 2 3; do
+  echo "  warm-up step $i"
+  sleep 0.4
+done
+
+echo
+echo "phase 2: fake progress bar"
+for i in $(seq 1 25); do
+  bar=$(printf '#%.0s' $(seq 1 "$i"))
+  printf '\r  [%-25s] %3d%%' "$bar" $((i * 4))
+  sleep 0.08
+done
+echo
+
+playbash_info "phase 3: chatty work"
+for i in 1 2 3 4 5 6 7 8; do
+  echo "  log line $i at $(date +%H:%M:%S)"
+  sleep 0.25
+done
+
+playbash_warn "demo finished with a fake warning" --target /demo
+playbash_reboot "fake reboot recommendation, please ignore"
+echo "demo complete"
