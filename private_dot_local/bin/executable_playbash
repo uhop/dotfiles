@@ -16,6 +16,7 @@ const USAGE = `usage:
   playbash debug <playbook> <host> [--self]
   playbash list
   playbash hosts
+  playbash log   [path]
 
 Options for run:
   -n, --lines N    height of the live output rectangle (default 5)
@@ -32,7 +33,11 @@ events surfaced in the summary — for when you want to see everything.
 Self detection is by IP: if the target's resolved address is bound to a
 local interface, the run is refused unless --self is passed. With --self,
 the playbook runs locally as a child process (no ssh) using the same
-sidecar/summary pipeline.`;
+sidecar/summary pipeline.
+
+\`playbash log\` prints a per-run log file with terminal-hostile escape
+sequences stripped — safe to view in any terminal. With no path, picks
+the most recent log under ~/.cache/playbash/runs/.`;
 
 const INVENTORY_PATH = join(homedir(), '.config', 'playbash', 'inventory.json');
 const PLAYBOOK_DIR = join(homedir(), '.local', 'bin');
@@ -182,6 +187,11 @@ class Rectangle {
     this.height = height;
     this.committed = [];
     this.current = '';
+    // Set when we see CR; cleared on the next byte. Allows us to treat
+    // CRLF as a single line ending and a lone CR as a progress-bar
+    // line-reset, even when the CR and the following byte arrive in
+    // different chunks.
+    this.pendingCR = false;
     this.active = process.stdout.isTTY && height > 0;
   }
   start() {
@@ -189,12 +199,27 @@ class Rectangle {
     process.stdout.write('\n'.repeat(this.height));
   }
   feed(chunk) {
-    const text = chunk.toString('utf8');
+    const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     for (let i = 0; i < text.length; i++) {
       const ch = text[i];
-      if (ch === '\n') this.commit();
-      else if (ch === '\r') this.current = '';
-      else this.current += ch;
+      if (this.pendingCR) {
+        this.pendingCR = false;
+        if (ch === '\n') {
+          // CRLF — line ending. Commit and continue.
+          this.commit();
+          continue;
+        }
+        // Lone CR — progress-bar style line reset. Fall through to
+        // process the current byte as a fresh line.
+        this.current = '';
+      }
+      if (ch === '\r') {
+        this.pendingCR = true;
+      } else if (ch === '\n') {
+        this.commit();
+      } else {
+        this.current += ch;
+      }
     }
     this.redraw();
   }
@@ -311,9 +336,15 @@ async function runPipeline({playbook, hostName, rectHeight, verbose, label, make
       return;
     }
     child.stdout.on('data', chunk => {
+      // Log gets the raw byte stream (forensic copy). Both display modes
+      // (rectangle and raw passthrough) get the sanitized version, so
+      // terminal queries from remote tools cannot reach the user's
+      // terminal regardless of -n setting. Use `playbash log` to view
+      // the raw log file safely.
       log.write(chunk);
-      if (rect.active) rect.feed(sanitizeForRect(chunk));
-      else process.stdout.write(chunk);
+      const cleaned = sanitizeForRect(chunk);
+      if (rect.active) rect.feed(cleaned);
+      else process.stdout.write(cleaned);
     });
     child.stderr.on('data', chunk => log.write(chunk));
     child.on('error', reject);
@@ -414,6 +445,30 @@ async function runLocally({playbook, hostName, rectHeight, verbose}) {
 
 // --- list / hosts ---
 
+function cmdLog(pathArg) {
+  const logDir = join(homedir(), '.cache', 'playbash', 'runs');
+  let target = pathArg;
+  if (!target) {
+    let entries;
+    try {
+      entries = readdirSync(logDir);
+    } catch (err) {
+      die(`no log directory at ${logDir}: ${err.message}`);
+    }
+    const logs = entries.filter(f => f.endsWith('.log')).sort();
+    if (logs.length === 0) die(`no logs in ${logDir}`);
+    target = join(logDir, logs[logs.length - 1]);
+  }
+  let raw;
+  try {
+    raw = readFileSync(target);
+  } catch (err) {
+    die(`cannot read ${target}: ${err.message}`);
+  }
+  process.stdout.write(sanitizeForRect(raw));
+  process.stderr.write(`\nplaybash: log ${target}\n`);
+}
+
 function cmdList() {
   let entries;
   try {
@@ -508,6 +563,11 @@ switch (command) {
   case 'hosts': {
     if (rest.length > 0) die(`hosts takes no arguments`);
     await cmdHosts();
+    break;
+  }
+  case 'log': {
+    if (rest.length > 1) die(`log takes at most one argument (a path)`);
+    cmdLog(rest[0]);
     break;
   }
   case 'run': {
