@@ -323,6 +323,7 @@ Beyond the current plan. These are real wants flagged by the user and worth thei
 - **Upload / download primitives.** Stage files to a host before running a playbook; pull files back after. Originally part of the "Possible alternative" section in [ansible-replacement.md](./ansible-replacement.md) but cut from v1 to keep scope tight. Needed for ad-hoc one-off playbooks not yet in the chezmoi tree, and for "fetch this log" workflows.
 - **Run arbitrary commands.** A `playbash exec <host> <command...>` that wraps a one-shot command in the same sidecar/rectangle pipeline as a playbook. Useful for "run this on every server right now" without writing a playbook script first.
 - **`sudo` support.** The unsolved problem from [ansible-replacement.md § Unsolved: sudo password](./ansible-replacement.md#unsolved-sudo-password). Currently we punt and assume scripts never ask. The right shape is unclear and worth a real design conversation before any code — the trade-offs around password handling, certificate-based sudo, sidecar-driven elevation, and detect-and-abort all need to be on the table together.
+- **Bash completions.** Subcommands (`run`, `debug`, `list`, `hosts`, `log`), playbook names (glob `~/.local/bin/playbash-*`), host names (read from `~/.config/playbash/inventory.json`), `--self`/`-n`. The other CLIs in this repo expose a `--bash-completion` flag that prints a completion script — playbash should do the same so installation is `playbash --bash-completion >> ~/.bash_completion` or similar. Small enough to fold into any v2 milestone, but tracked here so it's not forgotten.
 
 ## Reboot/warning reporting in `upd`/`cln`
 
@@ -335,7 +336,7 @@ This keeps the scripts runnable by hand exactly as today and gives the runner ma
 
 **Status:** v1 deferred this. Milestone 5 added a thin post-hoc check in `playbash-daily`/`playbash-weekly` (`[ -e /run/reboot-required ]`) so the apt/snap reboot signal still surfaces in the runner's summary. The proper refactor is queued as v2 milestone 8.
 
-**Docker-ce silent-break case (added in milestone-5 dogfooding).** When `apt` upgrades `docker-ce`, the docker daemon stops working properly (`docker compose up` fails with container conflicts) but no `/run/reboot-required` is created. The user has to know to reboot. Two ways to detect:
+**Docker-ce silent-break case (caught in milestone-5 dogfooding, confirmed twice).** When `apt` upgrades `docker-ce`, the docker daemon stops working properly (`docker compose up` fails with container conflicts) but no `/run/reboot-required` is created. The user has to know to reboot. The first occurrence on `croc` was diagnosed by manually rebooting and re-running `dcm`; a second occurrence was caught by the same pattern. This is now a confirmed real-world failure mode worth detecting automatically. Two ways:
 
 - **Post-failure heuristic:** if `dcms` exited non-zero AND `dpkg.log` shows a recent `docker-ce` upgrade, emit `playbash_reboot "docker-ce upgraded; restart recommended"`. Fires only after a failure.
 - **Pre-emptive:** parse `dpkg.log` after `upd` to see if `docker-ce` was just upgraded, and emit `playbash_reboot` proactively. Doesn't depend on `dcms` failing.
