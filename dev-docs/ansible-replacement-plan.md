@@ -246,13 +246,26 @@ When v2 adds parallel fan-out, the same aggregation runs across hosts: "2 hosts 
 
 ## Live output rendering
 
-- Spawn the remote command under a PTY so utilities like `apt`, `dnf`, progress bars etc. behave as on a terminal.
-- Maintain a ring buffer of the last N lines (default 5, configurable).
+- Spawn the remote command under a PTY so utilities like `apt`, `dnf`, progress bars etc. behave as on a terminal. The PTY is allocated **on the target** by `script(1)`, not locally via `ssh -tt`. See [Remote PTY via script(1)](#remote-pty-via-script1) below.
+- Maintain a ring buffer of the last N lines (default 5, configurable via `-n`, set `-n 0` to disable the rectangle and stream sanitized output raw).
 - Re-render the rectangle in place using ANSI cursor save/restore + clear-to-end-of-line. Wrap/truncate long lines to terminal width.
+- Treat `\r\n` as a single line ending; only treat lone `\r` as a progress-bar line reset. PTY-translated streams use `\r\n`, so getting this wrong wipes every line before commit.
+- Strip terminal-hostile escape sequences (cursor positioning, OSC, DCS, CPR queries, alt-screen, ...) from the byte stream **before** display, in *both* rectangle and raw modes. Keep SGR (color) escapes. The full uncut stream still goes to the log file.
 - On exit, clear the rectangle and print the final status line.
-- Always also write the full uncut stream to `~/.cache/playbash/runs/<timestamp>-<host>-<playbook>.log`.
+- Always also write the full uncut stream to `~/.cache/playbash/runs/<timestamp>-<host>-<playbook>.log`. Use `playbash log [path]` to view a log safely (sanitized) — direct `cat` of a log file may inject control characters into the user's terminal.
 
 See [`tty-simulation.md`](./tty-simulation.md) and `./private_dot_local/libs/bootstrap.sh` for the `script`/`tee` background.
+
+### Remote PTY via script(1)
+
+The runner wraps the remote command in `script -qfec '<cmd>' /dev/null` (util-linux syntax) and runs it through ssh **without** `-tt`. ssh has plain pipes locally on both sides; the PTY is allocated by `script` on the target. Rationale, surfaced during milestone-5 dogfooding:
+
+- With `ssh -tt`, terminal queries from remote tools (OSC 11 background-color, CPR `\x1b[6n`, etc.) flow back through ssh into the **local** terminal, which generates responses, which are written to Node's stdin, which we never read, which sit in the terminal's input buffer until Node exits — at which point the user's shell reads them as typed input (visible as ANSI gibberish at the prompt).
+- With remote `script(1)`, the queries are answered (or simply not asked) by the remote PTY. They never reach the local terminal. Bug eliminated.
+- Stdout and stderr of the inner command are merged in the remote PTY; both arrive on ssh's stdout. Plain ssh stderr (e.g. "Shared connection closed") still arrives on stderr and goes to the log only.
+- This is "Option D" from the milestone-3 PTY discussion. It was deferred there for simplicity; promoted in milestone 5 once the bug bit.
+
+**Target OS:** util-linux `script(1)`. Linux-only for now. macOS uses BSD `script` with different argument syntax — deferred until someone wants to run a remote playbook against the Mac. Local execution on the Mac via `--self` does *not* go through `script` and works today.
 
 ## Repository layout (proposed)
 
@@ -280,12 +293,36 @@ Exact paths to be confirmed against existing chezmoi conventions before coding.
 
 ## Milestones
 
-1. **Walking skeleton.** `playbash run` against one host, executes a hardcoded `echo` playbook, prints raw output, cleans up the remote scratch dir.
-2. **Helpers + sidecar.** `playbash.sh` helpers, JSON-lines append, post-run download and parse, basic summary.
-3. **PTY rectangle renderer.** Last-N-lines live view with full log on disk.
-4. **Inventory + CLI polish.** JSON inventory, `playbash list`, `playbash hosts`, `playbash debug`.
-5. **Port one real playbook** (`upd`) and dogfood it. Record what hurts.
-6. **Decide on v2 scope** based on dogfooding (parallel fan-out, groups, interactive prompts).
+### Done (v1)
+
+1. **Walking skeleton.** ✅ `playbash run echo localhost` against a hardcoded inline `echo` over ssh, then a real preinstalled `playbash-hello` script invoked via `ssh host -- ~/.local/bin/playbash-hello`. Per-run log file, status line, exit-code propagation.
+2. **Helpers + sidecar.** ✅ `playbash.sh` with `playbash_info`/`warn`/`error`/`action`/`reboot`/`step`. JSON-lines sidecar at a randomly-named `/tmp` path on the remote, fetched in one extra ssh round trip after the playbook exits. Per-host summary grouped by level. Pretty-print fallback to stderr when `$PLAYBASH_REPORT` is unset (manual debugging).
+3. **PTY rectangle renderer.** ✅ Last-N-lines live view with `-n LINES` (default 5, `-n 0` disables). Full uncut byte stream on disk.
+4. **Inventory + CLI polish.** ✅ Subcommand dispatcher (`run`, `debug`, `list`, `hosts`). JSON inventory at `~/.config/playbash/inventory.json` with string/object/array shorthand. Inventory loader recognizes group entries (arrays) but rejects them as host args until groups land. `playbash list` globs `~/.local/bin/playbash-*`. `playbash hosts` aligned columns.
+   1. **Sub-milestone 4.5.** ✅ Self detection by IP (`os.networkInterfaces()` + `dns.lookup`). `--self` flag opts in to local execution as a child process (no ssh) using the same Rectangle/sidecar/summary pipeline. `playbash hosts` marks self entries.
+5. **Port one real playbook and dogfood it.** ✅ `playbash-daily` and `playbash-weekly` ported (orchestrate `chezmoi update`, `dcms`, `upd -y`/`upd -cy`). Linux-only post-hoc reboot detection via `playbash_reboot`. **Three real bugs found and fixed during dogfooding:**
+   - Switched from `ssh -tt` to remote `script(1)` (Option D). Eliminated OSC/CPR query echo-back to the user's shell after the run.
+   - Sanitizer that strips terminal-hostile escapes (cursor positioning, OSC, DCS, CPR) before display in *both* rectangle and raw passthrough modes; SGR colors preserved; raw bytes still go to the log.
+   - Fixed `Rectangle.feed` to treat `\r\n` as a single line ending. PTY-translated streams use `\r\n`; the original lone-`\r` reset was wiping every line before commit, leaving the rectangle empty.
+   - Added `playbash log [path]` subcommand for safely viewing log files (pipes through the same sanitizer).
+
+### Next (v2 — priority order)
+
+These are queued in the order locked in after milestone-5 dogfooding. We work on them top-down; each one is its own milestone with its own design pass.
+
+6. **Output polish.** Color and tighter layout in the runner's per-host summary (status line, actions, warnings, errors). Has been waiting since milestone 2; now urgent because we're looking at the output every day. Smallest of the v2 items, immediately visible quality-of-life win.
+7. **Groups + parallel fan-out.** The two ship together — sequential fan-out across many hosts is worse than running them by hand. CLI accepts comma-separated lists and group names; group definitions in the inventory (already parsed by the loader); implicit `all`; default self-exclusion with `--self` override. See [Groups (future)](#groups-future) and [Self host](#self-host) for the design.
+8. **`upd`/`cln` refactor.** Factor reboot warnings into a function that does both `options.bash` formatting and a sidecar event. Includes the docker-ce-silent-break detection (when `apt` upgrades `docker-ce` and breaks docker without setting `/run/reboot-required` — caught manually during milestone-5 dogfooding on `croc`). See [Reboot/warning reporting in upd/cln](#rebootwarning-reporting-in-updcln).
+9. **Interactive input detection.** Generic stdin-wait detection to catch the `chezmoi update`-needs-sudo case and similar. v1 cheap path: regex over output + idle-output watchdog with `LC_ALL=C`. v2 precise path: `/proc/$pid/wchan` inspection on Linux. macOS falls back to v1. See [Interactive input detection](#interactive-input-detection).
+10. **macOS remote target support.** BSD `script(1)` syntax in the remote command wrap. Detect at first contact, cache per host. Lets you `playbash run daily <mac-host>` from any other machine. Local execution on the Mac via `--self` already works.
+
+### Future (post-v2 — discussion needed)
+
+Beyond the current plan. These are real wants flagged by the user and worth their own design conversations before coding.
+
+- **Upload / download primitives.** Stage files to a host before running a playbook; pull files back after. Originally part of the "Possible alternative" section in [ansible-replacement.md](./ansible-replacement.md) but cut from v1 to keep scope tight. Needed for ad-hoc one-off playbooks not yet in the chezmoi tree, and for "fetch this log" workflows.
+- **Run arbitrary commands.** A `playbash exec <host> <command...>` that wraps a one-shot command in the same sidecar/rectangle pipeline as a playbook. Useful for "run this on every server right now" without writing a playbook script first.
+- **`sudo` support.** The unsolved problem from [ansible-replacement.md § Unsolved: sudo password](./ansible-replacement.md#unsolved-sudo-password). Currently we punt and assume scripts never ask. The right shape is unclear and worth a real design conversation before any code — the trade-offs around password handling, certificate-based sudo, sidecar-driven elevation, and detect-and-abort all need to be on the table together.
 
 ## Reboot/warning reporting in `upd`/`cln`
 
@@ -294,11 +331,23 @@ Exact paths to be confirmed against existing chezmoi conventions before coding.
 - Always prints the formatted message locally (current behavior).
 - *Additionally*, when `$PLAYBASH_REPORT` is set, appends a structured event to the sidecar.
 
-This keeps the scripts runnable by hand exactly as today and gives the runner machine-readable events for free. Implementation deferred — not part of v1 milestones.
+This keeps the scripts runnable by hand exactly as today and gives the runner machine-readable events for free.
 
-## Open questions to revisit before milestone 2
+**Status:** v1 deferred this. Milestone 5 added a thin post-hoc check in `playbash-daily`/`playbash-weekly` (`[ -e /run/reboot-required ]`) so the apt/snap reboot signal still surfaces in the runner's summary. The proper refactor is queued as v2 milestone 8.
 
-- Exact Node entrypoint shape under chezmoi (single bundled file vs. `node_modules`).
-- Exact regex set for prompt detection, and the idle-output threshold N.
-- Whether the v2 precise stdin-wait detector should be a per-host watchdog (one persistent connection inspecting `/proc`) or a per-tick poll.
+**Docker-ce silent-break case (added in milestone-5 dogfooding).** When `apt` upgrades `docker-ce`, the docker daemon stops working properly (`docker compose up` fails with container conflicts) but no `/run/reboot-required` is created. The user has to know to reboot. Two ways to detect:
+
+- **Post-failure heuristic:** if `dcms` exited non-zero AND `dpkg.log` shows a recent `docker-ce` upgrade, emit `playbash_reboot "docker-ce upgraded; restart recommended"`. Fires only after a failure.
+- **Pre-emptive:** parse `dpkg.log` after `upd` to see if `docker-ce` was just upgraded, and emit `playbash_reboot` proactively. Doesn't depend on `dcms` failing.
+
+Both belong inside the v2 milestone-8 refactor of `upd`/`cln`, not in the playbash wrapper.
+
+## Open questions
+
+These are the remaining "decide before coding" items for the v2 work above.
+
+- **Output polish (milestone 6):** color palette, status-line format, whether to fold the elapsed time into the host name line vs. a separate line, what the action/warning grouping looks like with multiple kinds.
+- **Groups (milestone 7):** does the "list of hosts" type belong to the runtime (so the same code path serves `playbash run upd web1` and `playbash run upd web1,db1`) or stay as a fan-out wrapper around the existing single-host pipeline? Decision affects how parallelism is implemented.
+- **Interactive input detection (milestone 9):** exact regex set for prompt detection, idle-output threshold N (likely 60s), whether the v2 precise stdin-wait detector should be a per-host watchdog (one persistent connection inspecting `/proc`) or a per-tick poll. `LC_ALL=C` already injected on the remote.
+- **Node entrypoint shape:** still a single bundled file at ~600 lines as of milestone 5. Threshold for splitting is "two of `runner`, `inventory`, `sidecar`, `render` independently exceed 200 lines or get tested independently." Not there yet.
 
