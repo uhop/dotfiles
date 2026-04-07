@@ -1,74 +1,88 @@
 #!/usr/bin/env node
 // playbash — run bash playbooks on remote hosts.
 //
-// Milestone 3: live output rectangle. The runner spawns ssh with -tt to
-// force a remote PTY, reads the merged byte stream back through a normal
-// pipe, and renders the last N raw lines as a fixed-height rectangle in
-// the local terminal. Full uncut output still goes to the per-run log.
+// Milestone 4: subcommands (run/debug/list/hosts) and inventory lookup.
 
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
-import {mkdirSync, createWriteStream} from 'node:fs';
+import {readdirSync, readFileSync, mkdirSync, createWriteStream, existsSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {parseArgs} from 'node:util';
 
-const USAGE = `usage: playbash run <playbook> <host> [-n LINES]
+const USAGE = `usage:
+  playbash run   <playbook> <host> [-n LINES]
+  playbash debug <playbook> <host>
+  playbash list
+  playbash hosts
 
-<playbook> resolves to ~/.local/bin/playbash-<playbook> on the target host
-(deployed there by chezmoi). <host> is passed verbatim to ssh, so any
-~/.ssh/config alias works.
-
-Options:
+Options for run:
   -n, --lines N    height of the live output rectangle (default 5)
-                   pass 0 to disable the rectangle and stream output raw`;
+                   pass 0 to disable the rectangle and stream output raw
+
+<host> is looked up in ~/.config/playbash/inventory.json. If not found,
+the literal string is passed to ssh, so any ~/.ssh/config alias still works.
+<playbook> resolves to ~/.local/bin/playbash-<playbook> on the target host.
+
+\`debug\` is equivalent to \`run\` with the rectangle disabled and info
+events surfaced in the summary — for when you want to see everything.`;
+
+const INVENTORY_PATH = join(homedir(), '.config', 'playbash', 'inventory.json');
+const PLAYBOOK_DIR = join(homedir(), '.local', 'bin');
+const PLAYBOOK_PREFIX = 'playbash-';
 
 function die(msg, code = 2) {
   process.stderr.write(`playbash: ${msg}\n`);
   process.exit(code);
 }
 
-const {values, positionals} = parseArgs({
-  options: {
-    lines: {type: 'string', short: 'n', default: '5'},
-  },
-  allowPositionals: true,
-});
+// --- Inventory ---
 
-if (positionals.length === 0) die(USAGE);
-const [command, ...rest] = positionals;
-if (command !== 'run') die(`unknown command "${command}"\n${USAGE}`);
-if (rest.length !== 2) die(`run takes <playbook> <host>\n${USAGE}`);
+function loadInventory() {
+  const empty = {hosts: new Map(), groups: new Map(), path: INVENTORY_PATH, present: false};
+  if (!existsSync(INVENTORY_PATH)) return empty;
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(INVENTORY_PATH, 'utf8'));
+  } catch (err) {
+    die(`inventory at ${INVENTORY_PATH} is not valid JSON: ${err.message}`);
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    die(`inventory at ${INVENTORY_PATH} must be a JSON object`);
+  }
+  const hosts = new Map();
+  const groups = new Map();
+  for (const [name, value] of Object.entries(raw)) {
+    if (typeof value === 'string') {
+      hosts.set(name, {address: value});
+    } else if (Array.isArray(value)) {
+      // Group entry — loaded for `playbash hosts` but not yet resolvable.
+      groups.set(name, value);
+    } else if (value && typeof value === 'object') {
+      if (typeof value.address !== 'string') {
+        die(`inventory entry "${name}" has no string "address"`);
+      }
+      hosts.set(name, value);
+    } else {
+      die(`inventory entry "${name}" has unsupported type`);
+    }
+  }
+  return {hosts, groups, path: INVENTORY_PATH, present: true};
+}
 
-const [playbook, host] = rest;
-if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
+// Resolve a host argument to an ssh-target string.
+// If the name matches a host entry, return its address. If it matches a
+// group entry, refuse (groups are deferred). Otherwise pass the name
+// through verbatim so ~/.ssh/config aliases still work.
+function resolveHost(name, inventory) {
+  if (inventory.groups.has(name)) {
+    die(`"${name}" is a group; running on multiple hosts is not yet supported`);
+  }
+  const entry = inventory.hosts.get(name);
+  return entry ? entry.address : name;
+}
 
-const rectHeight = parseInt(values.lines, 10);
-if (!Number.isFinite(rectHeight) || rectHeight < 0) die(`--lines must be a non-negative integer (0 disables the rectangle)`);
-
-// Sidecar path: random hex avoids the extra mktemp round trip.
-const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
-
-// Forward our terminal size so the remote PTY is the right width — `apt`,
-// progress bars, and `tput cols` will read it. Defaults are safe fallbacks
-// when stdout is not a tty.
-const cols = process.stdout.columns || 80;
-const rows = process.stdout.rows || 24;
-
-const remoteCommand =
-  `PLAYBASH_REPORT=${reportPath} ` +
-  `PLAYBASH_HOST=${host} ` +
-  `COLUMNS=${cols} LINES=${rows} ` +
-  `~/.local/bin/playbash-${playbook}`;
-
-// Per-run log file (full uncut stream, ANSI and CRs intact).
-const logDir = join(homedir(), '.cache', 'playbash', 'runs');
-mkdirSync(logDir, {recursive: true});
-const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-const logPath = join(logDir, `${stamp}-${host}-${playbook}.log`);
-const log = createWriteStream(logPath);
-
-// --- Live rectangle renderer ---
+// --- Live rectangle renderer (unchanged from milestone 3) ---
 
 const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
@@ -76,9 +90,6 @@ function visibleLength(s) {
   return s.replace(ANSI_RE, '').length;
 }
 
-// Truncate to `width` visible columns, copying ANSI codes through verbatim
-// (they take zero columns). Always closes with a reset to avoid bleeding
-// colors past the rectangle edge.
 function truncateToWidth(s, width) {
   if (visibleLength(s) <= width) return s;
   let out = '';
@@ -102,60 +113,42 @@ function truncateToWidth(s, width) {
 class Rectangle {
   constructor(height) {
     this.height = height;
-    this.committed = []; // last (height - 1) completed lines
-    this.current = '';   // line being built
-    // Rectangle is only active when we have a real tty AND a positive
-    // height. height === 0 is the explicit "raw passthrough" opt-out.
+    this.committed = [];
+    this.current = '';
     this.active = process.stdout.isTTY && height > 0;
   }
-
   start() {
     if (!this.active) return;
-    // Reserve `height` rows by scrolling them in. Cursor ends up on the
-    // line immediately below the rectangle, which is our anchor for every
-    // subsequent redraw.
     process.stdout.write('\n'.repeat(this.height));
   }
-
   feed(chunk) {
     const text = chunk.toString('utf8');
     for (let i = 0; i < text.length; i++) {
       const ch = text[i];
-      if (ch === '\n') {
-        this.commit();
-      } else if (ch === '\r') {
-        // Progress-bar style overwrite: drop the in-progress line.
-        this.current = '';
-      } else {
-        this.current += ch;
-      }
+      if (ch === '\n') this.commit();
+      else if (ch === '\r') this.current = '';
+      else this.current += ch;
     }
     this.redraw();
   }
-
   commit() {
     this.committed.push(this.current);
     if (this.committed.length > this.height - 1) this.committed.shift();
     this.current = '';
   }
-
   redraw() {
     if (!this.active) return;
     const width = process.stdout.columns || 80;
-    let out = `\x1b[${this.height}A`; // up to top of rectangle
+    let out = `\x1b[${this.height}A`;
     for (let i = 0; i < this.height - 1; i++) {
       const line = this.committed[i] || '';
       out += '\r\x1b[2K' + truncateToWidth(line, width) + '\n';
     }
-    // In-progress line at the bottom row.
     out += '\r\x1b[2K' + truncateToWidth(this.current, width) + '\n';
     process.stdout.write(out);
   }
-
   finish() {
     if (!this.active) return;
-    // Erase the rectangle and park the cursor at its former top-left, so
-    // the summary lines print exactly where the rectangle was.
     let out = `\x1b[${this.height}A`;
     for (let i = 0; i < this.height; i++) out += '\r\x1b[2K\n';
     out += `\x1b[${this.height}A`;
@@ -163,43 +156,7 @@ class Rectangle {
   }
 }
 
-const rect = new Rectangle(rectHeight);
-
-// One-shot ssh, used to fetch the sidecar. Plain pipes, no PTY.
-function sshCapture(remote) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('ssh', [host, '--', remote], {stdio: ['ignore', 'pipe', 'pipe']});
-    let stdout = '', stderr = '';
-    proc.stdout.on('data', c => (stdout += c));
-    proc.stderr.on('data', c => (stderr += c));
-    proc.on('error', reject);
-    proc.on('close', code => resolve({code, stdout, stderr}));
-  });
-}
-
-// Run the playbook with -tt to force a remote PTY. The double t suppresses
-// the "Pseudo-terminal will not be allocated" warning when our stdin isn't
-// a tty. Output is merged on stdout (single PTY stream).
-function runPlaybook() {
-  return new Promise((resolve, reject) => {
-    const child = spawn('ssh', ['-tt', host, '--', remoteCommand], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    child.stdout.on('data', chunk => {
-      log.write(chunk);
-      if (rect.active) {
-        rect.feed(chunk);
-      } else {
-        process.stdout.write(chunk);
-      }
-    });
-    // ssh's own stderr (e.g. "Connection closed") — log it, don't disturb
-    // the rectangle. It will appear in the summary's log file.
-    child.stderr.on('data', chunk => log.write(chunk));
-    child.on('error', reject);
-    child.on('close', (code, signal) => resolve({code, signal}));
-  });
-}
+// --- Sidecar parsing + summary rendering ---
 
 function parseSidecar(text) {
   const events = [];
@@ -214,7 +171,7 @@ function parseSidecar(text) {
   return events;
 }
 
-function renderSummary(events) {
+function renderSummary(events, {verbose}) {
   if (events.length === 0) return;
   const byLevel = {info: [], warn: [], error: [], action: []};
   for (const ev of events) if (byLevel[ev.level]) byLevel[ev.level].push(ev);
@@ -238,26 +195,73 @@ function renderSummary(events) {
     process.stderr.write('  errors:\n');
     for (const ev of byLevel.error) process.stderr.write(`    ${ev.msg}\n`);
   }
+  if (verbose && byLevel.info.length) {
+    process.stderr.write('  info:\n');
+    for (const ev of byLevel.info) {
+      const step = ev.step ? `[${ev.step}] ` : '';
+      process.stderr.write(`    ${step}${ev.msg}\n`);
+    }
+  }
 }
 
-(async () => {
+// --- run / debug ---
+
+function sshCapture(host, remote) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('ssh', [host, '--', remote], {stdio: ['ignore', 'pipe', 'pipe']});
+    let stdout = '', stderr = '';
+    proc.stdout.on('data', c => (stdout += c));
+    proc.stderr.on('data', c => (stderr += c));
+    proc.on('error', reject);
+    proc.on('close', code => resolve({code, stdout, stderr}));
+  });
+}
+
+async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
+  const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
+  const cols = process.stdout.columns || 80;
+  const rows = process.stdout.rows || 24;
+
+  const remoteCommand =
+    `PLAYBASH_REPORT=${reportPath} ` +
+    `PLAYBASH_HOST=${hostName} ` +
+    `COLUMNS=${cols} LINES=${rows} ` +
+    `~/.local/bin/playbash-${playbook}`;
+
+  const logDir = join(homedir(), '.cache', 'playbash', 'runs');
+  mkdirSync(logDir, {recursive: true});
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const logPath = join(logDir, `${stamp}-${hostName}-${playbook}.log`);
+  const log = createWriteStream(logPath);
+
+  const rect = new Rectangle(rectHeight);
+
   const start = Date.now();
   rect.start();
 
-  let result;
-  try {
-    result = await runPlaybook();
-  } catch (err) {
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn('ssh', ['-tt', address, '--', remoteCommand], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stdout.on('data', chunk => {
+      log.write(chunk);
+      if (rect.active) rect.feed(chunk);
+      else process.stdout.write(chunk);
+    });
+    child.stderr.on('data', chunk => log.write(chunk));
+    child.on('error', reject);
+    child.on('close', (code, signal) => resolve({code, signal}));
+  }).catch(err => {
     rect.finish();
     die(`failed to spawn ssh: ${err.message}`, 1);
-  }
+  });
 
   rect.finish();
   await new Promise(resolve => log.end(resolve));
 
   let events = [];
   try {
-    const fetch = await sshCapture(`cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`);
+    const fetch = await sshCapture(address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`);
     events = parseSidecar(fetch.stdout);
   } catch (err) {
     process.stderr.write(`playbash: failed to fetch sidecar: ${err.message}\n`);
@@ -269,9 +273,105 @@ function renderSummary(events) {
     : result.code === 0
       ? 'ok'
       : `exit ${result.code}`;
-  process.stderr.write(`playbash: ${host} ${playbook} — ${status} (${elapsed}s)\n`);
-  renderSummary(events);
+  process.stderr.write(`playbash: ${hostName} ${playbook} — ${status} (${elapsed}s)\n`);
+  renderSummary(events, {verbose});
   process.stderr.write(`playbash: log ${logPath}\n`);
 
   process.exit(result.code ?? 1);
-})();
+}
+
+// --- list / hosts ---
+
+function cmdList() {
+  let entries;
+  try {
+    entries = readdirSync(PLAYBOOK_DIR);
+  } catch (err) {
+    die(`cannot read ${PLAYBOOK_DIR}: ${err.message}`);
+  }
+  const playbooks = entries
+    .filter(f => f.startsWith(PLAYBOOK_PREFIX))
+    .map(f => f.slice(PLAYBOOK_PREFIX.length))
+    .sort();
+  if (playbooks.length === 0) {
+    process.stderr.write(`no playbooks found in ${PLAYBOOK_DIR} (looking for ${PLAYBOOK_PREFIX}*)\n`);
+    return;
+  }
+  for (const p of playbooks) process.stdout.write(`${p}\n`);
+}
+
+function cmdHosts() {
+  const inv = loadInventory();
+  if (!inv.present) {
+    process.stderr.write(`no inventory at ${inv.path}\n`);
+    return;
+  }
+  const hostNames = [...inv.hosts.keys()].sort();
+  const groupNames = [...inv.groups.keys()].sort();
+  if (hostNames.length === 0 && groupNames.length === 0) {
+    process.stderr.write(`inventory at ${inv.path} is empty\n`);
+    return;
+  }
+  if (hostNames.length > 0) {
+    const width = Math.max(...hostNames.map(n => n.length));
+    for (const name of hostNames) {
+      process.stdout.write(`${name.padEnd(width)}  ${inv.hosts.get(name).address}\n`);
+    }
+  }
+  if (groupNames.length > 0) {
+    process.stdout.write('\ngroups (not yet usable, deferred to a future milestone):\n');
+    const width = Math.max(...groupNames.map(n => n.length));
+    for (const name of groupNames) {
+      process.stdout.write(`  ${name.padEnd(width)}  ${inv.groups.get(name).join(', ')}\n`);
+    }
+  }
+}
+
+// --- main dispatcher ---
+
+const {values, positionals} = parseArgs({
+  options: {
+    lines: {type: 'string', short: 'n', default: '5'},
+  },
+  allowPositionals: true,
+});
+
+if (positionals.length === 0) die(USAGE);
+const [command, ...rest] = positionals;
+
+switch (command) {
+  case 'list': {
+    if (rest.length > 0) die(`list takes no arguments`);
+    cmdList();
+    break;
+  }
+  case 'hosts': {
+    if (rest.length > 0) die(`hosts takes no arguments`);
+    cmdHosts();
+    break;
+  }
+  case 'run': {
+    if (rest.length !== 2) die(`run takes <playbook> <host>\n${USAGE}`);
+    const [playbook, hostName] = rest;
+    if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
+    const rectHeight = parseInt(values.lines, 10);
+    if (!Number.isFinite(rectHeight) || rectHeight < 0) {
+      die(`--lines must be a non-negative integer (0 disables the rectangle)`);
+    }
+    const inv = loadInventory();
+    const address = resolveHost(hostName, inv);
+    await runRemote({playbook, hostName, address, rectHeight, verbose: false});
+    break;
+  }
+  case 'debug': {
+    if (rest.length !== 2) die(`debug takes <playbook> <host>\n${USAGE}`);
+    const [playbook, hostName] = rest;
+    if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
+    const inv = loadInventory();
+    const address = resolveHost(hostName, inv);
+    await runRemote({playbook, hostName, address, rectHeight: 0, verbose: true});
+    break;
+  }
+  default:
+    die(`unknown command "${command}"\n${USAGE}`);
+}
