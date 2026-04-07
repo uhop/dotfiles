@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# playbash-daily — daily maintenance stack.
+#
+# Mirrors the existing ansible stack-daily.yml: chezmoi update, then
+# dcms, then upd -y. Sources playbash.sh so the runner gets structured
+# events, but stays directly runnable by hand (helpers fall back to
+# pretty-print when $PLAYBASH_REPORT is unset).
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+source ~/.local/libs/playbash.sh
+
+playbash_step "chezmoi"
+playbash_info "running chezmoi update"
+chezmoi update
+
+playbash_step "docker"
+playbash_info "refreshing docker images via dcms"
+dcms
+
+playbash_step "system"
+playbash_info "running upd -y"
+upd -y
+
+# Post-hoc reboot detection. upd already prints a colored warning to
+# stdout when this file is present; the playbash_reboot call adds the
+# structured sidecar event so the runner's summary can aggregate
+# "N hosts need reboot" across a fleet.
+{{ if eq .osIdLike "linux-debian" -}}
+if [ -e /run/reboot-required ]; then
+  playbash_reboot "system update requires a reboot"
+fi
+{{- end }}

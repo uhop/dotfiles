@@ -16,6 +16,13 @@
 # Note: this library does not use flock. Playbooks are single-process; if
 # one ever forks helper calls into background jobs with `&`, it must
 # serialize them itself.
+#
+# Note: this library deliberately does NOT depend on options.bash. The
+# pretty-print path only runs when $PLAYBASH_REPORT is unset, which is
+# the manual-debugging case where stderr is always a tty. options.bash's
+# main benefit (auto-strip when output is not a tty) does not apply.
+# Playbooks that source bootstrap.sh for their own needs can use
+# options.bash and this library side by side.
 
 : "${PLAYBASH_STEP:=}"
 

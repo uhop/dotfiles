@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# playbash-weekly — weekly maintenance stack (daily + cleanup).
+#
+# Mirrors ansible stack-weekly.yml: chezmoi update, dcms, then upd -cy
+# (which runs cln after upd). Same playbash conventions as playbash-daily.
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+source ~/.local/libs/playbash.sh
+
+playbash_step "chezmoi"
+playbash_info "running chezmoi update"
+chezmoi update
+
+playbash_step "docker"
+playbash_info "refreshing docker images via dcms"
+dcms
+
+playbash_step "system"
+playbash_info "running upd -cy (with cleanup)"
+upd -cy
+
+{{ if eq .osIdLike "linux-debian" -}}
+if [ -e /run/reboot-required ]; then
+  playbash_reboot "system update requires a reboot"
+fi
+{{- end }}
