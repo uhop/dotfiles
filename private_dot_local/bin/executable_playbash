@@ -5,27 +5,34 @@
 
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
-import {readdirSync, readFileSync, mkdirSync, createWriteStream, existsSync} from 'node:fs';
-import {homedir} from 'node:os';
+import {lookup as dnsLookup} from 'node:dns/promises';
+import {readdirSync, readFileSync, mkdirSync, createWriteStream, existsSync, unlinkSync} from 'node:fs';
+import {tmpdir, homedir, networkInterfaces} from 'node:os';
 import {join} from 'node:path';
 import {parseArgs} from 'node:util';
 
 const USAGE = `usage:
-  playbash run   <playbook> <host> [-n LINES]
-  playbash debug <playbook> <host>
+  playbash run   <playbook> <host> [-n LINES] [--self]
+  playbash debug <playbook> <host> [--self]
   playbash list
   playbash hosts
 
 Options for run:
   -n, --lines N    height of the live output rectangle (default 5)
                    pass 0 to disable the rectangle and stream output raw
+  --self           allow running on the local host (default: refuse)
 
 <host> is looked up in ~/.config/playbash/inventory.json. If not found,
 the literal string is passed to ssh, so any ~/.ssh/config alias still works.
 <playbook> resolves to ~/.local/bin/playbash-<playbook> on the target host.
 
 \`debug\` is equivalent to \`run\` with the rectangle disabled and info
-events surfaced in the summary — for when you want to see everything.`;
+events surfaced in the summary — for when you want to see everything.
+
+Self detection is by IP: if the target's resolved address is bound to a
+local interface, the run is refused unless --self is passed. With --self,
+the playbook runs locally as a child process (no ssh) using the same
+sidecar/summary pipeline.`;
 
 const INVENTORY_PATH = join(homedir(), '.config', 'playbash', 'inventory.json');
 const PLAYBOOK_DIR = join(homedir(), '.local', 'bin');
@@ -80,6 +87,46 @@ function resolveHost(name, inventory) {
   }
   const entry = inventory.hosts.get(name);
   return entry ? entry.address : name;
+}
+
+// --- Self detection ---
+
+// Set of IPs bound to any local interface, plus the loopback ranges.
+// Computed once on demand.
+let _localIps = null;
+function localIpSet() {
+  if (_localIps) return _localIps;
+  const set = new Set();
+  const ifaces = networkInterfaces();
+  for (const list of Object.values(ifaces)) {
+    if (!list) continue;
+    for (const i of list) set.add(i.address);
+  }
+  // Loopback families. We don't enumerate 127.0.0.0/8 — just check the
+  // prefix at lookup time. ::1 is added explicitly.
+  set.add('::1');
+  _localIps = set;
+  return set;
+}
+
+function isLoopback(ip) {
+  if (!ip) return false;
+  if (ip === '::1') return true;
+  return ip.startsWith('127.');
+}
+
+// Resolve `address` (a hostname or IP literal) and return true if it
+// points at a local interface. DNS failure → false (conservative).
+async function isSelfAddress(address) {
+  let ip;
+  try {
+    const res = await dnsLookup(address);
+    ip = res.address;
+  } catch {
+    return false;
+  }
+  if (isLoopback(ip)) return true;
+  return localIpSet().has(ip);
 }
 
 // --- Live rectangle renderer (unchanged from milestone 3) ---
@@ -217,16 +264,13 @@ function sshCapture(host, remote) {
   });
 }
 
-async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
-  const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
+// Shared pipeline for both remote and local execution. Backends supply
+// `makeChild` (returns the ChildProcess to read output from) and
+// `getSidecarText` (returns the JSON-lines payload after the child exits
+// and handles cleanup).
+async function runPipeline({playbook, hostName, rectHeight, verbose, label, makeChild, getSidecarText}) {
   const cols = process.stdout.columns || 80;
   const rows = process.stdout.rows || 24;
-
-  const remoteCommand =
-    `PLAYBASH_REPORT=${reportPath} ` +
-    `PLAYBASH_HOST=${hostName} ` +
-    `COLUMNS=${cols} LINES=${rows} ` +
-    `~/.local/bin/playbash-${playbook}`;
 
   const logDir = join(homedir(), '.cache', 'playbash', 'runs');
   mkdirSync(logDir, {recursive: true});
@@ -235,14 +279,17 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
   const log = createWriteStream(logPath);
 
   const rect = new Rectangle(rectHeight);
-
   const start = Date.now();
   rect.start();
 
   const result = await new Promise((resolve, reject) => {
-    const child = spawn('ssh', ['-tt', address, '--', remoteCommand], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    let child;
+    try {
+      child = makeChild({cols, rows});
+    } catch (err) {
+      reject(err);
+      return;
+    }
     child.stdout.on('data', chunk => {
       log.write(chunk);
       if (rect.active) rect.feed(chunk);
@@ -253,7 +300,7 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
     child.on('close', (code, signal) => resolve({code, signal}));
   }).catch(err => {
     rect.finish();
-    die(`failed to spawn ssh: ${err.message}`, 1);
+    die(`failed to spawn: ${err.message}`, 1);
   });
 
   rect.finish();
@@ -261,8 +308,8 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
 
   let events = [];
   try {
-    const fetch = await sshCapture(address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`);
-    events = parseSidecar(fetch.stdout);
+    const text = await getSidecarText();
+    events = parseSidecar(text);
   } catch (err) {
     process.stderr.write(`playbash: failed to fetch sidecar: ${err.message}\n`);
   }
@@ -273,11 +320,63 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
     : result.code === 0
       ? 'ok'
       : `exit ${result.code}`;
-  process.stderr.write(`playbash: ${hostName} ${playbook} — ${status} (${elapsed}s)\n`);
+  process.stderr.write(`playbash: ${hostName} ${playbook}${label} — ${status} (${elapsed}s)\n`);
   renderSummary(events, {verbose});
   process.stderr.write(`playbash: log ${logPath}\n`);
 
   process.exit(result.code ?? 1);
+}
+
+async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
+  const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
+  await runPipeline({
+    playbook, hostName, rectHeight, verbose, label: '',
+    makeChild: ({cols, rows}) => {
+      const remoteCommand =
+        `PLAYBASH_REPORT=${reportPath} ` +
+        `PLAYBASH_HOST=${hostName} ` +
+        `COLUMNS=${cols} LINES=${rows} ` +
+        `~/.local/bin/playbash-${playbook}`;
+      return spawn('ssh', ['-tt', address, '--', remoteCommand], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    },
+    getSidecarText: async () => {
+      const fetch = await sshCapture(address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`);
+      return fetch.stdout;
+    },
+  });
+}
+
+async function runLocally({playbook, hostName, rectHeight, verbose}) {
+  // Local sidecar lives in $TMPDIR. No ssh, no PTY allocation — the
+  // playbook runs as a direct child of Node. Tools that depend on a tty
+  // (e.g. interactive `apt`) will see a pipe; that matches "the bare
+  // script run by hand from a non-tty context."
+  const reportPath = join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`);
+  const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
+  if (!existsSync(playbookPath)) {
+    die(`local playbook not found: ${playbookPath}`);
+  }
+  await runPipeline({
+    playbook, hostName, rectHeight, verbose, label: ' (local)',
+    makeChild: ({cols, rows}) => spawn(playbookPath, [], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PLAYBASH_REPORT: reportPath,
+        PLAYBASH_HOST: hostName,
+        COLUMNS: String(cols),
+        LINES: String(rows),
+      },
+    }),
+    getSidecarText: async () => {
+      let text = '';
+      try { text = readFileSync(reportPath, 'utf8'); } catch {}
+      try { unlinkSync(reportPath); } catch {}
+      return text;
+    },
+  });
 }
 
 // --- list / hosts ---
@@ -300,7 +399,7 @@ function cmdList() {
   for (const p of playbooks) process.stdout.write(`${p}\n`);
 }
 
-function cmdHosts() {
+async function cmdHosts() {
   const inv = loadInventory();
   if (!inv.present) {
     process.stderr.write(`no inventory at ${inv.path}\n`);
@@ -313,9 +412,17 @@ function cmdHosts() {
     return;
   }
   if (hostNames.length > 0) {
+    // Resolve each host to find which entries are self.
+    const selfFlags = await Promise.all(
+      hostNames.map(name => isSelfAddress(inv.hosts.get(name).address))
+    );
     const width = Math.max(...hostNames.map(n => n.length));
-    for (const name of hostNames) {
-      process.stdout.write(`${name.padEnd(width)}  ${inv.hosts.get(name).address}\n`);
+    const addrWidth = Math.max(...hostNames.map(n => inv.hosts.get(n).address.length));
+    for (let i = 0; i < hostNames.length; i++) {
+      const name = hostNames[i];
+      const addr = inv.hosts.get(name).address;
+      const tag = selfFlags[i] ? '  (self)' : '';
+      process.stdout.write(`${name.padEnd(width)}  ${addr.padEnd(addrWidth)}${tag}\n`);
     }
   }
   if (groupNames.length > 0) {
@@ -332,12 +439,32 @@ function cmdHosts() {
 const {values, positionals} = parseArgs({
   options: {
     lines: {type: 'string', short: 'n', default: '5'},
+    self: {type: 'boolean', default: false},
   },
   allowPositionals: true,
 });
 
 if (positionals.length === 0) die(USAGE);
 const [command, ...rest] = positionals;
+
+// Pick the right execution backend for one host. Refuses self by default.
+async function dispatchRun({playbook, hostName, rectHeight, verbose}) {
+  const inv = loadInventory();
+  const address = resolveHost(hostName, inv);
+  const isSelf = await isSelfAddress(address);
+
+  if (isSelf && !values.self) {
+    die(
+      `"${hostName}" (${address}) resolves to a local interface; refusing to run on self.\n` +
+      `pass --self to run locally, or invoke the bare script directly: playbash-${playbook}`
+    );
+  }
+  if (isSelf) {
+    await runLocally({playbook, hostName, rectHeight, verbose});
+  } else {
+    await runRemote({playbook, hostName, address, rectHeight, verbose});
+  }
+}
 
 switch (command) {
   case 'list': {
@@ -347,7 +474,7 @@ switch (command) {
   }
   case 'hosts': {
     if (rest.length > 0) die(`hosts takes no arguments`);
-    cmdHosts();
+    await cmdHosts();
     break;
   }
   case 'run': {
@@ -358,18 +485,14 @@ switch (command) {
     if (!Number.isFinite(rectHeight) || rectHeight < 0) {
       die(`--lines must be a non-negative integer (0 disables the rectangle)`);
     }
-    const inv = loadInventory();
-    const address = resolveHost(hostName, inv);
-    await runRemote({playbook, hostName, address, rectHeight, verbose: false});
+    await dispatchRun({playbook, hostName, rectHeight, verbose: false});
     break;
   }
   case 'debug': {
     if (rest.length !== 2) die(`debug takes <playbook> <host>\n${USAGE}`);
     const [playbook, hostName] = rest;
     if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
-    const inv = loadInventory();
-    const address = resolveHost(hostName, inv);
-    await runRemote({playbook, hostName, address, rectHeight: 0, verbose: true});
+    await dispatchRun({playbook, hostName, rectHeight: 0, verbose: true});
     break;
   }
   default:
