@@ -263,35 +263,80 @@ function parseSidecar(text) {
   return events;
 }
 
+// Color palette. Active only when stderr is a tty AND no NO_COLOR-style
+// override is set. Falls back to empty strings otherwise so redirected,
+// piped, or NO_COLOR output stays plain.
+//
+// The palette is chosen to be legible on both dark and light terminal
+// backgrounds:
+//
+//   - green / red / magenta: default ANSI, work on both.
+//   - orange (256-color 208) for warnings instead of yellow 33, which
+//     is essentially invisible on a white background.
+//   - failure glyph uses bg-color so the bg dominates either way.
+//   - dim and bold are background-independent.
+//
+// NO_COLOR is the de facto standard (https://no-color.org); any value,
+// including empty, disables colors. PLAYBASH_NO_COLOR is the local
+// override for users who want colors elsewhere but not here.
+const COLOR_ENABLED =
+  process.stderr.isTTY &&
+  !('NO_COLOR' in process.env) &&
+  !('PLAYBASH_NO_COLOR' in process.env);
+
+const COLOR = COLOR_ENABLED
+  ? {
+      reset:   '\x1b[0m',
+      bold:    '\x1b[1m',
+      dim:     '\x1b[2m',
+      green:   '\x1b[32m',
+      red:     '\x1b[31m',
+      orange:  '\x1b[38;5;208m',
+      magenta: '\x1b[35m',
+      // Failure marker: bold bright-white on red background. One glyph
+      // wide so column 1 stays aligned with successful runs.
+      fail:    '\x1b[1;97;41m',
+    }
+  : Object.fromEntries(
+      ['reset', 'bold', 'dim', 'green', 'red', 'orange', 'magenta', 'fail'].map(k => [k, '']),
+    );
+
+function buildStatusLine({ok, hostName, playbook, label, status, elapsed}) {
+  const glyph = ok
+    ? `${COLOR.green}✓${COLOR.reset}`
+    : `${COLOR.fail}✗${COLOR.reset}`;
+  const host = `${COLOR.bold}${hostName}${COLOR.reset}`;
+  const tail = ok
+    ? `${COLOR.dim}in ${elapsed}s${COLOR.reset}`
+    : `${COLOR.bold}${COLOR.red}${status}${COLOR.reset} ${COLOR.dim}in ${elapsed}s${COLOR.reset}`;
+  const localTag = label ? ` ${COLOR.dim}${label}${COLOR.reset}` : '';
+  return `${glyph} ${host} ${playbook} ${tail}${localTag}`;
+}
+
 function renderSummary(events, {verbose}) {
   if (events.length === 0) return;
-  const byLevel = {info: [], warn: [], error: [], action: []};
+  // Group order: actions first (most actionable), then warnings (FYI),
+  // then errors (recorded but non-fatal), then info (verbose only).
+  // The host status glyph already captured fatal pass/fail.
+  const byLevel = {action: [], warn: [], error: [], info: []};
   for (const ev of events) if (byLevel[ev.level]) byLevel[ev.level].push(ev);
 
-  if (byLevel.action.length) {
-    process.stderr.write('  actions:\n');
-    for (const ev of byLevel.action) {
-      const kind = ev.kind || 'unknown';
-      const target = ev.target ? ` [${ev.target}]` : '';
-      process.stderr.write(`    ${kind}${target} — ${ev.msg}\n`);
-    }
+  for (const ev of byLevel.action) {
+    const kind = ev.kind || 'unknown';
+    const target = ev.target ? ` ${COLOR.dim}[${ev.target}]${COLOR.reset}` : '';
+    process.stderr.write(`  ${COLOR.magenta}⏵${COLOR.reset} ${kind}${target} ${COLOR.dim}·${COLOR.reset} ${ev.msg}\n`);
   }
-  if (byLevel.warn.length) {
-    process.stderr.write('  warnings:\n');
-    for (const ev of byLevel.warn) {
-      const target = ev.target ? `${ev.target}: ` : '';
-      process.stderr.write(`    ${target}${ev.msg}\n`);
-    }
+  for (const ev of byLevel.warn) {
+    const target = ev.target ? `${ev.target} ${COLOR.dim}·${COLOR.reset} ` : '';
+    process.stderr.write(`  ${COLOR.orange}⚠${COLOR.reset} ${target}${ev.msg}\n`);
   }
-  if (byLevel.error.length) {
-    process.stderr.write('  errors:\n');
-    for (const ev of byLevel.error) process.stderr.write(`    ${ev.msg}\n`);
+  for (const ev of byLevel.error) {
+    process.stderr.write(`  ${COLOR.red}✖${COLOR.reset} ${ev.msg}\n`);
   }
-  if (verbose && byLevel.info.length) {
-    process.stderr.write('  info:\n');
+  if (verbose) {
     for (const ev of byLevel.info) {
-      const step = ev.step ? `[${ev.step}] ` : '';
-      process.stderr.write(`    ${step}${ev.msg}\n`);
+      const step = ev.step ? `${COLOR.dim}[${ev.step}]${COLOR.reset} ` : '';
+      process.stderr.write(`  ${COLOR.dim}·${COLOR.reset} ${step}${ev.msg}\n`);
     }
   }
 }
@@ -366,14 +411,15 @@ async function runPipeline({playbook, hostName, rectHeight, verbose, label, make
   }
 
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-  const status = result.signal
-    ? `signal ${result.signal}`
-    : result.code === 0
-      ? 'ok'
-      : `exit ${result.code}`;
-  process.stderr.write(`playbash: ${hostName} ${playbook}${label} — ${status} (${elapsed}s)\n`);
+  const ok = !result.signal && result.code === 0;
+  const status = result.signal ? `signal ${result.signal}` : `exit ${result.code}`;
+  process.stderr.write(buildStatusLine({ok, hostName, playbook, label, status, elapsed}) + '\n');
   renderSummary(events, {verbose});
-  process.stderr.write(`playbash: log ${logPath}\n`);
+  // Log path only on failure — when the run is fine, you don't reach for
+  // the log; when it failed, you do. `playbash log` finds any past run.
+  if (!ok) {
+    process.stderr.write(`  ${COLOR.dim}↳ ${logPath}${COLOR.reset}\n`);
+  }
 
   process.exit(result.code ?? 1);
 }
@@ -381,7 +427,7 @@ async function runPipeline({playbook, hostName, rectHeight, verbose, label, make
 async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
   const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
   await runPipeline({
-    playbook, hostName, rectHeight, verbose, label: '',
+    playbook, hostName, rectHeight, verbose, label: null,
     makeChild: ({cols, rows}) => {
       const inner =
         `PLAYBASH_REPORT=${reportPath} ` +
@@ -423,7 +469,7 @@ async function runLocally({playbook, hostName, rectHeight, verbose}) {
     die(`local playbook not found: ${playbookPath}`);
   }
   await runPipeline({
-    playbook, hostName, rectHeight, verbose, label: ' (local)',
+    playbook, hostName, rectHeight, verbose, label: '(local)',
     makeChild: ({cols, rows}) => spawn(playbookPath, [], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
