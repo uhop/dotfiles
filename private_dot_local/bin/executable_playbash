@@ -137,6 +137,26 @@ function visibleLength(s) {
   return s.replace(ANSI_RE, '').length;
 }
 
+// Strip escape sequences that would interfere with the rectangle's cursor
+// management. Keeps SGR (color) so the rectangle is still pretty. The full
+// uncut byte stream still goes to the log file unchanged.
+//
+// Chunk boundaries can split an escape sequence; we accept the rare case
+// of a partial sequence leaking through. Tools tend to emit escape
+// sequences in single writes, so this is rare in practice.
+function sanitizeForRect(input) {
+  const text = typeof input === 'string' ? input : input.toString('utf8');
+  return text
+    // OSC: ESC ] ... BEL or ESC \
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    // DCS / SOS / PM / APC: ESC [PX^_] ... ESC \
+    .replace(/\x1b[PX^_][\s\S]*?\x1b\\/g, '')
+    // CSI sequences whose final byte is NOT 'm' (SGR is 'm', drop the rest)
+    .replace(/\x1b\[[0-9;?<>!]*[A-Za-ln-z]/g, '')
+    // Two-char ESC sequences (ESC c reset, ESC =/> keypad, ESC 7/8 save/restore, etc.)
+    .replace(/\x1b[=>cDEHMNOZ()78]/g, '');
+}
+
 function truncateToWidth(s, width) {
   if (visibleLength(s) <= width) return s;
   let out = '';
@@ -292,7 +312,7 @@ async function runPipeline({playbook, hostName, rectHeight, verbose, label, make
     }
     child.stdout.on('data', chunk => {
       log.write(chunk);
-      if (rect.active) rect.feed(chunk);
+      if (rect.active) rect.feed(sanitizeForRect(chunk));
       else process.stdout.write(chunk);
     });
     child.stderr.on('data', chunk => log.write(chunk));
@@ -332,12 +352,25 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
   await runPipeline({
     playbook, hostName, rectHeight, verbose, label: '',
     makeChild: ({cols, rows}) => {
-      const remoteCommand =
+      const inner =
         `PLAYBASH_REPORT=${reportPath} ` +
         `PLAYBASH_HOST=${hostName} ` +
         `COLUMNS=${cols} LINES=${rows} ` +
         `~/.local/bin/playbash-${playbook}`;
-      return spawn('ssh', ['-tt', address, '--', remoteCommand], {
+      // Wrap in remote script(1) — Option D from the milestone-3 PTY
+      // discussion. The PTY is allocated on the *target*; ssh has plain
+      // pipes locally on both sides; terminal queries from remote tools
+      // (OSC 11, CPR) are answered by the remote PTY and never reach
+      // our local terminal, so they cannot be echoed back to the user's
+      // shell after we exit. Also: we don't need `-tt`, which was
+      // forwarding those queries in the first place.
+      //
+      // util-linux script(1) syntax (-q quiet, -f flush after each write,
+      // -e return wrapped command's exit code). Targets are assumed to be
+      // Linux. macOS targets would need BSD script syntax — defer until
+      // someone actually wants to run a playbook against the Mac.
+      const wrapped = `script -qfec '${inner}' /dev/null`;
+      return spawn('ssh', [address, '--', wrapped], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     },
