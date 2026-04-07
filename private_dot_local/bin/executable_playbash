@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // playbash — run bash playbooks on remote hosts.
-// Milestone 1, step (b): playbook is a preinstalled script at
-// ~/.local/bin/playbash-<name> on the target host (deployed via chezmoi).
-// The runner just invokes it over ssh and tees output to a per-run log.
+//
+// Milestone 2: primary mode (preinstalled playbook script) plus sidecar
+// reporting. The runner generates a remote sidecar path, exports it as
+// $PLAYBASH_REPORT for the playbook, downloads and parses the sidecar
+// after the playbook exits, and renders a per-host summary.
 
 import {spawn} from 'node:child_process';
+import {randomBytes} from 'node:crypto';
 import {mkdirSync, createWriteStream} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -31,9 +34,16 @@ if (rest.length !== 2) die(`run takes <playbook> <host>\n${USAGE}`);
 const [playbook, host] = rest;
 if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
 
-// Primary mode: the playbook script is preinstalled on the target host.
-// The remote login shell expands ~ for us.
-const remoteCommand = `~/.local/bin/playbash-${playbook}`;
+// Pick a random sidecar path on the remote. Random hex avoids collisions
+// without an extra `mktemp` round trip. /tmp is assumed writable.
+const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
+
+// Build the remote command. Env vars are set inline so we don't depend
+// on `ssh -o SendEnv` or sshd's AcceptEnv whitelist.
+const remoteCommand =
+  `PLAYBASH_REPORT=${reportPath} ` +
+  `PLAYBASH_HOST=${host} ` +
+  `~/.local/bin/playbash-${playbook}`;
 
 // Open the per-run log file.
 const logDir = join(homedir(), '.cache', 'playbash', 'runs');
@@ -42,27 +52,111 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const logPath = join(logDir, `${stamp}-${host}-${playbook}.log`);
 const log = createWriteStream(logPath);
 
-// Tee a chunk to both the local stream and the log file.
 function tee(chunk, localStream) {
   localStream.write(chunk);
   log.write(chunk);
 }
 
-const sshArgs = [host, '--', remoteCommand];
-const child = spawn('ssh', sshArgs, {stdio: ['ignore', 'pipe', 'pipe']});
-
-child.stdout.on('data', chunk => tee(chunk, process.stdout));
-child.stderr.on('data', chunk => tee(chunk, process.stderr));
-
-child.on('error', err => {
-  die(`failed to spawn ssh: ${err.message}`, 1);
-});
-
-child.on('close', (code, signal) => {
-  log.end(() => {
-    const status = signal ? `signal ${signal}` : `exit ${code}`;
-    process.stderr.write(`\nplaybash: ${host} ${playbook} — ${status}\n`);
-    process.stderr.write(`playbash: log ${logPath}\n`);
-    process.exit(code ?? 1);
+// Run a one-shot ssh command and return {code, stdout, stderr}.
+function sshCapture(remote) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('ssh', [host, '--', remote], {stdio: ['ignore', 'pipe', 'pipe']});
+    let stdout = '', stderr = '';
+    proc.stdout.on('data', c => (stdout += c));
+    proc.stderr.on('data', c => (stderr += c));
+    proc.on('error', reject);
+    proc.on('close', code => resolve({code, stdout, stderr}));
   });
-});
+}
+
+// Stream the playbook through ssh, teeing to the terminal and the log.
+function runPlaybook() {
+  return new Promise((resolve, reject) => {
+    const child = spawn('ssh', [host, '--', remoteCommand], {stdio: ['ignore', 'pipe', 'pipe']});
+    child.stdout.on('data', c => tee(c, process.stdout));
+    child.stderr.on('data', c => tee(c, process.stderr));
+    child.on('error', reject);
+    child.on('close', (code, signal) => resolve({code, signal}));
+  });
+}
+
+function parseSidecar(text) {
+  const events = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      events.push(JSON.parse(line));
+    } catch {
+      process.stderr.write(`playbash: ignoring malformed sidecar line: ${line}\n`);
+    }
+  }
+  return events;
+}
+
+function renderSummary(events) {
+  if (events.length === 0) return;
+  const byLevel = {info: [], warn: [], error: [], action: []};
+  for (const ev of events) {
+    if (byLevel[ev.level]) byLevel[ev.level].push(ev);
+  }
+
+  if (byLevel.action.length) {
+    process.stderr.write('  actions:\n');
+    for (const ev of byLevel.action) {
+      const kind = ev.kind || 'unknown';
+      const target = ev.target ? ` [${ev.target}]` : '';
+      process.stderr.write(`    ${kind}${target} — ${ev.msg}\n`);
+    }
+  }
+  if (byLevel.warn.length) {
+    process.stderr.write('  warnings:\n');
+    for (const ev of byLevel.warn) {
+      const target = ev.target ? `${ev.target}: ` : '';
+      process.stderr.write(`    ${target}${ev.msg}\n`);
+    }
+  }
+  if (byLevel.error.length) {
+    process.stderr.write('  errors:\n');
+    for (const ev of byLevel.error) {
+      process.stderr.write(`    ${ev.msg}\n`);
+    }
+  }
+  // info events are not surfaced unless --verbose (deferred).
+}
+
+(async () => {
+  const start = Date.now();
+
+  let result;
+  try {
+    result = await runPlaybook();
+  } catch (err) {
+    die(`failed to spawn ssh: ${err.message}`, 1);
+  }
+
+  // Always close the log before printing the summary.
+  await new Promise(resolve => log.end(resolve));
+
+  // Fetch and remove the sidecar. Combined into one ssh call.
+  // The `cat` may fail if the playbook never created the file (e.g. it
+  // crashed before the first helper call); that's fine.
+  let events = [];
+  try {
+    const fetch = await sshCapture(`cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`);
+    events = parseSidecar(fetch.stdout);
+  } catch (err) {
+    process.stderr.write(`playbash: failed to fetch sidecar: ${err.message}\n`);
+  }
+
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  const status = result.signal
+    ? `signal ${result.signal}`
+    : result.code === 0
+      ? 'ok'
+      : `exit ${result.code}`;
+  process.stderr.write(`\nplaybash: ${host} ${playbook} — ${status} (${elapsed}s)\n`);
+  renderSummary(events);
+  process.stderr.write(`playbash: log ${logPath}\n`);
+
+  process.exit(result.code ?? 1);
+})();

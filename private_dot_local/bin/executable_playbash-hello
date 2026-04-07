@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
-# playbash-hello — minimal playbook used by milestone 1 step (b).
-# Prints one line and exits. Directly runnable by hand: `playbash-hello`.
+# playbash-hello — minimal playbook used to exercise milestones 1 and 2.
+# Prints one line of stdout and emits a few sidecar events. Directly
+# runnable by hand: `playbash-hello` (events pretty-print to stderr).
+
+set -euo pipefail
+
+source ~/.local/libs/playbash.sh
 
 echo "hello from $(hostname) at $(date -Iseconds)"
+
+playbash_step  "greet"
+playbash_info  "milestone 2 demo: $(uname -s) $(uname -r)"
+playbash_warn  "this is a fake warning" --target /var
+playbash_reboot "fake reboot recommendation, please ignore"
