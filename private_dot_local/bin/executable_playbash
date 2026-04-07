@@ -20,7 +20,8 @@ const USAGE = `usage: playbash run <playbook> <host> [-n LINES]
 ~/.ssh/config alias works.
 
 Options:
-  -n, --lines N    height of the live output rectangle (default 5)`;
+  -n, --lines N    height of the live output rectangle (default 5)
+                   pass 0 to disable the rectangle and stream output raw`;
 
 function die(msg, code = 2) {
   process.stderr.write(`playbash: ${msg}\n`);
@@ -43,7 +44,7 @@ const [playbook, host] = rest;
 if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
 
 const rectHeight = parseInt(values.lines, 10);
-if (!Number.isFinite(rectHeight) || rectHeight < 1) die(`--lines must be a positive integer`);
+if (!Number.isFinite(rectHeight) || rectHeight < 0) die(`--lines must be a non-negative integer (0 disables the rectangle)`);
 
 // Sidecar path: random hex avoids the extra mktemp round trip.
 const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
@@ -103,7 +104,9 @@ class Rectangle {
     this.height = height;
     this.committed = []; // last (height - 1) completed lines
     this.current = '';   // line being built
-    this.active = process.stdout.isTTY;
+    // Rectangle is only active when we have a real tty AND a positive
+    // height. height === 0 is the explicit "raw passthrough" opt-out.
+    this.active = process.stdout.isTTY && height > 0;
   }
 
   start() {
