@@ -163,14 +163,26 @@ _maintenance_apt_diff() {
   tail -c +"$((snapshot + 1))" /var/log/apt/history.log
 }
 
+# maintenance::check_apt_since SNAPSHOT [restart_docker]
+#
+# When restart_docker is 1, a detected docker-related upgrade triggers
+# `maintenance::restart_docker_services` (which falls back to
+# `report_reboot` if the restart fails). When 0 or unset (default), the
+# upgrade is just reported via `report_reboot`. AppArmor and kernel
+# reboot detection are unaffected by this flag.
 maintenance::check_apt_since() {
   local snapshot=${1:-0}
+  local restart_docker=${2:-0}
   local diff; diff=$(_maintenance_apt_diff "$snapshot")
 
   # Docker-related upgrades. The Upgrade: line lists packages with
   # version transitions; we match the package name followed by `:`.
   if printf '%s' "$diff" | grep -qE 'Upgrade:.*\b(docker-ce|containerd|docker-buildx-plugin|docker-compose-plugin):'; then
-    report_reboot "docker upgraded; restart recommended (a reboot is the safest option)"
+    if [ "$restart_docker" = "1" ]; then
+      maintenance::restart_docker_services
+    else
+      report_reboot "docker upgraded; restart recommended (a reboot is the safest option)"
+    fi
   fi
 
   # AppArmor upgrade → mark dirty, then run cleanup immediately.
@@ -191,5 +203,26 @@ maintenance::check_apt_since() {
       reason="${reason} updated"
     fi
     report_reboot "$reason"
+  fi
+}
+
+# Try to recover from a docker-ce upgrade by restarting the service
+# stack. Falls back to `report_reboot` if either restart fails so the
+# user still sees a warning.
+#
+# Order matters: containerd first (the runtime), then docker (the daemon
+# above it). Docker's systemd unit has `Requires=containerd.service`, so
+# restarting containerd first means docker comes up against a fresh
+# runtime instead of reconnecting to a possibly-stale one.
+#
+# Both commands are individually whitelisted in the doas config so they
+# don't prompt for a password on hosts where doas is configured.
+maintenance::restart_docker_services() {
+  ansi::out "${WARN}Docker was upgraded — restarting containerd and docker. May require sudo password.${RESET_ALL}"
+  if echoRun --bold sudo systemctl restart containerd && echoRun --bold sudo systemctl restart docker; then
+    report_warn "docker daemon restarted after docker-ce upgrade" --target docker
+  else
+    ansi::out "${WARN}Service restart failed; falling back to reboot recommendation.${RESET_ALL}"
+    report_reboot "docker upgraded and service restart failed; reboot recommended"
   fi
 }
