@@ -93,6 +93,43 @@ function sshCapture(host, remote) {
   });
 }
 
+// --- Interactive input detection ---
+//
+// A playbook can hang waiting for input it can't get — most commonly a
+// `sudo` password prompt from `chezmoi update` when it needs to install
+// a system package. We don't have stdin connected to the remote (and
+// don't want to), so the prompt would just sit there forever.
+//
+// We detect two signals from the captured output stream:
+//
+//   1. Regex match on a sliding window of recent output. Strong signal,
+//      fires immediately, very low false-positive risk because the
+//      patterns are specific to known prompts.
+//   2. Idle threshold — no chunks received for N seconds while the
+//      child is still alive. Weak signal, generous default (90s) to
+//      avoid killing legitimate slow operations like apt downloads.
+//
+// On detection: SIGTERM the child, then SIGKILL after a short grace
+// period if it hasn't exited. The host's status word becomes either
+// `needs sudo` (regex matched) or `stuck (idle)` (threshold tripped).
+// In the summary the host shows as a failure (✗), but with the distinct
+// status word so the user can tell it apart from a real non-zero exit.
+
+const STDIN_PROMPT_RE = /(?:\[sudo[^\]]*\]\s*[Pp]assword|^doas\s*\([^)]*\)\s*password|^Password:\s*$|Sorry, try again)/m;
+const STDIN_RECENT_BUF_MAX = 4096; // bytes of sliding window for regex
+const STDIN_KILL_GRACE_MS = 5000;  // SIGTERM → SIGKILL grace period
+
+// Idle threshold in seconds. 0 disables the idle check (regex stays
+// active). Default 90s — generous enough that apt downloads and brew
+// from-source compiles don't trip it, while still catching real hangs.
+function stdinWatchTimeoutMs() {
+  const raw = process.env.PLAYBASH_STDIN_WATCH_TIMEOUT;
+  if (raw === undefined) return 90 * 1000;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return 90 * 1000;
+  return n * 1000;
+}
+
 // Spawn the playbook child for one host, tee its raw output to the log
 // file, hand sanitized chunks to the caller via `onChunk`, fetch and parse
 // the sidecar after exit, and return everything the caller needs to render
@@ -114,6 +151,15 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
 
   const start = Date.now();
 
+  // Stuck-on-input detector state. `stuckReason` is null until a signal
+  // fires; after that it's 'sudo' or 'idle'.
+  let stuckReason = null;
+  let recentBuf = '';
+  let lastChunkAt = Date.now();
+  let idleTimer = null;
+  let killTimer = null;
+  const idleTimeoutMs = stdinWatchTimeoutMs();
+
   let result;
   try {
     result = await new Promise((resolve, reject) => {
@@ -124,18 +170,64 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
         reject(err);
         return;
       }
+
+      const killChild = (reason) => {
+        if (stuckReason) return;
+        stuckReason = reason;
+        // Send to the entire process group, not just the immediate child.
+        // The child may be a shell that's blocked in `wait()` on a
+        // foreground subprocess (e.g. `sleep`); SIGTERM to the shell
+        // alone can leave the subprocess running and keep the stdout
+        // pipe open, which delays our `close` event indefinitely.
+        // Killing the group hits the shell AND its descendants.
+        // The spawn must use `detached: true` for this to work — see the
+        // makeChild call sites.
+        const groupKill = (sig) => {
+          try { process.kill(-child.pid, sig); } catch {
+            try { child.kill(sig); } catch {}
+          }
+        };
+        groupKill('SIGTERM');
+        killTimer = setTimeout(() => groupKill('SIGKILL'), STDIN_KILL_GRACE_MS);
+      };
+
+      // Idle watchdog. Only armed when the user hasn't disabled it via
+      // PLAYBASH_STDIN_WATCH_TIMEOUT=0. Polls at half the threshold,
+      // capped at 5s, floored at 1s — so a 90s threshold polls every
+      // 5s, a 2s test threshold polls every 1s.
+      if (idleTimeoutMs > 0) {
+        const pollMs = Math.max(1000, Math.min(5000, Math.floor(idleTimeoutMs / 2)));
+        idleTimer = setInterval(() => {
+          if (stuckReason) return;
+          if (Date.now() - lastChunkAt > idleTimeoutMs) killChild('idle');
+        }, pollMs);
+      }
+
       child.stdout.on('data', chunk => {
         // Log gets the raw byte stream (forensic copy). The display path
         // gets the sanitized version so terminal queries from remote
         // tools cannot reach the user's terminal regardless of mode.
         log.write(chunk);
         if (onChunk) onChunk(sanitizeForRect(chunk));
+
+        lastChunkAt = Date.now();
+
+        // Sliding window for regex detection. Keep the tail so prompts
+        // that span chunk boundaries still match.
+        recentBuf = (recentBuf + chunk.toString('utf8')).slice(-STDIN_RECENT_BUF_MAX);
+        if (!stuckReason && STDIN_PROMPT_RE.test(recentBuf)) killChild('sudo');
       });
       child.stderr.on('data', chunk => log.write(chunk));
       child.on('error', reject);
-      child.on('close', (code, signal) => resolve({code, signal}));
+      child.on('close', (code, signal) => {
+        if (idleTimer) clearInterval(idleTimer);
+        if (killTimer) clearTimeout(killTimer);
+        resolve({code, signal});
+      });
     });
   } catch (err) {
+    if (idleTimer) clearInterval(idleTimer);
+    if (killTimer) clearTimeout(killTimer);
     await new Promise(resolve => log.end(resolve));
     throw new Error(`failed to spawn for ${hostName}: ${err.message}`);
   }
@@ -151,10 +243,17 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
   }
 
   const elapsedMs = Date.now() - start;
-  const ok = !result.signal && result.code === 0;
-  const statusWord = result.signal ? `signal ${result.signal}` : `exit ${result.code}`;
+  // A stuck run is treated as a failure regardless of how it exited
+  // (the kill we delivered may show as `signal SIGTERM` or as a
+  // wait-status from the wrapped script). The status word reflects the
+  // detection signal so the user can distinguish "needs sudo" from a
+  // genuine non-zero exit.
+  const ok = !stuckReason && !result.signal && result.code === 0;
+  const statusWord = stuckReason
+    ? (stuckReason === 'sudo' ? 'needs sudo' : 'stuck (idle)')
+    : (result.signal ? `signal ${result.signal}` : `exit ${result.code}`);
 
-  return {result, events, logPath, elapsedMs, ok, statusWord};
+  return {result, events, logPath, elapsedMs, ok, statusWord, stuckReason};
 }
 
 // Single-host wrapper around runHost: owns a Rectangle for live output,
@@ -201,7 +300,11 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
   await runHostSingle({
     playbook, hostName, rectHeight, verbose, label: null,
     makeChild: ({cols, rows}) => {
+      // LC_ALL=C forces English-language prompts so the stdin-watch
+      // regex (sudo/doas/Password:/Sorry, try again.) matches reliably
+      // regardless of the remote host's default locale.
       const inner =
+        `LC_ALL=C ` +
         `PLAYBASH_REPORT=${reportPath} ` +
         `PLAYBASH_HOST=${hostName} ` +
         `COLUMNS=${cols} LINES=${rows} ` +
@@ -221,6 +324,7 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
       const wrapped = `script -qfec '${inner}' /dev/null`;
       return spawn('ssh', [address, '--', wrapped], {
         stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true, // own process group so killChild can group-kill
       });
     },
     getSidecarText: async () => {
@@ -244,8 +348,10 @@ async function runLocally({playbook, hostName, rectHeight, verbose}) {
     playbook, hostName, rectHeight, verbose, label: '(local)',
     makeChild: ({cols, rows}) => spawn(playbookPath, [], {
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true, // own process group so killChild can group-kill
       env: {
         ...process.env,
+        LC_ALL: 'C',
         PLAYBASH_REPORT: reportPath,
         PLAYBASH_HOST: hostName,
         COLUMNS: String(cols),
@@ -287,8 +393,10 @@ async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}
       }
       makeChild = ({cols, rows}) => spawn(playbookPath, [], {
         stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true, // own process group so killChild can group-kill
         env: {
           ...process.env,
+          LC_ALL: 'C',
           PLAYBASH_REPORT: reportPath,
           PLAYBASH_HOST: slot.name,
           COLUMNS: String(cols),
@@ -304,7 +412,9 @@ async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}
     } else {
       const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
       makeChild = ({cols, rows}) => {
+        // LC_ALL=C — see runRemote for rationale (stdin-watch regex).
         const inner =
+          `LC_ALL=C ` +
           `PLAYBASH_REPORT=${reportPath} ` +
           `PLAYBASH_HOST=${slot.name} ` +
           `COLUMNS=${cols} LINES=${rows} ` +
@@ -312,6 +422,7 @@ async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}
         const wrapped = `script -qfec '${inner}' /dev/null`;
         return spawn('ssh', [slot.address, '--', wrapped], {
           stdio: ['ignore', 'pipe', 'pipe'],
+          detached: true, // own process group so killChild can group-kill
         });
       };
       getSidecarText = async () => {
