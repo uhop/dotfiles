@@ -1,4 +1,4 @@
-import {compareNumbers, compareStrings} from './comp-utils.js';
+import {compareNumbers, compareStrings} from './comp.js';
 
 const isNumber = /^\d+$/;
 

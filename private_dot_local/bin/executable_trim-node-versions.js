@@ -1,8 +1,8 @@
 #! /usr/bin/env bun
 
-import {adaptReverse} from './comp-utils.js';
-import {compareVersions, toVersionString} from './semver-utils.js';
-import {getNodeVersions, runNvm} from './nvm-utils.js';
+import {adaptReverse} from '../share/utils/comp.js';
+import {compareVersions, toVersionString} from '../share/utils/semver.js';
+import {getNodeVersions, runNvm} from '../share/utils/nvm.js';
 
 const main = async () => {
   const versions = await getNodeVersions();

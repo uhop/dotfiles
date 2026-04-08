@@ -1,5 +1,5 @@
 import {$} from 'bun';
-import {getVersion} from './semver-utils.js';
+import {getVersion} from './semver.js';
 
 export const runNvm = args => $`bash -l -c "nvm ${args}"`;
 

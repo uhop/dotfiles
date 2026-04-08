@@ -58,10 +58,13 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── executable_upd.tmpl        # System updater (apt, snap, flatpak, brew, bun)
 │   │   ├── executable_update-dependencies  # Update project dependencies
 │   │   ├── executable_git-*           # Git helper scripts
-│   │   ├── *.js                       # Node.js helper scripts (nvm, semver, sorting)
-│   │   └── comp-utils.js             # Sorting comparator/less-function adapters
+│   │   └── executable_playbash        # Multi-host playbook runner (Node)
 │   ├── libs/
-│   │   └── bootstrap.sh              # Bootstrap: auto-updates options.bash, sources core modules
+│   │   ├── bootstrap.sh              # Bootstrap: auto-updates options.bash, sources core modules
+│   │   └── playbash.sh               # Sourced helper for playbash playbooks
+│   ├── share/
+│   │   ├── playbash/                 # Runner modules (render.js, inventory.js, sidecar.js)
+│   │   └── utils/                    # General Node helpers (comp.js, semver.js, nvm.js)
 │   ├── ansible/
 │   │   └── playbooks/                # Ansible playbooks for server management
 │   │       ├── command-chezmoi.yml
@@ -171,4 +174,4 @@ For the full `options.bash` API see [its wiki](https://github.com/uhop/options.b
 - Do not hardcode paths — use `$HOME`, `~`, or `$(brew --prefix)`.
 - Platform-specific code goes in `.tmpl` files guarded by chezmoi template conditionals.
 - `sudo` operations check for group membership first (`groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'`).
-- Node.js helper scripts (`.js` files in `bin/`) are auxiliary — they use `nvm-utils.js` and `semver-utils.js`.
+- Node.js helper modules live under `share/utils/` (general) and `share/playbash/` (runner-specific). Executables in `bin/` import them via relative paths like `../share/utils/nvm.js`.

@@ -54,13 +54,22 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_git-mbs                     # git merge-base helper
 │   │   ├── executable_git-pull-main               # git pull main branch
 │   │   ├── executable_git-super-clean             # git deep clean
-│   │   ├── comp-utils.js                          # sorting comparator/less-function adapters
-│   │   ├── nvm-utils.js                           # nvm helper functions
-│   │   ├── semver-utils.js                        # semver parsing
 │   │   ├── executable_trim-node-versions.js       # trim old node versions
-│   │   └── executable_update-node-versions.js     # update node major versions
+│   │   ├── executable_update-node-versions.js     # update node major versions
+│   │   ├── executable_playbash                    # multi-host playbook runner (Node)
+│   │   └── executable_playbash-{daily,weekly,demo,hello}  # playbash playbooks
 │   ├── libs/
-│   │   └── bootstrap.sh                           # options.bash bootstrap
+│   │   ├── bootstrap.sh                           # options.bash bootstrap
+│   │   └── playbash.sh                            # sourced helper for playbash playbooks
+│   ├── share/
+│   │   ├── playbash/                              # playbash runner modules
+│   │   │   ├── render.js                          # COLOR, Rectangle, StatusBoard, sanitizer
+│   │   │   ├── inventory.js                       # load + group + self detection
+│   │   │   └── sidecar.js                         # JSON-lines parser + summary + aggregator
+│   │   └── utils/                                 # general Node helpers
+│   │       ├── comp.js                            # sorting comparator/less-function adapters
+│   │       ├── semver.js                          # semver parsing
+│   │       └── nvm.js                             # nvm helper functions
 │   ├── ansible/
 │   │   └── playbooks/                             # ansible server management
 │   ├── vendors/

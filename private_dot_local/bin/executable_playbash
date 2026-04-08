@@ -1,15 +1,41 @@
 #!/usr/bin/env node
 // playbash — run bash playbooks on remote hosts.
 //
-// Milestone 4: subcommands (run/debug/list/hosts) and inventory lookup.
+// Entry point: argument parsing, dispatcher, single-host and fan-out
+// run pipelines, and the list/hosts/log subcommands. Rendering, inventory,
+// and sidecar handling live in sibling modules:
+//
+//   playbash-render.js   — Rectangle, StatusBoard, COLOR, sanitizer
+//   playbash-inventory.js — load/resolve/group/self
+//   playbash-sidecar.js  — parse, per-host summary, cross-host aggregation
 
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
-import {lookup as dnsLookup} from 'node:dns/promises';
-import {readdirSync, readFileSync, mkdirSync, createWriteStream, existsSync, unlinkSync} from 'node:fs';
-import {tmpdir, homedir, networkInterfaces} from 'node:os';
+import {createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync} from 'node:fs';
+import {homedir, tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {parseArgs} from 'node:util';
+
+import {
+  COLOR,
+  HostSlot,
+  Rectangle,
+  StatusBoard,
+  buildStatusLine,
+  sanitizeForRect,
+} from '../share/playbash/render.js';
+import {
+  filterSelf,
+  isSelfAddress,
+  loadInventory,
+  resolveTargets,
+} from '../share/playbash/inventory.js';
+import {
+  aggregateEvents,
+  parseSidecar,
+  renderAggregated,
+  renderSummary,
+} from '../share/playbash/sidecar.js';
 
 const USAGE = `usage:
   playbash run   <playbook> <targets> [-n LINES] [-p N] [--self]
@@ -46,7 +72,6 @@ sidecar/summary pipeline.
 sequences stripped — safe to view in any terminal. With no path, picks
 the most recent log under ~/.cache/playbash/runs/.`;
 
-const INVENTORY_PATH = join(homedir(), '.config', 'playbash', 'inventory.json');
 const PLAYBOOK_DIR = join(homedir(), '.local', 'bin');
 const PLAYBOOK_PREFIX = 'playbash-';
 
@@ -55,365 +80,7 @@ function die(msg, code = 2) {
   process.exit(code);
 }
 
-// --- Inventory ---
-
-function loadInventory() {
-  const empty = {hosts: new Map(), groups: new Map(), path: INVENTORY_PATH, present: false};
-  if (!existsSync(INVENTORY_PATH)) return empty;
-  let raw;
-  try {
-    raw = JSON.parse(readFileSync(INVENTORY_PATH, 'utf8'));
-  } catch (err) {
-    die(`inventory at ${INVENTORY_PATH} is not valid JSON: ${err.message}`);
-  }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    die(`inventory at ${INVENTORY_PATH} must be a JSON object`);
-  }
-  const hosts = new Map();
-  const groups = new Map();
-  for (const [name, value] of Object.entries(raw)) {
-    if (typeof value === 'string') {
-      hosts.set(name, {address: value});
-    } else if (Array.isArray(value)) {
-      // Group entry — loaded for `playbash hosts` but not yet resolvable.
-      groups.set(name, value);
-    } else if (value && typeof value === 'object') {
-      if (typeof value.address !== 'string') {
-        die(`inventory entry "${name}" has no string "address"`);
-      }
-      hosts.set(name, value);
-    } else {
-      die(`inventory entry "${name}" has unsupported type`);
-    }
-  }
-  return {hosts, groups, path: INVENTORY_PATH, present: true};
-}
-
-// Resolve a single name to an ssh-target string.
-// If the name matches a host entry, return its address. Otherwise pass
-// the name through verbatim so ~/.ssh/config aliases still work.
-function resolveHost(name, inventory) {
-  const entry = inventory.hosts.get(name);
-  return entry ? entry.address : name;
-}
-
-// Expand `arg` (a single CLI positional, possibly comma-separated, possibly
-// containing host names, group names, or the implicit `all` group) into an
-// ordered, deduped list of {name, address} entries.
-//
-// Resolution rules:
-//   - Tokens are split on `,` and trimmed of whitespace.
-//   - `all` expands to every host entry in inventory, alphabetically.
-//   - A token matching a group name expands to its members in the order
-//     they appear in the group definition.
-//   - A token matching a host entry expands to that one host.
-//   - An unknown token is treated as a literal — passed through to ssh,
-//     same as a single-host call (so ~/.ssh/config aliases keep working).
-//   - The result is deduped by name, preserving first-seen order.
-//
-// Groups are flat: a group's members must be host names, not other group
-// names. An array entry whose member matches a group name is rejected
-// with a clear error.
-function resolveTargets(arg, inventory) {
-  const tokens = arg.split(',').map(t => t.trim()).filter(Boolean);
-  if (tokens.length === 0) die(`empty target list`);
-  const out = [];
-  const seen = new Set();
-  const push = (name, address) => {
-    if (seen.has(name)) return;
-    seen.add(name);
-    out.push({name, address});
-  };
-  for (const tok of tokens) {
-    if (tok === 'all') {
-      const names = [...inventory.hosts.keys()].sort();
-      for (const n of names) push(n, inventory.hosts.get(n).address);
-      continue;
-    }
-    if (inventory.groups.has(tok)) {
-      const members = inventory.groups.get(tok);
-      for (const m of members) {
-        if (inventory.groups.has(m)) {
-          die(`group "${tok}" references group "${m}"; nested groups are not supported`);
-        }
-        const entry = inventory.hosts.get(m);
-        if (!entry) {
-          die(`group "${tok}" references unknown host "${m}"`);
-        }
-        push(m, entry.address);
-      }
-      continue;
-    }
-    // Plain host name (in inventory) or literal pass-through (for ssh-config aliases).
-    push(tok, resolveHost(tok, inventory));
-  }
-  return out;
-}
-
-// Filter self entries out of a target list. Returns {targets, skipped}
-// where `skipped` is the list of names that were dropped because they
-// resolve to a local interface. When `keepSelf` is true, returns the
-// original list unchanged (and skipped is empty).
-async function filterSelf(targets, keepSelf) {
-  if (keepSelf) return {targets, skipped: []};
-  const flags = await Promise.all(targets.map(t => isSelfAddress(t.address)));
-  const kept = [];
-  const skipped = [];
-  for (let i = 0; i < targets.length; i++) {
-    if (flags[i]) skipped.push(targets[i].name);
-    else kept.push(targets[i]);
-  }
-  return {targets: kept, skipped};
-}
-
-// --- Self detection ---
-
-// Set of IPs bound to any local interface, plus the loopback ranges.
-// Computed once on demand.
-let _localIps = null;
-function localIpSet() {
-  if (_localIps) return _localIps;
-  const set = new Set();
-  const ifaces = networkInterfaces();
-  for (const list of Object.values(ifaces)) {
-    if (!list) continue;
-    for (const i of list) set.add(i.address);
-  }
-  // Loopback families. We don't enumerate 127.0.0.0/8 — just check the
-  // prefix at lookup time. ::1 is added explicitly.
-  set.add('::1');
-  _localIps = set;
-  return set;
-}
-
-function isLoopback(ip) {
-  if (!ip) return false;
-  if (ip === '::1') return true;
-  return ip.startsWith('127.');
-}
-
-// Resolve `address` (a hostname or IP literal) and return true if it
-// points at a local interface. DNS failure → false (conservative).
-async function isSelfAddress(address) {
-  let ip;
-  try {
-    const res = await dnsLookup(address);
-    ip = res.address;
-  } catch {
-    return false;
-  }
-  if (isLoopback(ip)) return true;
-  return localIpSet().has(ip);
-}
-
-// --- Live rectangle renderer (unchanged from milestone 3) ---
-
-const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
-
-function visibleLength(s) {
-  return s.replace(ANSI_RE, '').length;
-}
-
-// Strip escape sequences that would interfere with the rectangle's cursor
-// management. Keeps SGR (color) so the rectangle is still pretty. The full
-// uncut byte stream still goes to the log file unchanged.
-//
-// Chunk boundaries can split an escape sequence; we accept the rare case
-// of a partial sequence leaking through. Tools tend to emit escape
-// sequences in single writes, so this is rare in practice.
-function sanitizeForRect(input) {
-  const text = typeof input === 'string' ? input : input.toString('utf8');
-  return text
-    // OSC: ESC ] ... BEL or ESC \
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
-    // DCS / SOS / PM / APC: ESC [PX^_] ... ESC \
-    .replace(/\x1b[PX^_][\s\S]*?\x1b\\/g, '')
-    // CSI sequences whose final byte is NOT 'm' (SGR is 'm', drop the rest)
-    .replace(/\x1b\[[0-9;?<>!]*[A-Za-ln-z]/g, '')
-    // Two-char ESC sequences (ESC c reset, ESC =/> keypad, ESC 7/8 save/restore, etc.)
-    .replace(/\x1b[=>cDEHMNOZ()78]/g, '');
-}
-
-function truncateToWidth(s, width) {
-  if (visibleLength(s) <= width) return s;
-  let out = '';
-  let visible = 0;
-  let i = 0;
-  while (i < s.length && visible < width) {
-    if (s[i] === '\x1b' && s[i + 1] === '[') {
-      let j = i + 2;
-      while (j < s.length && !/[a-zA-Z]/.test(s[j])) j++;
-      out += s.slice(i, j + 1);
-      i = j + 1;
-    } else {
-      out += s[i];
-      visible++;
-      i++;
-    }
-  }
-  return out + '\x1b[0m';
-}
-
-class Rectangle {
-  constructor(height) {
-    this.height = height;
-    this.committed = [];
-    this.current = '';
-    // Set when we see CR; cleared on the next byte. Allows us to treat
-    // CRLF as a single line ending and a lone CR as a progress-bar
-    // line-reset, even when the CR and the following byte arrive in
-    // different chunks.
-    this.pendingCR = false;
-    this.active = process.stdout.isTTY && height > 0;
-  }
-  start() {
-    if (!this.active) return;
-    process.stdout.write('\n'.repeat(this.height));
-  }
-  feed(chunk) {
-    const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (this.pendingCR) {
-        this.pendingCR = false;
-        if (ch === '\n') {
-          // CRLF — line ending. Commit and continue.
-          this.commit();
-          continue;
-        }
-        // Lone CR — progress-bar style line reset. Fall through to
-        // process the current byte as a fresh line.
-        this.current = '';
-      }
-      if (ch === '\r') {
-        this.pendingCR = true;
-      } else if (ch === '\n') {
-        this.commit();
-      } else {
-        this.current += ch;
-      }
-    }
-    this.redraw();
-  }
-  commit() {
-    this.committed.push(this.current);
-    if (this.committed.length > this.height - 1) this.committed.shift();
-    this.current = '';
-  }
-  redraw() {
-    if (!this.active) return;
-    const width = process.stdout.columns || 80;
-    let out = `\x1b[${this.height}A`;
-    for (let i = 0; i < this.height - 1; i++) {
-      const line = this.committed[i] || '';
-      out += '\r\x1b[2K' + truncateToWidth(line, width) + '\n';
-    }
-    out += '\r\x1b[2K' + truncateToWidth(this.current, width) + '\n';
-    process.stdout.write(out);
-  }
-  finish() {
-    if (!this.active) return;
-    let out = `\x1b[${this.height}A`;
-    for (let i = 0; i < this.height; i++) out += '\r\x1b[2K\n';
-    out += `\x1b[${this.height}A`;
-    process.stdout.write(out);
-  }
-}
-
-// --- Sidecar parsing + summary rendering ---
-
-function parseSidecar(text) {
-  const events = [];
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      events.push(JSON.parse(line));
-    } catch {
-      process.stderr.write(`playbash: ignoring malformed sidecar line: ${line}\n`);
-    }
-  }
-  return events;
-}
-
-// Color palette. Active only when stderr is a tty AND no NO_COLOR-style
-// override is set. Falls back to empty strings otherwise so redirected,
-// piped, or NO_COLOR output stays plain.
-//
-// The palette is chosen to be legible on both dark and light terminal
-// backgrounds:
-//
-//   - green / red / magenta: default ANSI, work on both.
-//   - orange (256-color 208) for warnings instead of yellow 33, which
-//     is essentially invisible on a white background.
-//   - failure glyph uses bg-color so the bg dominates either way.
-//   - dim and bold are background-independent.
-//
-// NO_COLOR is the de facto standard (https://no-color.org); any value,
-// including empty, disables colors. PLAYBASH_NO_COLOR is the local
-// override for users who want colors elsewhere but not here.
-const COLOR_ENABLED =
-  process.stderr.isTTY &&
-  !('NO_COLOR' in process.env) &&
-  !('PLAYBASH_NO_COLOR' in process.env);
-
-const COLOR = COLOR_ENABLED
-  ? {
-      reset:   '\x1b[0m',
-      bold:    '\x1b[1m',
-      dim:     '\x1b[2m',
-      green:   '\x1b[32m',
-      red:     '\x1b[31m',
-      orange:  '\x1b[38;5;208m',
-      magenta: '\x1b[35m',
-      // Failure marker: bold bright-white on red background. One glyph
-      // wide so column 1 stays aligned with successful runs.
-      fail:    '\x1b[1;97;41m',
-    }
-  : Object.fromEntries(
-      ['reset', 'bold', 'dim', 'green', 'red', 'orange', 'magenta', 'fail'].map(k => [k, '']),
-    );
-
-function buildStatusLine({ok, hostName, playbook, label, status, elapsed}) {
-  const glyph = ok
-    ? `${COLOR.green}✓${COLOR.reset}`
-    : `${COLOR.fail}✗${COLOR.reset}`;
-  const host = `${COLOR.bold}${hostName}${COLOR.reset}`;
-  const tail = ok
-    ? `${COLOR.dim}in ${elapsed}s${COLOR.reset}`
-    : `${COLOR.bold}${COLOR.red}${status}${COLOR.reset} ${COLOR.dim}in ${elapsed}s${COLOR.reset}`;
-  const localTag = label ? ` ${COLOR.dim}${label}${COLOR.reset}` : '';
-  return `${glyph} ${host} ${playbook} ${tail}${localTag}`;
-}
-
-function renderSummary(events, {verbose}) {
-  if (events.length === 0) return;
-  // Group order: actions first (most actionable), then warnings (FYI),
-  // then errors (recorded but non-fatal), then info (verbose only).
-  // The host status glyph already captured fatal pass/fail.
-  const byLevel = {action: [], warn: [], error: [], info: []};
-  for (const ev of events) if (byLevel[ev.level]) byLevel[ev.level].push(ev);
-
-  for (const ev of byLevel.action) {
-    const kind = ev.kind || 'unknown';
-    const target = ev.target ? ` ${COLOR.dim}[${ev.target}]${COLOR.reset}` : '';
-    process.stderr.write(`  ${COLOR.magenta}⏵${COLOR.reset} ${kind}${target} ${COLOR.dim}·${COLOR.reset} ${ev.msg}\n`);
-  }
-  for (const ev of byLevel.warn) {
-    const target = ev.target ? `${ev.target} ${COLOR.dim}·${COLOR.reset} ` : '';
-    process.stderr.write(`  ${COLOR.orange}⚠${COLOR.reset} ${target}${ev.msg}\n`);
-  }
-  for (const ev of byLevel.error) {
-    process.stderr.write(`  ${COLOR.red}✖${COLOR.reset} ${ev.msg}\n`);
-  }
-  if (verbose) {
-    for (const ev of byLevel.info) {
-      const step = ev.step ? `${COLOR.dim}[${ev.step}]${COLOR.reset} ` : '';
-      process.stderr.write(`  ${COLOR.dim}·${COLOR.reset} ${step}${ev.msg}\n`);
-    }
-  }
-}
-
-// --- run / debug ---
+// --- run mechanics ---
 
 function sshCapture(host, remote) {
   return new Promise((resolve, reject) => {
@@ -563,276 +230,35 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
   });
 }
 
-// --- Multi-host fan-out (status board + parallel runs) ---
-
-// One host's slot in the StatusBoard. Each holds its own ring buffer
-// (committed lines + in-progress current) so when focus shifts to it the
-// rectangle can show its recent state without backfill from the log.
-class HostSlot {
-  constructor(name, address, rectHeight) {
-    this.name = name;
-    this.address = address;
-    this.state = 'pending';   // pending | running | ok | failed
-    this.startedAt = 0;
-    this.finishedAt = 0;
-    this.lastActivityAt = 0;
-    this.rectHeight = rectHeight;
-    // Per-host ring buffer mirroring Rectangle's state.
-    this.committed = [];
-    this.current = '';
-    this.pendingCR = false;
-    this.statusWord = '';     // 'exit N' or 'signal X' once finished
-    this.events = [];
-    this.logPath = '';
-    this.elapsedMs = 0;
+async function runLocally({playbook, hostName, rectHeight, verbose}) {
+  // Local sidecar lives in $TMPDIR. No ssh, no PTY allocation — the
+  // playbook runs as a direct child of Node. Tools that depend on a tty
+  // (e.g. interactive `apt`) will see a pipe; that matches "the bare
+  // script run by hand from a non-tty context."
+  const reportPath = join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`);
+  const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
+  if (!existsSync(playbookPath)) {
+    die(`local playbook not found: ${playbookPath}`);
   }
-
-  feed(text) {
-    this.lastActivityAt = Date.now();
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (this.pendingCR) {
-        this.pendingCR = false;
-        if (ch === '\n') {
-          this.commit();
-          continue;
-        }
-        this.current = '';
-      }
-      if (ch === '\r') {
-        this.pendingCR = true;
-      } else if (ch === '\n') {
-        this.commit();
-      } else {
-        this.current += ch;
-      }
-    }
-  }
-
-  commit() {
-    this.committed.push(this.current);
-    if (this.committed.length > this.rectHeight - 1) this.committed.shift();
-    this.current = '';
-  }
-}
-
-// StatusBoard: in-place renderer for the multi-host fan-out view.
-// Layout (top-down):
-//
-//   running daily on N hosts
-//
-//   <finished hosts, descending host name>
-//   <running hosts, descending host name>
-//     ▶ <focused running host>
-//     <focused host's rect lines>
-//
-// Focus is the most-recently-active running host, sticky with a 500ms
-// idle threshold to avoid thrashing when two hosts produce simultaneously.
-class StatusBoard {
-  constructor(slots, {playbook, rectHeight}) {
-    this.slots = slots;                                // input order, never reordered
-    this.byName = new Map(slots.map(s => [s.name, s])); // name → slot
-    this.playbook = playbook;
-    this.rectHeight = rectHeight;
-    this.active = process.stderr.isTTY;
-    this.nameWidth = Math.max(...slots.map(s => s.name.length));
-    this.headerLine = `running ${COLOR.bold}${playbook}${COLOR.reset} on ${slots.length} hosts`;
-    this.focusName = null;
-    // We reserve `slots.length + 1 (header) + 1 (blank) + rectHeight`
-    // rows up front. Number stays fixed for the whole run; we just
-    // re-render the same rows in place.
-    this.totalRows = 1 + 1 + slots.length + (this.rectHeight > 0 ? this.rectHeight : 0);
-    this.elapsedTimer = null;
-  }
-
-  start() {
-    if (!this.active) {
-      // Non-tty: just print the header once and let chunks fall on the floor.
-      process.stderr.write(this.headerLine + '\n\n');
-      return;
-    }
-    // Reserve total rows. Cursor ends one line below the reserved area,
-    // which is our anchor.
-    process.stderr.write('\n'.repeat(this.totalRows));
-    this.draw();
-    // Re-render once a second so elapsed times advance even when no
-    // chunks arrive.
-    this.elapsedTimer = setInterval(() => this.draw(), 1000);
-  }
-
-  hostStarted(name) {
-    const slot = this.byName.get(name);
-    slot.state = 'running';
-    slot.startedAt = Date.now();
-    slot.lastActivityAt = slot.startedAt;
-    if (this.focusName === null) this.focusName = name;
-    if (this.active) this.draw();
-  }
-
-  hostChunk(name, chunk) {
-    const slot = this.byName.get(name);
-    slot.feed(chunk);
-    // Sticky focus: shift only if the current focus host has been idle
-    // for more than 500ms.
-    if (this.focusName !== name) {
-      const focus = this.byName.get(this.focusName);
-      const focusIdle = !focus || focus.state !== 'running' ||
-        (Date.now() - focus.lastActivityAt) > 500;
-      if (focusIdle) this.focusName = name;
-    }
-    if (this.active) this.draw();
-  }
-
-  hostFinished(name, summary) {
-    const slot = this.byName.get(name);
-    slot.state = summary.ok ? 'ok' : 'failed';
-    slot.finishedAt = Date.now();
-    slot.statusWord = summary.statusWord;
-    slot.events = summary.events;
-    slot.logPath = summary.logPath;
-    slot.elapsedMs = summary.elapsedMs;
-    // If focused host just finished, pass focus to whichever running
-    // host has been most recently active.
-    if (this.focusName === name) {
-      const running = this.slots.filter(s => s.state === 'running');
-      if (running.length > 0) {
-        running.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
-        this.focusName = running[0].name;
-      } else {
-        this.focusName = null;
-      }
-    }
-    if (this.active) this.draw();
-  }
-
-  // Sort: finished first, then running. Within each group, descending
-  // host name. The user said "descending"; alphabetically that means z→a.
-  // Among finished, finished-ok and finished-failed are interleaved.
-  sortedSlots() {
-    const finished = this.slots
-      .filter(s => s.state === 'ok' || s.state === 'failed')
-      .slice()
-      .sort((a, b) => b.name.localeCompare(a.name));
-    const running = this.slots
-      .filter(s => s.state === 'running' || s.state === 'pending')
-      .slice()
-      .sort((a, b) => b.name.localeCompare(a.name));
-    return [...finished, ...running];
-  }
-
-  // Format one slot row (no leading spaces; aligned host name).
-  slotRow(slot, isFocus) {
-    let glyph;
-    if (slot.state === 'ok') {
-      glyph = `${COLOR.green}✓${COLOR.reset}`;
-    } else if (slot.state === 'failed') {
-      glyph = `${COLOR.fail}✗${COLOR.reset}`;
-    } else if (slot.state === 'pending') {
-      glyph = `${COLOR.dim}·${COLOR.reset}`;
-    } else if (isFocus) {
-      glyph = `${COLOR.magenta}▶${COLOR.reset}`;
-    } else {
-      glyph = `${COLOR.dim}·${COLOR.reset}`;
-    }
-    const name = `${COLOR.bold}${slot.name.padEnd(this.nameWidth)}${COLOR.reset}`;
-    let tail;
-    if (slot.state === 'ok') {
-      tail = `${COLOR.dim}in ${(slot.elapsedMs / 1000).toFixed(1)}s${COLOR.reset}`;
-    } else if (slot.state === 'failed') {
-      tail = `${COLOR.bold}${COLOR.red}${slot.statusWord}${COLOR.reset} ${COLOR.dim}in ${(slot.elapsedMs / 1000).toFixed(1)}s${COLOR.reset}`;
-    } else if (slot.state === 'running') {
-      const sec = ((Date.now() - slot.startedAt) / 1000).toFixed(0);
-      tail = `${COLOR.dim}running ${sec}s${COLOR.reset}`;
-    } else {
-      tail = `${COLOR.dim}pending${COLOR.reset}`;
-    }
-    return `${glyph} ${name} ${tail}`;
-  }
-
-  draw() {
-    if (!this.active) return;
-    const sorted = this.sortedSlots();
-    let out = `\x1b[${this.totalRows}A`; // up to top of reserved area
-    // Header line.
-    out += `\r\x1b[2K${this.headerLine}\n`;
-    // Blank separator.
-    out += '\r\x1b[2K\n';
-    // Slot rows.
-    for (const slot of sorted) {
-      const isFocus = slot.name === this.focusName;
-      out += '\r\x1b[2K' + this.slotRow(slot, isFocus) + '\n';
-    }
-    // Focused rectangle (rectHeight rows). The focused slot's ring
-    // buffer fills the area; non-focused or no-focus shows blanks.
-    if (this.rectHeight > 0) {
-      const focus = this.focusName ? this.byName.get(this.focusName) : null;
-      const width = (process.stdout.columns || 80) - 2; // 2-space indent
-      for (let i = 0; i < this.rectHeight; i++) {
-        let line = '';
-        if (focus) {
-          if (i < this.rectHeight - 1) {
-            line = focus.committed[i] || '';
-          } else {
-            line = focus.current;
-          }
-        }
-        out += '\r\x1b[2K  ' + truncateToWidth(line, width) + '\n';
-      }
-    }
-    process.stderr.write(out);
-  }
-
-  finish() {
-    if (this.elapsedTimer) {
-      clearInterval(this.elapsedTimer);
-      this.elapsedTimer = null;
-    }
-    if (!this.active) return;
-    // Erase the reserved area and park the cursor at its top, so the
-    // post-run summary prints exactly where the board was.
-    let out = `\x1b[${this.totalRows}A`;
-    for (let i = 0; i < this.totalRows; i++) out += '\r\x1b[2K\n';
-    out += `\x1b[${this.totalRows}A`;
-    process.stderr.write(out);
-  }
-}
-
-// Cross-host event aggregator. Groups warn/action events by (level,kind,target)
-// across all hosts and produces a list of {level, kind, target, msg, hosts[]}.
-// Includes only events that span 2+ hosts (single-host events are already
-// shown in the per-host block).
-function aggregateEvents(slots) {
-  const groups = new Map();
-  for (const slot of slots) {
-    for (const ev of slot.events || []) {
-      if (ev.level !== 'warn' && ev.level !== 'action') continue;
-      const key = `${ev.level}\x00${ev.kind || ''}\x00${ev.target || ''}`;
-      let g = groups.get(key);
-      if (!g) {
-        g = {level: ev.level, kind: ev.kind, target: ev.target, msg: ev.msg, hosts: []};
-        groups.set(key, g);
-      }
-      g.hosts.push(slot.name);
-    }
-  }
-  return [...groups.values()].filter(g => g.hosts.length >= 2);
-}
-
-function renderAggregated(aggregated) {
-  if (aggregated.length === 0) return;
-  process.stderr.write('\n');
-  for (const g of aggregated) {
-    const hostList = g.hosts.join(', ');
-    const count = `${g.hosts.length} hosts`;
-    if (g.level === 'action') {
-      const kind = g.kind || 'unknown';
-      const target = g.target ? ` ${COLOR.dim}[${g.target}]${COLOR.reset}` : '';
-      process.stderr.write(`${COLOR.magenta}⏵${COLOR.reset} ${kind}${target} ${COLOR.dim}·${COLOR.reset} ${count}: ${COLOR.dim}${hostList}${COLOR.reset}\n`);
-    } else {
-      const target = g.target ? `${g.target} ${COLOR.dim}·${COLOR.reset} ` : '';
-      process.stderr.write(`${COLOR.orange}⚠${COLOR.reset} ${target}${count}: ${COLOR.dim}${hostList}${COLOR.reset}\n`);
-    }
-  }
+  await runHostSingle({
+    playbook, hostName, rectHeight, verbose, label: '(local)',
+    makeChild: ({cols, rows}) => spawn(playbookPath, [], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PLAYBASH_REPORT: reportPath,
+        PLAYBASH_HOST: hostName,
+        COLUMNS: String(cols),
+        LINES: String(rows),
+      },
+    }),
+    getSidecarText: async () => {
+      let text = '';
+      try { text = readFileSync(reportPath, 'utf8'); } catch {}
+      try { unlinkSync(reportPath); } catch {}
+      return text;
+    },
+  });
 }
 
 // Run a list of targets in parallel through the StatusBoard, then print
@@ -844,8 +270,8 @@ async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}
 
   // Per-host launcher. Builds the right backend (remote ssh+script or
   // local child) for this host, then calls runHost. Self detection
-  // already happened in the dispatcher; here we just need to know which
-  // backend to use.
+  // already happened in the dispatcher; here we still re-check per-host
+  // because the same fan-out can mix self and non-self when --self is on.
   const launchOne = async (slot) => {
     board.hostStarted(slot.name);
     const isSelf = await isSelfAddress(slot.address);
@@ -854,7 +280,6 @@ async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}
       const reportPath = join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`);
       const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
       if (!existsSync(playbookPath)) {
-        const err = new Error(`local playbook not found: ${playbookPath}`);
         board.hostFinished(slot.name, {
           ok: false, statusWord: 'no script', events: [], logPath: '', elapsedMs: 0,
         });
@@ -951,51 +376,19 @@ async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}
     }
   }
 
-  // Header for the post-run aggregation block.
+  // Footer line + cross-host aggregation.
   const totalElapsed = ((Date.now() - slots[0].startedAt) / 1000).toFixed(1);
   const summary = failCount === 0
     ? `${okCount} ok`
     : `${okCount} ok, ${COLOR.bold}${COLOR.red}${failCount} failed${COLOR.reset}`;
   process.stderr.write(`\n${COLOR.dim}done in ${totalElapsed}s${COLOR.reset} · ${summary}\n`);
 
-  // Cross-host aggregation, when 2+ hosts share a (level,kind,target).
   renderAggregated(aggregateEvents(slots));
 
   process.exit(failCount > 0 ? 1 : 0);
 }
 
-async function runLocally({playbook, hostName, rectHeight, verbose}) {
-  // Local sidecar lives in $TMPDIR. No ssh, no PTY allocation — the
-  // playbook runs as a direct child of Node. Tools that depend on a tty
-  // (e.g. interactive `apt`) will see a pipe; that matches "the bare
-  // script run by hand from a non-tty context."
-  const reportPath = join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`);
-  const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
-  if (!existsSync(playbookPath)) {
-    die(`local playbook not found: ${playbookPath}`);
-  }
-  await runHostSingle({
-    playbook, hostName, rectHeight, verbose, label: '(local)',
-    makeChild: ({cols, rows}) => spawn(playbookPath, [], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        PLAYBASH_REPORT: reportPath,
-        PLAYBASH_HOST: hostName,
-        COLUMNS: String(cols),
-        LINES: String(rows),
-      },
-    }),
-    getSidecarText: async () => {
-      let text = '';
-      try { text = readFileSync(reportPath, 'utf8'); } catch {}
-      try { unlinkSync(reportPath); } catch {}
-      return text;
-    },
-  });
-}
-
-// --- list / hosts ---
+// --- list / hosts / log ---
 
 function cmdLog(pathArg) {
   const logDir = join(homedir(), '.cache', 'playbash', 'runs');
@@ -1028,8 +421,12 @@ function cmdList() {
   } catch (err) {
     die(`cannot read ${PLAYBOOK_DIR}: ${err.message}`);
   }
+  // Playbooks are `playbash-<name>` (no extension). Defensive: ignore
+  // any `.js` file that happens to share the prefix (the runner's own
+  // modules now live under ~/.local/share/playbash/ and ~/.local/share/utils/,
+  // but this filter protects against future stragglers in bin/).
   const playbooks = entries
-    .filter(f => f.startsWith(PLAYBOOK_PREFIX))
+    .filter(f => f.startsWith(PLAYBOOK_PREFIX) && !f.endsWith('.js'))
     .map(f => f.slice(PLAYBOOK_PREFIX.length))
     .sort();
   if (playbooks.length === 0) {
@@ -1066,7 +463,7 @@ async function cmdHosts() {
     }
   }
   if (groupNames.length > 0) {
-    process.stdout.write('\ngroups (not yet usable, deferred to a future milestone):\n');
+    process.stdout.write('\ngroups:\n');
     const width = Math.max(...groupNames.map(n => n.length));
     for (const name of groupNames) {
       process.stdout.write(`  ${name.padEnd(width)}  ${inv.groups.get(name).join(', ')}\n`);
@@ -1105,9 +502,6 @@ async function dispatchRun({playbook, targetArg, rectHeight, verbose}) {
   const resolved = resolveTargets(targetArg, inv);
   const {targets, skipped} = await filterSelf(resolved, values.self);
 
-  // Single-host fast path (or single-host refusal). We need to handle the
-  // "user typed self as a single arg" case here because filterSelf would
-  // have removed it from the list, leaving us with nothing to do.
   if (resolved.length === 1) {
     const only = resolved[0];
     const isSelf = await isSelfAddress(only.address);
@@ -1125,9 +519,6 @@ async function dispatchRun({playbook, targetArg, rectHeight, verbose}) {
     return;
   }
 
-  // Multi-host path. After self filtering, the list might be empty (e.g.
-  // user passed `all` from the only inventory host). Refuse rather than
-  // silently doing nothing.
   if (targets.length === 0) {
     if (skipped.length > 0) {
       die(`all targets resolved to self (${skipped.join(', ')}); pass --self to include them`);
