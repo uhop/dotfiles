@@ -33,13 +33,11 @@ And update your GitHub user name in `.chezmoi.toml.tmpl` and at the bottom of `.
 
 ## Maintenance
 
-Over time a system should be updated. There are the following scripts that help to do that:
+Three layers of maintenance scripts:
 
-1. `upd` &mdash; runs updates on all relevant services: `apt`, `snap`, `flatpak`, `brew`, `bun`.
-
-2. `cln` &mdash; runs cleanups on all relevant services (see above) and updates `node`.
-
-Use `upd -c` to run `upd` followed by `cln`.
+1. **`upd`** &mdash; updates `apt`, `snap`, `flatpak`, `brew`, `bun`. Detects `docker-ce`/AppArmor upgrades and surfaces reboot recommendations.
+2. **`cln`** &mdash; cleanups for the same package managers, plus old `node` versions. `upd -c` runs `cln` after `upd`.
+3. **`playbash`** &mdash; multi-host playbook runner. Wraps `upd`/`cln`/`chezmoi update`/`dcms` into `playbash-daily` and `playbash-weekly` and runs them across an inventory of hosts in parallel, with a per-host live view and an aggregated summary. Replaces the older Ansible-based stack. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management).
 
 ## Installed tools
 
@@ -61,7 +59,7 @@ The following tools are installed and aliased:
 - `meld` &mdash; a visual diff/merge utility.
 - `diff-so-fancy` &mdash; a nice `diff` pager.
 - `tealdeer`, `cheat` &mdash; a `man` replacement. Alternatives: `tldr`.
-- `exa` &mdash; better `ls`.
+- `eza` &mdash; better `ls` (maintained fork of the abandoned `exa`).
 - `lsr` &mdash; better and faster `ls` (uses `io_uring` on Linux).
 - `bat` &mdash; better `cat`.
 - `fd` &mdash; better `find`.
@@ -84,7 +82,7 @@ The following tools are installed and aliased:
 - `golang`, `python3`, `pyenv`, `rustc`, `wabt`, `zig` &mdash; language environments we use and love.
 - `brotli` &mdash; better than `gzip`, used by HTTP.
 - `mc` &mdash; Midnight Commander for file manipulations.
-- `yazi` &mdash; Yet Another terminal file manager
+- `yazi` &mdash; yet another terminal file manager.
 - `alacritty` &mdash; no-nonsense terminal.
 - `kitty` &mdash; no-nonsense terminal.
 - `duf` &mdash; a disk utility.
@@ -168,6 +166,9 @@ is the new `bash`, while the latter is the old one.
 
 See the [wiki](https://github.com/uhop/dotfiles/wiki) for:
 
-- **[Platform Notes](https://github.com/uhop/dotfiles/wiki/Platform-Notes)** &mdash; fonts, video, clipboard, Docker, LXD, GUI package managers, and more
+- **[Shell Environment](https://github.com/uhop/dotfiles/wiki/Shell-Environment)** &mdash; `.bashrc` / `.bash_aliases` setup, prompt, completions, navigation
+- **[Git Configuration](https://github.com/uhop/dotfiles/wiki/Git-Configuration)** &mdash; aliases, pretty formats, custom git commands
+- **[Platform Notes](https://github.com/uhop/dotfiles/wiki/Platform-Notes)** &mdash; fonts, video, clipboard, Docker, LXD, GUI package managers
 - **[Application Notes](https://github.com/uhop/dotfiles/wiki/Application-Notes)** &mdash; tmux, Micro, Kitty, GNOME, doas, etckeeper, ufw, TeX/LaTeX, flatpak, CUPS
-- **[Utilities](https://github.com/uhop/dotfiles/wiki/Utilities)** &mdash; custom CLI utilities: `upd`, `cln`, `arx`, `jot`, `goup`, `ollama-sync`, git helpers, and more
+- **[Utilities](https://github.com/uhop/dotfiles/wiki/Utilities)** &mdash; custom CLI utilities: `upd`, `cln`, `dcm`, `dcms`, `arx`, `jot`, `goup`, `ollama-sync`, git helpers
+- **[Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management)** &mdash; multi-host playbook runner: `playbash`, daily/weekly maintenance stacks, inventory + groups, sidecar events
