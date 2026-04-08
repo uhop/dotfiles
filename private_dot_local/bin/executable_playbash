@@ -80,6 +80,48 @@ function die(msg, code = 2) {
   process.exit(code);
 }
 
+// --- global child registry + cleanup on signals ---
+//
+// Every spawn that owns a process group (detached:true) registers itself
+// here so a top-level SIGINT/SIGTERM/SIGHUP can kill the entire group
+// before the runner exits. Without this, Ctrl+C delivers SIGINT only to
+// node — detached children are in a different process group and survive
+// as orphans (bash playbook → upd → sudo blocked on a password prompt).
+// Verified on macOS: previously a stuck `playbash run daily ... --self`
+// followed by Ctrl+C left bash + sudo behind indefinitely.
+//
+// For ssh-backed runs, killing the local ssh client makes sshd deliver
+// SIGHUP to its child (the python pty wrapper), which now traps the
+// signal and killpgs its bash subtree. So the same registry handles both
+// local and remote cleanup.
+const ACTIVE_CHILDREN = new Set();
+function registerChild(child) {
+  if (!child || !child.pid) return;
+  ACTIVE_CHILDREN.add(child);
+  child.once('close', () => ACTIVE_CHILDREN.delete(child));
+}
+function killAllChildren(sig) {
+  for (const child of ACTIVE_CHILDREN) {
+    try { process.kill(-child.pid, sig); } catch {
+      try { child.kill(sig); } catch {}
+    }
+  }
+}
+let cleaningUp = false;
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => {
+    if (cleaningUp) return;
+    cleaningUp = true;
+    if (ACTIVE_CHILDREN.size > 0) {
+      process.stderr.write(`\nplaybash: ${sig} received, terminating ${ACTIVE_CHILDREN.size} child(ren)\n`);
+    }
+    killAllChildren('SIGTERM');
+    // Give children a moment to die cleanly, then exit. SIGKILL fallback
+    // happens via the per-host killTimer that may already be armed.
+    setTimeout(() => process.exit(130), 500).unref();
+  });
+}
+
 // --- run mechanics ---
 
 function sshCapture(host, remote) {
@@ -125,8 +167,48 @@ function sshCapture(host, remote) {
 // and a fixed playbook path). It contains no single or double quotes,
 // so we can embed it in the Python list literal with double quotes and
 // in the outer shell with single quotes safely.
+//
+// We don't use `pty.spawn` because it installs no signal handlers — when
+// sshd delivers SIGHUP after the local ssh client dies (Ctrl+C, killed
+// runner, network drop), Python takes the default action and exits
+// without touching the bash child it forked. The bash process is in its
+// own session (set up by `pty.fork`) and survives as an orphan, along
+// with whatever it was running (typically `sudo` blocked on a password
+// prompt). The interactive-input watchdog hits the same problem: killing
+// the local ssh has no path to the remote bash group.
+//
+// So we open-code pty.fork, install SIGTERM/SIGHUP/SIGINT handlers that
+// `killpg` the bash child group, and also kill on any I/O loop exit.
+// `bash` becomes the leader of its own process group (pty.fork → setsid),
+// so a single killpg reaches it AND every descendant — including a sudo
+// stuck on password input.
 function wrapForRemotePty(inner) {
-  return `python3 -u -c 'import pty,os; raise SystemExit(os.waitstatus_to_exitcode(pty.spawn(["bash","-c","${inner}"])))'`;
+  // Multi-line python program. The outer shell uses single quotes; the
+  // python source uses double quotes only.
+  const py = [
+    'import pty,os,signal',
+    'pid,fd = pty.fork()',
+    'if pid == 0:',
+    `    os.execvp("bash",["bash","-c","${inner}"])`,
+    'def _kill(*_):',
+    '    try: os.killpg(pid, signal.SIGTERM)',
+    '    except Exception: pass',
+    'signal.signal(signal.SIGTERM, _kill)',
+    'signal.signal(signal.SIGHUP,  _kill)',
+    'signal.signal(signal.SIGINT,  _kill)',
+    'try:',
+    '    while True:',
+    '        try: d = os.read(fd, 4096)',
+    '        except OSError: break',
+    '        if not d: break',
+    '        os.write(1, d)',
+    'finally:',
+    '    try: os.killpg(pid, signal.SIGTERM)',
+    '    except Exception: pass',
+    '_, st = os.waitpid(pid, 0)',
+    'raise SystemExit(os.waitstatus_to_exitcode(st))',
+  ].join('\n');
+  return `python3 -u -c '${py}'`;
 }
 
 // --- Interactive input detection ---
@@ -237,6 +319,7 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
         reject(err);
         return;
       }
+      registerChild(child);
 
       const killChild = (reason) => {
         if (stuckReason) return;

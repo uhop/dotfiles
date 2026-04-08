@@ -4,7 +4,11 @@
       "Bash(chmod +x /home/eugene/.local/share/chezmoi/private_dot_local/bin/executable_playbash)",
       "Bash(git mv:*)",
       "Bash(rm Ansible-Server-Management.md)",
-      "Bash(ls *.md)"
+      "Bash(ls *.md)",
+      "Read(//Users/eugene/.local/bin/**)",
+      "Read(//Users/eugene/.local/libs/**)",
+      "Bash(~/.local/bin/playbash hosts:*)",
+      "Bash(ps:*)"
     ]
   }
 }
