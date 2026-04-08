@@ -301,12 +301,6 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
 
       const checkForStuck = (chunk) => {
         recentBuf = (recentBuf + chunk.toString('utf8')).slice(-STDIN_RECENT_BUF_MAX);
-        if (process.env.PLAYBASH_DEBUG_CHUNKS) {
-          const ts = ((Date.now() - start) / 1000).toFixed(2);
-          const preview = chunk.toString('utf8').replace(/[\x00-\x1f\x7f]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0'));
-          const matched = STDIN_PROMPT_RE.test(recentBuf);
-          process.stderr.write(`[chunk +${ts}s len=${chunk.length} match=${matched}] ${preview.slice(0, 200)}\n`);
-        }
         if (!stuckReason && STDIN_PROMPT_RE.test(recentBuf)) killChild('sudo');
       };
 
