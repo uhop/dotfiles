@@ -41,14 +41,10 @@ dotfiles/                              # chezmoi source directory
 │   └── tmux/
 ├── private_dot_local/
 │   ├── bin/                           # → ~/.local/bin/ (CLI utilities)
-│   │   ├── executable_ansible-chezmoi    # Ansible: chezmoi update on all servers
-│   │   ├── executable_ansible-daily      # Ansible: daily maintenance stack
-│   │   ├── executable_ansible-dcms       # Ansible: dcms on all servers
-│   │   ├── executable_ansible-inventory-transfer  # Ansible: transfer inventory to remote host
-│   │   ├── executable_ansible-upd        # Ansible: upd on all servers
-│   │   ├── executable_ansible-weekly     # Ansible: weekly maintenance stack (with cleanup)
 │   │   ├── executable_arx             # Archive viewer/extractor
 │   │   ├── executable_cln.tmpl        # Cleanup script (apt, brew, flatpak, docker, node)
+│   │   ├── executable_dcm             # Single docker compose runner with retry-on-apparmor
+│   │   ├── executable_dcms            # All docker-compose stacks under ~/servers/
 │   │   ├── executable_goup            # Run command in current + parent directories
 │   │   ├── executable_gpurr           # Git pull all repos
 │   │   ├── executable_gpwiki          # Git push wiki
@@ -56,24 +52,22 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── executable_mount-raid.tmpl # NFS mount helper
 │   │   ├── executable_ollama-sync     # Update all ollama models
 │   │   ├── executable_upd.tmpl        # System updater (apt, snap, flatpak, brew, bun)
-│   │   ├── executable_update-dependencies  # Update project dependencies
+│   │   ├── executable_update-dependencies   # Update project dependencies
 │   │   ├── executable_git-*           # Git helper scripts
-│   │   └── executable_playbash        # Multi-host playbook runner (Node)
+│   │   ├── executable_playbash        # Multi-host playbook runner (Node)
+│   │   └── executable_playbash-{daily,weekly,hello,sample}  # playbash playbooks
 │   ├── libs/
-│   │   ├── bootstrap.sh              # Bootstrap: auto-updates options.bash, sources core modules
-│   │   └── playbash.sh               # Sourced helper for playbash playbooks
-│   ├── share/
-│   │   ├── playbash/                 # Runner modules (render.js, inventory.js, sidecar.js)
-│   │   └── utils/                    # General Node helpers (comp.js, semver.js, nvm.js)
-│   ├── ansible/
-│   │   └── playbooks/                # Ansible playbooks for server management
-│   │       ├── command-chezmoi.yml
-│   │       ├── command-dcms.yml
-│   │       ├── command-upd.yml
-│   │       ├── stack-daily.yml
-│   │       └── stack-weekly.yml
+│   │   ├── bootstrap.sh               # Sources options.bash core modules
+│   │   ├── playbash.sh                # Sidecar/event helpers sourced by playbash playbooks
+│   │   └── maintenance.sh             # report_reboot/warn/action helpers + apt-history scanning
+│   │                                  # (sourced by upd, cln; writes both colored output and
+│   │                                  # JSON-lines events to $PLAYBASH_REPORT when set)
+│   ├── private_share/                 # → ~/.local/share/ (private permissions)
+│   │   ├── playbash/                  # playbash runner modules (render, inventory, sidecar)
+│   │   ├── utils/                     # general Node helpers (comp, semver, nvm)
+│   │   └── private_gnome-shell/       # GNOME shell extensions
 │   └── vendors/
-│       └── fzf-git.sh               # fzf git integration
+│       └── fzf-git.sh                 # fzf git integration
 ├── private_dot_ssh/                   # → ~/.ssh/ (SSH config)
 ├── run_onchange_before_install-packages.sh.tmpl  # Package installation script
 └── run_once_after_install-vim.sh      # Vim setup
@@ -174,4 +168,6 @@ For the full `options.bash` API see [its wiki](https://github.com/uhop/options.b
 - Do not hardcode paths — use `$HOME`, `~`, or `$(brew --prefix)`.
 - Platform-specific code goes in `.tmpl` files guarded by chezmoi template conditionals.
 - `sudo` operations check for group membership first (`groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'`).
-- Node.js helper modules live under `share/utils/` (general) and `share/playbash/` (runner-specific). Executables in `bin/` import them via relative paths like `../share/utils/nvm.js`.
+- Node.js helper modules live under `private_share/utils/` (general) and `private_share/playbash/` (runner-specific). They deploy to `~/.local/share/utils/` and `~/.local/share/playbash/` respectively. Executables in `bin/` import them via relative paths like `../share/utils/nvm.js`.
+- Maintenance scripts (`upd`, `cln`) source `~/.local/libs/maintenance.sh` for shared `report_reboot` / `report_warn` / `report_action` helpers. Each helper prints a colored message via options.bash AND writes a JSON-lines event to `$PLAYBASH_REPORT` when the script runs under the playbash runner. The helpers do not depend on `playbash.sh`; the JSON writer is inlined.
+- The playbash runner (`~/.local/bin/playbash`) is a multi-host playbook runner that wraps shell scripts at `~/.local/bin/playbash-*`. Replaces the previous ansible-based maintenance stack. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management) on the wiki and [`dev-docs/ansible-replacement-plan.md`](./dev-docs/ansible-replacement-plan.md) for design notes.

@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-
-set -euo pipefail
-
-export ANSIBLE_FORCE_COLOR=true
-ansible-playbook ~/ansible/playbooks/stack-weekly.yml "$@"

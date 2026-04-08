@@ -32,14 +32,10 @@ dotfiles/                                          # chezmoi source directory
 │
 ├── private_dot_local/
 │   ├── bin/                                       # → ~/.local/bin/ (CLI utilities)
-│   │   ├── executable_ansible-chezmoi         # ansible: chezmoi update on all servers
-│   │   ├── executable_ansible-daily             # ansible: daily maintenance stack
-│   │   ├── executable_ansible-dcms              # ansible: dcms on all servers
-│   │   ├── executable_ansible-inventory-transfer  # ansible: transfer inventory to remote host
-│   │   ├── executable_ansible-upd               # ansible: upd on all servers
-│   │   ├── executable_ansible-weekly            # ansible: weekly maintenance (with cleanup)
 │   │   ├── executable_arx                         # archive viewer/extractor
 │   │   ├── executable_cln.tmpl                    # system cleanup
+│   │   ├── executable_dcm                         # docker compose runner with apparmor retry
+│   │   ├── executable_dcms                        # all docker stacks under ~/servers/
 │   │   ├── executable_goup                        # run command up directory tree
 │   │   ├── executable_gpurr                       # git pull all repos
 │   │   ├── executable_gpwiki                      # git push wiki
@@ -48,34 +44,29 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_ollama-sync                 # update ollama models
 │   │   ├── executable_upd.tmpl                    # system updater
 │   │   ├── executable_update-dependencies         # project dependency updater
-│   │   ├── executable_git-br                      # git branch helper
-│   │   ├── executable_git-brr                     # git branch helper
-│   │   ├── executable_git-bs                      # git bisect helper
-│   │   ├── executable_git-mbs                     # git merge-base helper
-│   │   ├── executable_git-pull-main               # git pull main branch
-│   │   ├── executable_git-super-clean             # git deep clean
+│   │   ├── executable_git-{br,brr,bs,mbs,pull-main,super-clean}  # git helpers
 │   │   ├── executable_trim-node-versions.js       # trim old node versions
 │   │   ├── executable_update-node-versions.js     # update node major versions
 │   │   ├── executable_playbash                    # multi-host playbook runner (Node)
-│   │   └── executable_playbash-{daily,weekly,demo,hello}  # playbash playbooks
-│   ├── libs/
+│   │   └── executable_playbash-{daily,weekly,hello,sample}  # playbash playbooks
+│   ├── libs/                                      # → ~/.local/libs/
 │   │   ├── bootstrap.sh                           # options.bash bootstrap
-│   │   └── playbash.sh                            # sourced helper for playbash playbooks
-│   ├── share/
+│   │   ├── playbash.sh                            # event helpers sourced by playbash playbooks
+│   │   └── maintenance.sh                         # report_reboot/warn/action + apt-history scan
+│   │                                              # (sourced by upd, cln; double-emits to stdout
+│   │                                              # AND $PLAYBASH_REPORT JSON-lines sidecar)
+│   ├── private_share/                             # → ~/.local/share/ (private permissions)
 │   │   ├── playbash/                              # playbash runner modules
 │   │   │   ├── render.js                          # COLOR, Rectangle, StatusBoard, sanitizer
 │   │   │   ├── inventory.js                       # load + group + self detection
 │   │   │   └── sidecar.js                         # JSON-lines parser + summary + aggregator
-│   │   └── utils/                                 # general Node helpers
-│   │       ├── comp.js                            # sorting comparator/less-function adapters
-│   │       ├── semver.js                          # semver parsing
-│   │       └── nvm.js                             # nvm helper functions
-│   ├── ansible/
-│   │   └── playbooks/                             # ansible server management
-│   ├── vendors/
-│   │   └── fzf-git.sh                             # fzf git integration
-│   └── private_share/
-│       └── private_gnome-shell/extensions/        # GNOME shell extensions
+│   │   ├── utils/                                 # general Node helpers
+│   │   │   ├── comp.js                            # sorting comparator/less-function adapters
+│   │   │   ├── semver.js                          # semver parsing
+│   │   │   └── nvm.js                             # nvm helper functions
+│   │   └── private_gnome-shell/extensions/        # GNOME shell extensions
+│   └── vendors/
+│       └── fzf-git.sh                             # fzf git integration
 │
 ├── private_dot_ssh/                               # → ~/.ssh/ (SSH config)
 ├── run_onchange_before_install-packages.sh.tmpl   # package installation
@@ -90,12 +81,32 @@ options.bash (external)
 bootstrap.sh                  ← auto-updates options.bash, sources ansi.sh + args.sh + args-help.sh + args-version.sh
     ↑
 executable_arx                ← archive viewer/extractor
-executable_cln.tmpl           ← system cleanup (apt, brew, flatpak, docker, node)
+executable_cln.tmpl           ← system cleanup (apt, brew, flatpak, docker, node) → maintenance.sh
 executable_goup               ← run command in current + parent dirs
 executable_jot                ← encrypted S3 notes (age, brotli, gzip, etc.)
 executable_mount-raid.tmpl    ← NFS mount
 executable_ollama-sync        ← ollama model updater
-executable_upd.tmpl           ← system updater (apt, snap, flatpak, brew, bun, tmux)
+executable_upd.tmpl           ← system updater (apt, snap, flatpak, brew, bun, tmux) → maintenance.sh
+```
+
+```
+playbash (Node entry, ~/.local/bin/playbash)
+    ↓
+private_share/playbash/render.js     ← COLOR, Rectangle, StatusBoard, ANSI sanitizer
+private_share/playbash/inventory.js  ← inventory load, group expansion, self detection
+private_share/playbash/sidecar.js    ← JSON-lines parser, per-host summary, cross-host aggregator
+                                       (imports COLOR from render.js)
+
+playbash-{daily,weekly,sample,hello}  ← playbook scripts deployed to every host
+    ↓
+playbash.sh (sourced)                 ← playbash_info/warn/error/action/reboot/step helpers
+                                       (writes to $PLAYBASH_REPORT or pretty-prints to stderr)
+
+upd, cln (deployed to every host)
+    ↓
+maintenance.sh (sourced)              ← report_reboot/warn/action + maintenance::check_apt_since
+                                       + apparmor marker file + recovery on script start
+                                       (writes both colored output AND $PLAYBASH_REPORT events)
 ```
 
 ```
