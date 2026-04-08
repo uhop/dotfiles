@@ -12,8 +12,8 @@ import {join} from 'node:path';
 import {parseArgs} from 'node:util';
 
 const USAGE = `usage:
-  playbash run   <playbook> <host> [-n LINES] [--self]
-  playbash debug <playbook> <host> [--self]
+  playbash run   <playbook> <targets> [-n LINES] [-p N] [--self]
+  playbash debug <playbook> <targets> [--self]
   playbash list
   playbash hosts
   playbash log   [path]
@@ -21,10 +21,17 @@ const USAGE = `usage:
 Options for run:
   -n, --lines N    height of the live output rectangle (default 5)
                    pass 0 to disable the rectangle and stream output raw
+  -p, --parallel N max concurrent hosts in fan-out (default 0 = unlimited)
   --self           allow running on the local host (default: refuse)
 
-<host> is looked up in ~/.config/playbash/inventory.json. If not found,
-the literal string is passed to ssh, so any ~/.ssh/config alias still works.
+<targets> is one positional that may be a single host name, a comma-
+separated list, a group name, or the implicit "all" group — and any
+combination ("db1,web,prod"). Names are looked up in
+~/.config/playbash/inventory.json. Unknown names are passed verbatim to
+ssh, so any ~/.ssh/config alias works. A single resolved target uses
+the live rectangle; multiple targets switch to a status board with
+parallel runs and a focused-host live view.
+
 <playbook> resolves to ~/.local/bin/playbash-<playbook> on the target host.
 
 \`debug\` is equivalent to \`run\` with the rectangle disabled and info
@@ -82,16 +89,81 @@ function loadInventory() {
   return {hosts, groups, path: INVENTORY_PATH, present: true};
 }
 
-// Resolve a host argument to an ssh-target string.
-// If the name matches a host entry, return its address. If it matches a
-// group entry, refuse (groups are deferred). Otherwise pass the name
-// through verbatim so ~/.ssh/config aliases still work.
+// Resolve a single name to an ssh-target string.
+// If the name matches a host entry, return its address. Otherwise pass
+// the name through verbatim so ~/.ssh/config aliases still work.
 function resolveHost(name, inventory) {
-  if (inventory.groups.has(name)) {
-    die(`"${name}" is a group; running on multiple hosts is not yet supported`);
-  }
   const entry = inventory.hosts.get(name);
   return entry ? entry.address : name;
+}
+
+// Expand `arg` (a single CLI positional, possibly comma-separated, possibly
+// containing host names, group names, or the implicit `all` group) into an
+// ordered, deduped list of {name, address} entries.
+//
+// Resolution rules:
+//   - Tokens are split on `,` and trimmed of whitespace.
+//   - `all` expands to every host entry in inventory, alphabetically.
+//   - A token matching a group name expands to its members in the order
+//     they appear in the group definition.
+//   - A token matching a host entry expands to that one host.
+//   - An unknown token is treated as a literal — passed through to ssh,
+//     same as a single-host call (so ~/.ssh/config aliases keep working).
+//   - The result is deduped by name, preserving first-seen order.
+//
+// Groups are flat: a group's members must be host names, not other group
+// names. An array entry whose member matches a group name is rejected
+// with a clear error.
+function resolveTargets(arg, inventory) {
+  const tokens = arg.split(',').map(t => t.trim()).filter(Boolean);
+  if (tokens.length === 0) die(`empty target list`);
+  const out = [];
+  const seen = new Set();
+  const push = (name, address) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    out.push({name, address});
+  };
+  for (const tok of tokens) {
+    if (tok === 'all') {
+      const names = [...inventory.hosts.keys()].sort();
+      for (const n of names) push(n, inventory.hosts.get(n).address);
+      continue;
+    }
+    if (inventory.groups.has(tok)) {
+      const members = inventory.groups.get(tok);
+      for (const m of members) {
+        if (inventory.groups.has(m)) {
+          die(`group "${tok}" references group "${m}"; nested groups are not supported`);
+        }
+        const entry = inventory.hosts.get(m);
+        if (!entry) {
+          die(`group "${tok}" references unknown host "${m}"`);
+        }
+        push(m, entry.address);
+      }
+      continue;
+    }
+    // Plain host name (in inventory) or literal pass-through (for ssh-config aliases).
+    push(tok, resolveHost(tok, inventory));
+  }
+  return out;
+}
+
+// Filter self entries out of a target list. Returns {targets, skipped}
+// where `skipped` is the list of names that were dropped because they
+// resolve to a local interface. When `keepSelf` is true, returns the
+// original list unchanged (and skipped is empty).
+async function filterSelf(targets, keepSelf) {
+  if (keepSelf) return {targets, skipped: []};
+  const flags = await Promise.all(targets.map(t => isSelfAddress(t.address)));
+  const kept = [];
+  const skipped = [];
+  for (let i = 0; i < targets.length; i++) {
+    if (flags[i]) skipped.push(targets[i].name);
+    else kept.push(targets[i]);
+  }
+  return {targets: kept, skipped};
 }
 
 // --- Self detection ---
@@ -354,11 +426,16 @@ function sshCapture(host, remote) {
   });
 }
 
-// Shared pipeline for both remote and local execution. Backends supply
-// `makeChild` (returns the ChildProcess to read output from) and
-// `getSidecarText` (returns the JSON-lines payload after the child exits
-// and handles cleanup).
-async function runPipeline({playbook, hostName, rectHeight, verbose, label, makeChild, getSidecarText}) {
+// Spawn the playbook child for one host, tee its raw output to the log
+// file, hand sanitized chunks to the caller via `onChunk`, fetch and parse
+// the sidecar after exit, and return everything the caller needs to render
+// a summary. Does NOT touch the terminal directly (no Rectangle, no
+// status line, no exit). Both the single-host wrapper and the fan-out
+// runner go through here.
+//
+// Throws on spawn failure; sidecar fetch errors are non-fatal (logged to
+// stderr) and result in an empty event list.
+async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk}) {
   const cols = process.stdout.columns || 80;
   const rows = process.stdout.rows || 24;
 
@@ -368,38 +445,34 @@ async function runPipeline({playbook, hostName, rectHeight, verbose, label, make
   const logPath = join(logDir, `${stamp}-${hostName}-${playbook}.log`);
   const log = createWriteStream(logPath);
 
-  const rect = new Rectangle(rectHeight);
   const start = Date.now();
-  rect.start();
 
-  const result = await new Promise((resolve, reject) => {
-    let child;
-    try {
-      child = makeChild({cols, rows});
-    } catch (err) {
-      reject(err);
-      return;
-    }
-    child.stdout.on('data', chunk => {
-      // Log gets the raw byte stream (forensic copy). Both display modes
-      // (rectangle and raw passthrough) get the sanitized version, so
-      // terminal queries from remote tools cannot reach the user's
-      // terminal regardless of -n setting. Use `playbash log` to view
-      // the raw log file safely.
-      log.write(chunk);
-      const cleaned = sanitizeForRect(chunk);
-      if (rect.active) rect.feed(cleaned);
-      else process.stdout.write(cleaned);
+  let result;
+  try {
+    result = await new Promise((resolve, reject) => {
+      let child;
+      try {
+        child = makeChild({cols, rows});
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      child.stdout.on('data', chunk => {
+        // Log gets the raw byte stream (forensic copy). The display path
+        // gets the sanitized version so terminal queries from remote
+        // tools cannot reach the user's terminal regardless of mode.
+        log.write(chunk);
+        if (onChunk) onChunk(sanitizeForRect(chunk));
+      });
+      child.stderr.on('data', chunk => log.write(chunk));
+      child.on('error', reject);
+      child.on('close', (code, signal) => resolve({code, signal}));
     });
-    child.stderr.on('data', chunk => log.write(chunk));
-    child.on('error', reject);
-    child.on('close', (code, signal) => resolve({code, signal}));
-  }).catch(err => {
-    rect.finish();
-    die(`failed to spawn: ${err.message}`, 1);
-  });
+  } catch (err) {
+    await new Promise(resolve => log.end(resolve));
+    throw new Error(`failed to spawn for ${hostName}: ${err.message}`);
+  }
 
-  rect.finish();
   await new Promise(resolve => log.end(resolve));
 
   let events = [];
@@ -407,26 +480,58 @@ async function runPipeline({playbook, hostName, rectHeight, verbose, label, make
     const text = await getSidecarText();
     events = parseSidecar(text);
   } catch (err) {
-    process.stderr.write(`playbash: failed to fetch sidecar: ${err.message}\n`);
+    process.stderr.write(`playbash: failed to fetch sidecar for ${hostName}: ${err.message}\n`);
   }
 
-  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  const elapsedMs = Date.now() - start;
   const ok = !result.signal && result.code === 0;
-  const status = result.signal ? `signal ${result.signal}` : `exit ${result.code}`;
-  process.stderr.write(buildStatusLine({ok, hostName, playbook, label, status, elapsed}) + '\n');
-  renderSummary(events, {verbose});
-  // Log path only on failure — when the run is fine, you don't reach for
-  // the log; when it failed, you do. `playbash log` finds any past run.
-  if (!ok) {
-    process.stderr.write(`  ${COLOR.dim}↳ ${logPath}${COLOR.reset}\n`);
+  const statusWord = result.signal ? `signal ${result.signal}` : `exit ${result.code}`;
+
+  return {result, events, logPath, elapsedMs, ok, statusWord};
+}
+
+// Single-host wrapper around runHost: owns a Rectangle for live output,
+// prints the status line and summary, and exits with the host's exit
+// code. Used by both the remote and local single-host paths.
+async function runHostSingle({playbook, hostName, label, rectHeight, verbose, makeChild, getSidecarText}) {
+  const rect = new Rectangle(rectHeight);
+  rect.start();
+
+  let summary;
+  try {
+    summary = await runHost({
+      playbook, hostName, makeChild, getSidecarText,
+      onChunk: chunk => {
+        if (rect.active) rect.feed(chunk);
+        else process.stdout.write(chunk);
+      },
+    });
+  } catch (err) {
+    rect.finish();
+    die(err.message, 1);
   }
 
-  process.exit(result.code ?? 1);
+  rect.finish();
+
+  const elapsed = (summary.elapsedMs / 1000).toFixed(1);
+  process.stderr.write(buildStatusLine({
+    ok: summary.ok, hostName, playbook, label,
+    status: summary.statusWord, elapsed,
+  }) + '\n');
+  renderSummary(summary.events, {verbose});
+  // Log path only on failure — when the run is fine, you don't reach
+  // for the log; when it failed, you do. `playbash log` finds any past
+  // run regardless.
+  if (!summary.ok) {
+    process.stderr.write(`  ${COLOR.dim}↳ ${summary.logPath}${COLOR.reset}\n`);
+  }
+
+  process.exit(summary.result.code ?? 1);
 }
 
 async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
   const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
-  await runPipeline({
+  await runHostSingle({
     playbook, hostName, rectHeight, verbose, label: null,
     makeChild: ({cols, rows}) => {
       const inner =
@@ -458,6 +563,407 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
   });
 }
 
+// --- Multi-host fan-out (status board + parallel runs) ---
+
+// One host's slot in the StatusBoard. Each holds its own ring buffer
+// (committed lines + in-progress current) so when focus shifts to it the
+// rectangle can show its recent state without backfill from the log.
+class HostSlot {
+  constructor(name, address, rectHeight) {
+    this.name = name;
+    this.address = address;
+    this.state = 'pending';   // pending | running | ok | failed
+    this.startedAt = 0;
+    this.finishedAt = 0;
+    this.lastActivityAt = 0;
+    this.rectHeight = rectHeight;
+    // Per-host ring buffer mirroring Rectangle's state.
+    this.committed = [];
+    this.current = '';
+    this.pendingCR = false;
+    this.statusWord = '';     // 'exit N' or 'signal X' once finished
+    this.events = [];
+    this.logPath = '';
+    this.elapsedMs = 0;
+  }
+
+  feed(text) {
+    this.lastActivityAt = Date.now();
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (this.pendingCR) {
+        this.pendingCR = false;
+        if (ch === '\n') {
+          this.commit();
+          continue;
+        }
+        this.current = '';
+      }
+      if (ch === '\r') {
+        this.pendingCR = true;
+      } else if (ch === '\n') {
+        this.commit();
+      } else {
+        this.current += ch;
+      }
+    }
+  }
+
+  commit() {
+    this.committed.push(this.current);
+    if (this.committed.length > this.rectHeight - 1) this.committed.shift();
+    this.current = '';
+  }
+}
+
+// StatusBoard: in-place renderer for the multi-host fan-out view.
+// Layout (top-down):
+//
+//   running daily on N hosts
+//
+//   <finished hosts, descending host name>
+//   <running hosts, descending host name>
+//     ▶ <focused running host>
+//     <focused host's rect lines>
+//
+// Focus is the most-recently-active running host, sticky with a 500ms
+// idle threshold to avoid thrashing when two hosts produce simultaneously.
+class StatusBoard {
+  constructor(slots, {playbook, rectHeight}) {
+    this.slots = slots;                                // input order, never reordered
+    this.byName = new Map(slots.map(s => [s.name, s])); // name → slot
+    this.playbook = playbook;
+    this.rectHeight = rectHeight;
+    this.active = process.stderr.isTTY;
+    this.nameWidth = Math.max(...slots.map(s => s.name.length));
+    this.headerLine = `running ${COLOR.bold}${playbook}${COLOR.reset} on ${slots.length} hosts`;
+    this.focusName = null;
+    // We reserve `slots.length + 1 (header) + 1 (blank) + rectHeight`
+    // rows up front. Number stays fixed for the whole run; we just
+    // re-render the same rows in place.
+    this.totalRows = 1 + 1 + slots.length + (this.rectHeight > 0 ? this.rectHeight : 0);
+    this.elapsedTimer = null;
+  }
+
+  start() {
+    if (!this.active) {
+      // Non-tty: just print the header once and let chunks fall on the floor.
+      process.stderr.write(this.headerLine + '\n\n');
+      return;
+    }
+    // Reserve total rows. Cursor ends one line below the reserved area,
+    // which is our anchor.
+    process.stderr.write('\n'.repeat(this.totalRows));
+    this.draw();
+    // Re-render once a second so elapsed times advance even when no
+    // chunks arrive.
+    this.elapsedTimer = setInterval(() => this.draw(), 1000);
+  }
+
+  hostStarted(name) {
+    const slot = this.byName.get(name);
+    slot.state = 'running';
+    slot.startedAt = Date.now();
+    slot.lastActivityAt = slot.startedAt;
+    if (this.focusName === null) this.focusName = name;
+    if (this.active) this.draw();
+  }
+
+  hostChunk(name, chunk) {
+    const slot = this.byName.get(name);
+    slot.feed(chunk);
+    // Sticky focus: shift only if the current focus host has been idle
+    // for more than 500ms.
+    if (this.focusName !== name) {
+      const focus = this.byName.get(this.focusName);
+      const focusIdle = !focus || focus.state !== 'running' ||
+        (Date.now() - focus.lastActivityAt) > 500;
+      if (focusIdle) this.focusName = name;
+    }
+    if (this.active) this.draw();
+  }
+
+  hostFinished(name, summary) {
+    const slot = this.byName.get(name);
+    slot.state = summary.ok ? 'ok' : 'failed';
+    slot.finishedAt = Date.now();
+    slot.statusWord = summary.statusWord;
+    slot.events = summary.events;
+    slot.logPath = summary.logPath;
+    slot.elapsedMs = summary.elapsedMs;
+    // If focused host just finished, pass focus to whichever running
+    // host has been most recently active.
+    if (this.focusName === name) {
+      const running = this.slots.filter(s => s.state === 'running');
+      if (running.length > 0) {
+        running.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+        this.focusName = running[0].name;
+      } else {
+        this.focusName = null;
+      }
+    }
+    if (this.active) this.draw();
+  }
+
+  // Sort: finished first, then running. Within each group, descending
+  // host name. The user said "descending"; alphabetically that means z→a.
+  // Among finished, finished-ok and finished-failed are interleaved.
+  sortedSlots() {
+    const finished = this.slots
+      .filter(s => s.state === 'ok' || s.state === 'failed')
+      .slice()
+      .sort((a, b) => b.name.localeCompare(a.name));
+    const running = this.slots
+      .filter(s => s.state === 'running' || s.state === 'pending')
+      .slice()
+      .sort((a, b) => b.name.localeCompare(a.name));
+    return [...finished, ...running];
+  }
+
+  // Format one slot row (no leading spaces; aligned host name).
+  slotRow(slot, isFocus) {
+    let glyph;
+    if (slot.state === 'ok') {
+      glyph = `${COLOR.green}✓${COLOR.reset}`;
+    } else if (slot.state === 'failed') {
+      glyph = `${COLOR.fail}✗${COLOR.reset}`;
+    } else if (slot.state === 'pending') {
+      glyph = `${COLOR.dim}·${COLOR.reset}`;
+    } else if (isFocus) {
+      glyph = `${COLOR.magenta}▶${COLOR.reset}`;
+    } else {
+      glyph = `${COLOR.dim}·${COLOR.reset}`;
+    }
+    const name = `${COLOR.bold}${slot.name.padEnd(this.nameWidth)}${COLOR.reset}`;
+    let tail;
+    if (slot.state === 'ok') {
+      tail = `${COLOR.dim}in ${(slot.elapsedMs / 1000).toFixed(1)}s${COLOR.reset}`;
+    } else if (slot.state === 'failed') {
+      tail = `${COLOR.bold}${COLOR.red}${slot.statusWord}${COLOR.reset} ${COLOR.dim}in ${(slot.elapsedMs / 1000).toFixed(1)}s${COLOR.reset}`;
+    } else if (slot.state === 'running') {
+      const sec = ((Date.now() - slot.startedAt) / 1000).toFixed(0);
+      tail = `${COLOR.dim}running ${sec}s${COLOR.reset}`;
+    } else {
+      tail = `${COLOR.dim}pending${COLOR.reset}`;
+    }
+    return `${glyph} ${name} ${tail}`;
+  }
+
+  draw() {
+    if (!this.active) return;
+    const sorted = this.sortedSlots();
+    let out = `\x1b[${this.totalRows}A`; // up to top of reserved area
+    // Header line.
+    out += `\r\x1b[2K${this.headerLine}\n`;
+    // Blank separator.
+    out += '\r\x1b[2K\n';
+    // Slot rows.
+    for (const slot of sorted) {
+      const isFocus = slot.name === this.focusName;
+      out += '\r\x1b[2K' + this.slotRow(slot, isFocus) + '\n';
+    }
+    // Focused rectangle (rectHeight rows). The focused slot's ring
+    // buffer fills the area; non-focused or no-focus shows blanks.
+    if (this.rectHeight > 0) {
+      const focus = this.focusName ? this.byName.get(this.focusName) : null;
+      const width = (process.stdout.columns || 80) - 2; // 2-space indent
+      for (let i = 0; i < this.rectHeight; i++) {
+        let line = '';
+        if (focus) {
+          if (i < this.rectHeight - 1) {
+            line = focus.committed[i] || '';
+          } else {
+            line = focus.current;
+          }
+        }
+        out += '\r\x1b[2K  ' + truncateToWidth(line, width) + '\n';
+      }
+    }
+    process.stderr.write(out);
+  }
+
+  finish() {
+    if (this.elapsedTimer) {
+      clearInterval(this.elapsedTimer);
+      this.elapsedTimer = null;
+    }
+    if (!this.active) return;
+    // Erase the reserved area and park the cursor at its top, so the
+    // post-run summary prints exactly where the board was.
+    let out = `\x1b[${this.totalRows}A`;
+    for (let i = 0; i < this.totalRows; i++) out += '\r\x1b[2K\n';
+    out += `\x1b[${this.totalRows}A`;
+    process.stderr.write(out);
+  }
+}
+
+// Cross-host event aggregator. Groups warn/action events by (level,kind,target)
+// across all hosts and produces a list of {level, kind, target, msg, hosts[]}.
+// Includes only events that span 2+ hosts (single-host events are already
+// shown in the per-host block).
+function aggregateEvents(slots) {
+  const groups = new Map();
+  for (const slot of slots) {
+    for (const ev of slot.events || []) {
+      if (ev.level !== 'warn' && ev.level !== 'action') continue;
+      const key = `${ev.level}\x00${ev.kind || ''}\x00${ev.target || ''}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = {level: ev.level, kind: ev.kind, target: ev.target, msg: ev.msg, hosts: []};
+        groups.set(key, g);
+      }
+      g.hosts.push(slot.name);
+    }
+  }
+  return [...groups.values()].filter(g => g.hosts.length >= 2);
+}
+
+function renderAggregated(aggregated) {
+  if (aggregated.length === 0) return;
+  process.stderr.write('\n');
+  for (const g of aggregated) {
+    const hostList = g.hosts.join(', ');
+    const count = `${g.hosts.length} hosts`;
+    if (g.level === 'action') {
+      const kind = g.kind || 'unknown';
+      const target = g.target ? ` ${COLOR.dim}[${g.target}]${COLOR.reset}` : '';
+      process.stderr.write(`${COLOR.magenta}⏵${COLOR.reset} ${kind}${target} ${COLOR.dim}·${COLOR.reset} ${count}: ${COLOR.dim}${hostList}${COLOR.reset}\n`);
+    } else {
+      const target = g.target ? `${g.target} ${COLOR.dim}·${COLOR.reset} ` : '';
+      process.stderr.write(`${COLOR.orange}⚠${COLOR.reset} ${target}${count}: ${COLOR.dim}${hostList}${COLOR.reset}\n`);
+    }
+  }
+}
+
+// Run a list of targets in parallel through the StatusBoard, then print
+// per-host summaries (in input order) and the aggregated section.
+async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}) {
+  const slots = targets.map(t => new HostSlot(t.name, t.address, rectHeight || 5));
+  const board = new StatusBoard(slots, {playbook, rectHeight: rectHeight || 5});
+  board.start();
+
+  // Per-host launcher. Builds the right backend (remote ssh+script or
+  // local child) for this host, then calls runHost. Self detection
+  // already happened in the dispatcher; here we just need to know which
+  // backend to use.
+  const launchOne = async (slot) => {
+    board.hostStarted(slot.name);
+    const isSelf = await isSelfAddress(slot.address);
+    let makeChild, getSidecarText;
+    if (isSelf) {
+      const reportPath = join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`);
+      const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
+      if (!existsSync(playbookPath)) {
+        const err = new Error(`local playbook not found: ${playbookPath}`);
+        board.hostFinished(slot.name, {
+          ok: false, statusWord: 'no script', events: [], logPath: '', elapsedMs: 0,
+        });
+        return;
+      }
+      makeChild = ({cols, rows}) => spawn(playbookPath, [], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          PLAYBASH_REPORT: reportPath,
+          PLAYBASH_HOST: slot.name,
+          COLUMNS: String(cols),
+          LINES: String(rows),
+        },
+      });
+      getSidecarText = async () => {
+        let text = '';
+        try { text = readFileSync(reportPath, 'utf8'); } catch {}
+        try { unlinkSync(reportPath); } catch {}
+        return text;
+      };
+    } else {
+      const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
+      makeChild = ({cols, rows}) => {
+        const inner =
+          `PLAYBASH_REPORT=${reportPath} ` +
+          `PLAYBASH_HOST=${slot.name} ` +
+          `COLUMNS=${cols} LINES=${rows} ` +
+          `~/.local/bin/playbash-${playbook}`;
+        const wrapped = `script -qfec '${inner}' /dev/null`;
+        return spawn('ssh', [slot.address, '--', wrapped], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      };
+      getSidecarText = async () => {
+        const fetch = await sshCapture(slot.address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`);
+        return fetch.stdout;
+      };
+    }
+
+    try {
+      const summary = await runHost({
+        playbook, hostName: slot.name, makeChild, getSidecarText,
+        onChunk: chunk => board.hostChunk(slot.name, chunk),
+      });
+      board.hostFinished(slot.name, summary);
+    } catch (err) {
+      board.hostFinished(slot.name, {
+        ok: false, statusWord: 'spawn err', events: [], logPath: '', elapsedMs: 0,
+      });
+      process.stderr.write(`playbash: ${slot.name}: ${err.message}\n`);
+    }
+  };
+
+  // Concurrency-limited launcher. parallelLimit === 0 means unlimited.
+  const queue = [...slots];
+  const inFlight = new Set();
+  const limit = parallelLimit > 0 ? parallelLimit : queue.length;
+  const launchNext = () => {
+    while (queue.length > 0 && inFlight.size < limit) {
+      const slot = queue.shift();
+      const p = launchOne(slot).finally(() => {
+        inFlight.delete(p);
+        launchNext();
+      });
+      inFlight.add(p);
+    }
+  };
+  launchNext();
+  while (inFlight.size > 0) {
+    await Promise.race(inFlight);
+  }
+
+  board.finish();
+
+  // Per-host summary lines, input order.
+  let okCount = 0;
+  let failCount = 0;
+  for (const slot of slots) {
+    if (slot.state === 'ok') okCount++;
+    else failCount++;
+    const elapsed = (slot.elapsedMs / 1000).toFixed(1);
+    process.stderr.write(buildStatusLine({
+      ok: slot.state === 'ok',
+      hostName: slot.name,
+      playbook,
+      label: null,
+      status: slot.statusWord,
+      elapsed,
+    }) + '\n');
+    renderSummary(slot.events, {verbose});
+    if (slot.state !== 'ok' && slot.logPath) {
+      process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+    }
+  }
+
+  // Header for the post-run aggregation block.
+  const totalElapsed = ((Date.now() - slots[0].startedAt) / 1000).toFixed(1);
+  const summary = failCount === 0
+    ? `${okCount} ok`
+    : `${okCount} ok, ${COLOR.bold}${COLOR.red}${failCount} failed${COLOR.reset}`;
+  process.stderr.write(`\n${COLOR.dim}done in ${totalElapsed}s${COLOR.reset} · ${summary}\n`);
+
+  // Cross-host aggregation, when 2+ hosts share a (level,kind,target).
+  renderAggregated(aggregateEvents(slots));
+
+  process.exit(failCount > 0 ? 1 : 0);
+}
+
 async function runLocally({playbook, hostName, rectHeight, verbose}) {
   // Local sidecar lives in $TMPDIR. No ssh, no PTY allocation — the
   // playbook runs as a direct child of Node. Tools that depend on a tty
@@ -468,7 +974,7 @@ async function runLocally({playbook, hostName, rectHeight, verbose}) {
   if (!existsSync(playbookPath)) {
     die(`local playbook not found: ${playbookPath}`);
   }
-  await runPipeline({
+  await runHostSingle({
     playbook, hostName, rectHeight, verbose, label: '(local)',
     makeChild: ({cols, rows}) => spawn(playbookPath, [], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -572,8 +1078,9 @@ async function cmdHosts() {
 
 const {values, positionals} = parseArgs({
   options: {
-    lines: {type: 'string', short: 'n', default: '5'},
-    self: {type: 'boolean', default: false},
+    lines:    {type: 'string',  short: 'n', default: '5'},
+    self:     {type: 'boolean', default: false},
+    parallel: {type: 'string',  short: 'p', default: '0'},
   },
   allowPositionals: true,
 });
@@ -581,23 +1088,64 @@ const {values, positionals} = parseArgs({
 if (positionals.length === 0) die(USAGE);
 const [command, ...rest] = positionals;
 
-// Pick the right execution backend for one host. Refuses self by default.
-async function dispatchRun({playbook, hostName, rectHeight, verbose}) {
+// Pick the right execution backend for the user's target argument. The
+// argument may be a single name or a comma-separated list mixing host
+// names, group names, and the implicit `all` group.
+//
+// Decision tree:
+//   - If the resolved-and-self-filtered list is empty, refuse.
+//   - If length is 1: existing single-host pipeline.
+//     - If that one host is self and --self was not passed: hard refusal
+//       with the bare-script hint (existing behavior).
+//   - If length > 1: fan-out path (StatusBoard, parallel runs, aggregated
+//     summary). Self entries are silently dropped from the list unless
+//     --self is passed; a one-line dim notice is printed before launch.
+async function dispatchRun({playbook, targetArg, rectHeight, verbose}) {
   const inv = loadInventory();
-  const address = resolveHost(hostName, inv);
-  const isSelf = await isSelfAddress(address);
+  const resolved = resolveTargets(targetArg, inv);
+  const {targets, skipped} = await filterSelf(resolved, values.self);
 
-  if (isSelf && !values.self) {
-    die(
-      `"${hostName}" (${address}) resolves to a local interface; refusing to run on self.\n` +
-      `pass --self to run locally, or invoke the bare script directly: playbash-${playbook}`
+  // Single-host fast path (or single-host refusal). We need to handle the
+  // "user typed self as a single arg" case here because filterSelf would
+  // have removed it from the list, leaving us with nothing to do.
+  if (resolved.length === 1) {
+    const only = resolved[0];
+    const isSelf = await isSelfAddress(only.address);
+    if (isSelf && !values.self) {
+      die(
+        `"${only.name}" (${only.address}) resolves to a local interface; refusing to run on self.\n` +
+        `pass --self to run locally, or invoke the bare script directly: playbash-${playbook}`
+      );
+    }
+    if (isSelf) {
+      await runLocally({playbook, hostName: only.name, rectHeight, verbose});
+    } else {
+      await runRemote({playbook, hostName: only.name, address: only.address, rectHeight, verbose});
+    }
+    return;
+  }
+
+  // Multi-host path. After self filtering, the list might be empty (e.g.
+  // user passed `all` from the only inventory host). Refuse rather than
+  // silently doing nothing.
+  if (targets.length === 0) {
+    if (skipped.length > 0) {
+      die(`all targets resolved to self (${skipped.join(', ')}); pass --self to include them`);
+    }
+    die(`target list resolved to nothing`);
+  }
+
+  if (skipped.length > 0) {
+    process.stderr.write(
+      `${COLOR.dim}· skipping self (${skipped.join(', ')}); pass --self to include${COLOR.reset}\n`,
     );
   }
-  if (isSelf) {
-    await runLocally({playbook, hostName, rectHeight, verbose});
-  } else {
-    await runRemote({playbook, hostName, address, rectHeight, verbose});
+
+  const parallelLimit = parseInt(values.parallel, 10);
+  if (!Number.isFinite(parallelLimit) || parallelLimit < 0) {
+    die(`--parallel must be a non-negative integer (0 = unlimited)`);
   }
+  await runFanout({playbook, targets, rectHeight, verbose, parallelLimit});
 }
 
 switch (command) {
@@ -617,21 +1165,21 @@ switch (command) {
     break;
   }
   case 'run': {
-    if (rest.length !== 2) die(`run takes <playbook> <host>\n${USAGE}`);
-    const [playbook, hostName] = rest;
+    if (rest.length !== 2) die(`run takes <playbook> <targets>\n${USAGE}`);
+    const [playbook, targetArg] = rest;
     if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
     const rectHeight = parseInt(values.lines, 10);
     if (!Number.isFinite(rectHeight) || rectHeight < 0) {
       die(`--lines must be a non-negative integer (0 disables the rectangle)`);
     }
-    await dispatchRun({playbook, hostName, rectHeight, verbose: false});
+    await dispatchRun({playbook, targetArg, rectHeight, verbose: false});
     break;
   }
   case 'debug': {
-    if (rest.length !== 2) die(`debug takes <playbook> <host>\n${USAGE}`);
-    const [playbook, hostName] = rest;
+    if (rest.length !== 2) die(`debug takes <playbook> <targets>\n${USAGE}`);
+    const [playbook, targetArg] = rest;
     if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
-    await dispatchRun({playbook, hostName, rectHeight: 0, verbose: true});
+    await dispatchRun({playbook, targetArg, rectHeight: 0, verbose: true});
     break;
   }
   default:
