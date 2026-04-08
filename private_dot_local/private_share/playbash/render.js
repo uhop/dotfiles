@@ -206,6 +206,7 @@ export class HostSlot {
     this.events = [];
     this.logPath = '';
     this.elapsedMs = 0;
+    this.tail = [];           // last few non-blank output lines (failure context)
   }
 
   feed(text) {
@@ -312,6 +313,7 @@ export class StatusBoard {
     slot.events = summary.events;
     slot.logPath = summary.logPath;
     slot.elapsedMs = summary.elapsedMs;
+    slot.tail = summary.tail || [];
     // If focused host just finished, pass focus to whichever running
     // host has been most recently active.
     if (this.focusName === name) {

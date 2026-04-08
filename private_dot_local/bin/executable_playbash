@@ -11,7 +11,7 @@
 
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
-import {createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync} from 'node:fs';
+import {createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync} from 'node:fs';
 import {homedir, tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {parseArgs} from 'node:util';
@@ -93,6 +93,42 @@ function sshCapture(host, remote) {
   });
 }
 
+// --- Remote PTY wrapper ---
+//
+// We need a PTY on the *target* side so tools like apt and brew render
+// progress bars normally, but ssh on our side has plain pipes (so terminal
+// queries like OSC 11 and CPR can't reach the user's local terminal — see
+// the milestone-3 discussion in the plan doc).
+//
+// Earlier milestones used `script(1)` for this. The util-linux flavor on
+// Linux and the BSD flavor on macOS have incompatible syntax AND BSD
+// script block-buffers its stdout when stdout is a pipe — so a `Password:`
+// prompt without a trailing newline gets stuck in the buffer until the
+// connection closes. Both problems are solved by using Python's pty
+// module instead: same syntax on every OS, unbuffered I/O via raw
+// `os.write`, and python3 is already installed on every managed host
+// (per ansible-replacement.md, alongside node).
+//
+//   python3 -u -c 'import pty,os; raise SystemExit(
+//       os.waitstatus_to_exitcode(pty.spawn(["bash","-c","CMD"])))'
+//
+//   - `-u` forces unbuffered Python stdio (belt and braces — pty.spawn
+//     uses raw os.write anyway, but -u makes the intent explicit).
+//   - `pty.spawn` allocates a PTY, forks, runs the command in the child,
+//     and forwards I/O between the PTY master and our local stdout/stdin.
+//   - `os.waitstatus_to_exitcode` converts the raw wait status (the
+//     return value of pty.spawn) into a proper exit code so ssh
+//     propagates the wrapped command's status correctly.
+//
+// `inner` is constructed only from values we control (env-var names, a
+// random hex sidecar path, a host name validated against [a-zA-Z0-9._-],
+// and a fixed playbook path). It contains no single or double quotes,
+// so we can embed it in the Python list literal with double quotes and
+// in the outer shell with single quotes safely.
+function wrapForRemotePty(inner) {
+  return `python3 -u -c 'import pty,os; raise SystemExit(os.waitstatus_to_exitcode(pty.spawn(["bash","-c","${inner}"])))'`;
+}
+
 // --- Interactive input detection ---
 //
 // A playbook can hang waiting for input it can't get — most commonly a
@@ -115,9 +151,19 @@ function sshCapture(host, remote) {
 // In the summary the host shows as a failure (✗), but with the distinct
 // status word so the user can tell it apart from a real non-zero exit.
 
-const STDIN_PROMPT_RE = /(?:\[sudo[^\]]*\]\s*[Pp]assword|^doas\s*\([^)]*\)\s*password|^Password:\s*$|Sorry, try again)/m;
+// Patterns indicating the playbook is hung waiting for input it can't get.
+//   - `[sudo] password for X:` — generic Linux sudo
+//   - `[sudo: authenticate] Password:` — sudo on some hosts (e.g. think)
+//   - `doas (user@host) password:` — opendoas
+//   - `Password:` alone — su, ssh, mosh
+//   - `Sorry, try again` — sudo's first-failure retry message
+//   - `sudo: a terminal is required` — macOS sudo's "no tty" error
+//     (different from a prompt, but means the same thing for us:
+//     this host needs interactive sudo and we can't help here)
+const STDIN_PROMPT_RE = /(?:\[sudo[^\]]*\]\s*[Pp]assword|^doas\s*\([^)]*\)\s*password|^Password:\s*$|Sorry, try again|sudo: a terminal is required)/m;
 const STDIN_RECENT_BUF_MAX = 4096; // bytes of sliding window for regex
 const STDIN_KILL_GRACE_MS = 5000;  // SIGTERM → SIGKILL grace period
+const TAIL_MAX_LINES = 3;          // last N non-blank lines kept for failure context
 
 // Idle threshold in seconds. 0 disables the idle check (regex stays
 // active). Default 90s — generous enough that apt downloads and brew
@@ -159,6 +205,27 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
   let idleTimer = null;
   let killTimer = null;
   const idleTimeoutMs = stdinWatchTimeoutMs();
+
+  // Rolling tail of the last N non-blank lines (from stdout AND stderr)
+  // for the post-run failure-context display. ANSI codes are stripped
+  // before storing so the printed context stays clean.
+  const tailBuf = [];
+  let tailLineFragment = '';
+  const appendToTail = (textChunk) => {
+    const cleaned = textChunk
+      .toString('utf8')
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')   // strip CSI
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // strip OSC
+      .replace(/\r/g, '');
+    tailLineFragment += cleaned;
+    const lines = tailLineFragment.split('\n');
+    tailLineFragment = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      tailBuf.push(line.trim());
+      if (tailBuf.length > TAIL_MAX_LINES) tailBuf.shift();
+    }
+  };
 
   let result;
   try {
@@ -203,6 +270,11 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
         }, pollMs);
       }
 
+      const checkForStuck = (chunk) => {
+        recentBuf = (recentBuf + chunk.toString('utf8')).slice(-STDIN_RECENT_BUF_MAX);
+        if (!stuckReason && STDIN_PROMPT_RE.test(recentBuf)) killChild('sudo');
+      };
+
       child.stdout.on('data', chunk => {
         // Log gets the raw byte stream (forensic copy). The display path
         // gets the sanitized version so terminal queries from remote
@@ -211,13 +283,20 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
         if (onChunk) onChunk(sanitizeForRect(chunk));
 
         lastChunkAt = Date.now();
-
-        // Sliding window for regex detection. Keep the tail so prompts
-        // that span chunk boundaries still match.
-        recentBuf = (recentBuf + chunk.toString('utf8')).slice(-STDIN_RECENT_BUF_MAX);
-        if (!stuckReason && STDIN_PROMPT_RE.test(recentBuf)) killChild('sudo');
+        appendToTail(chunk);
+        checkForStuck(chunk);
       });
-      child.stderr.on('data', chunk => log.write(chunk));
+      child.stderr.on('data', chunk => {
+        log.write(chunk);
+        // stderr does not feed the live display (rectangle / status board)
+        // but it does feed the failure-context tail and the stuck-on-input
+        // detector. macOS sudo writes its "a terminal is required" error
+        // to stderr only — without this, the local --self path would
+        // miss it entirely.
+        lastChunkAt = Date.now();
+        appendToTail(chunk);
+        checkForStuck(chunk);
+      });
       child.on('error', reject);
       child.on('close', (code, signal) => {
         if (idleTimer) clearInterval(idleTimer);
@@ -233,6 +312,14 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
   }
 
   await new Promise(resolve => log.end(resolve));
+
+  // Flush any trailing partial line into the tail buffer (rare — most
+  // stream chunks end on a newline — but matters for processes that die
+  // mid-line without a final \n).
+  if (tailLineFragment.trim()) {
+    tailBuf.push(tailLineFragment.trim());
+    if (tailBuf.length > TAIL_MAX_LINES) tailBuf.shift();
+  }
 
   let events = [];
   try {
@@ -253,7 +340,7 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
     ? (stuckReason === 'sudo' ? 'needs sudo' : 'stuck (idle)')
     : (result.signal ? `signal ${result.signal}` : `exit ${result.code}`);
 
-  return {result, events, logPath, elapsedMs, ok, statusWord, stuckReason};
+  return {result, events, logPath, elapsedMs, ok, statusWord, stuckReason, tail: tailBuf};
 }
 
 // Single-host wrapper around runHost: owns a Rectangle for live output,
@@ -285,14 +372,32 @@ async function runHostSingle({playbook, hostName, label, rectHeight, verbose, ma
     status: summary.statusWord, elapsed,
   }) + '\n');
   renderSummary(summary.events, {verbose});
-  // Log path only on failure — when the run is fine, you don't reach
-  // for the log; when it failed, you do. `playbash log` finds any past
-  // run regardless.
   if (!summary.ok) {
+    // Tail (last few non-blank output lines) gives the user the
+    // actionable bit without making them open the log file.
+    renderFailureTail(summary.tail);
+    // Log path only on failure — when the run is fine, you don't reach
+    // for the log; when it failed, you do. `playbash log` finds any past
+    // run regardless.
     process.stderr.write(`  ${COLOR.dim}↳ ${summary.logPath}${COLOR.reset}\n`);
   }
 
   process.exit(summary.result.code ?? 1);
+}
+
+// Render the captured tail of output (last few non-blank lines) under a
+// failed host's status line. Truncates each line to terminal width minus
+// the indent so it doesn't wrap and break the surrounding layout.
+function renderFailureTail(tail) {
+  if (!tail || tail.length === 0) return;
+  const cols = (process.stderr.columns || process.stdout.columns || 80);
+  const indent = '  … ';
+  const max = Math.max(20, cols - indent.length);
+  for (const line of tail) {
+    let truncated = line;
+    if (truncated.length > max) truncated = truncated.slice(0, max - 1) + '…';
+    process.stderr.write(`${COLOR.dim}${indent}${truncated}${COLOR.reset}\n`);
+  }
 }
 
 async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
@@ -309,19 +414,7 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
         `PLAYBASH_HOST=${hostName} ` +
         `COLUMNS=${cols} LINES=${rows} ` +
         `~/.local/bin/playbash-${playbook}`;
-      // Wrap in remote script(1) — Option D from the milestone-3 PTY
-      // discussion. The PTY is allocated on the *target*; ssh has plain
-      // pipes locally on both sides; terminal queries from remote tools
-      // (OSC 11, CPR) are answered by the remote PTY and never reach
-      // our local terminal, so they cannot be echoed back to the user's
-      // shell after we exit. Also: we don't need `-tt`, which was
-      // forwarding those queries in the first place.
-      //
-      // util-linux script(1) syntax (-q quiet, -f flush after each write,
-      // -e return wrapped command's exit code). Targets are assumed to be
-      // Linux. macOS targets would need BSD script syntax — defer until
-      // someone actually wants to run a playbook against the Mac.
-      const wrapped = `script -qfec '${inner}' /dev/null`;
+      const wrapped = wrapForRemotePty(inner);
       return spawn('ssh', [address, '--', wrapped], {
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true, // own process group so killChild can group-kill
@@ -419,7 +512,7 @@ async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}
           `PLAYBASH_HOST=${slot.name} ` +
           `COLUMNS=${cols} LINES=${rows} ` +
           `~/.local/bin/playbash-${playbook}`;
-        const wrapped = `script -qfec '${inner}' /dev/null`;
+        const wrapped = wrapForRemotePty(inner);
         return spawn('ssh', [slot.address, '--', wrapped], {
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: true, // own process group so killChild can group-kill
@@ -482,8 +575,11 @@ async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}
       elapsed,
     }) + '\n');
     renderSummary(slot.events, {verbose});
-    if (slot.state !== 'ok' && slot.logPath) {
-      process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+    if (slot.state !== 'ok') {
+      renderFailureTail(slot.tail);
+      if (slot.logPath) {
+        process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+      }
     }
   }
 
