@@ -4,6 +4,7 @@ set -euCo pipefail
 shopt -s expand_aliases
 
 . ~/.local/libs/bootstrap.sh
+. ~/.local/libs/maintenance.sh
 
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
@@ -29,7 +30,12 @@ PROMPT="${BOLD}${FG_CYAN}"
 ASSUME_YES=''
 if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 
+# Recovery path: if a previous run was interrupted mid-cleanup, finish it
+# now before doing anything else. No-op if no marker exists.
+maintenance::cleanup_apparmor_if_marked
+
 {{ if eq .osIdLike "linux-debian" -}}
+apt_snapshot=$(maintenance::snapshot_apt)
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
   echoRun --bold sudo apt update
@@ -42,6 +48,7 @@ if [ "$hasSudo" -eq 0 ]; then
     echoRun --bold flatpak update $ASSUME_YES
   fi
 fi
+maintenance::check_apt_since "$apt_snapshot"
 {{- else if eq .osIdLike "darwin" -}}
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}softwareupdate may require sudo: expect asking for the sudo password.${RESET_ALL}"
@@ -70,12 +77,6 @@ if command -v pet &> /dev/null; then
   if [ ! -f "$HOME/.config/pet/snippet.toml" ]; then touch "$HOME/.config/pet/snippet.toml"; fi
   echoRun --bold pet sync
 fi
-
-{{ if eq .osIdLike "linux-debian" -}}
-if compgen -G "/run/reb*" > /dev/null; then
-	ansi::out "${WARN}WARNING: reboot is ${BLINK}${REVERSE}required${RESET_ALL}${WARN}. To reboot run: ${ITALIC}reboot${RESET_ALL}${WARN} or ${ITALIC}sudo shutdown -r now${RESET_ALL}"
-fi
-{{- end }}
 
 if [[ -v args_options["-c"] ]]; then
   ansi::out "\n${PROMPT}Clean up...${RESET_ALL}\n"

@@ -21,8 +21,6 @@ playbash_step "system"
 playbash_info "running upd -cy (with cleanup)"
 upd -cy
 
-{{ if eq .osIdLike "linux-debian" -}}
-if [ -e /run/reboot-required ]; then
-  playbash_reboot "system update requires a reboot"
-fi
-{{- end }}
+# upd/cln are now authoritative for reboot/restart/apparmor reporting via
+# maintenance.sh — they write the same events to $PLAYBASH_REPORT that
+# we used to write here. No post-hoc check needed.

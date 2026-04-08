@@ -4,6 +4,7 @@ set -euCo pipefail
 shopt -s expand_aliases
 
 . ~/.local/libs/bootstrap.sh
+. ~/.local/libs/maintenance.sh
 
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
@@ -28,12 +29,18 @@ PROMPT="${BOLD}${FG_CYAN}"
 ASSUME_YES=''
 if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 
+# Recovery path: if a previous run was interrupted mid-cleanup, finish it
+# now before doing anything else. No-op if no marker exists.
+maintenance::cleanup_apparmor_if_marked
+
 {{ if eq .osIdLike "linux-debian" -}}
+apt_snapshot=$(maintenance::snapshot_apt)
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
   echoRun --bold sudo apt autoremove $ASSUME_YES
   echoRun --bold sudo apt autoclean $ASSUME_YES
 fi
+maintenance::check_apt_since "$apt_snapshot"
 {{- end }}
 
 if command -v flatpak &> /dev/null; then
@@ -53,8 +60,3 @@ update-node-versions.js
 ansi::out "${PROMPT}Trim minor node versions...${RESET_ALL}"
 trim-node-versions.js
 
-{{ if eq .osIdLike "linux-debian" -}}
-if compgen -G "/run/reb*" > /dev/null; then
-	ansi::out "${WARN}WARNING: reboot is ${BLINK}${REVERSE}required${RESET_ALL}${WARN}. To reboot run: ${ITALIC}reboot${RESET_ALL}${WARN} or ${ITALIC}sudo shutdown -r now${RESET_ALL}"
-fi
-{{- end }}

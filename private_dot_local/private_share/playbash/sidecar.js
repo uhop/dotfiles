@@ -22,10 +22,24 @@ export function parseSidecar(text) {
 // Per-host summary printer. Group order: actions first (most actionable),
 // then warnings (FYI), then errors (recorded but non-fatal), then info
 // (verbose only). The host status glyph already captured fatal pass/fail.
+//
+// Dedupe at the renderer: when several scripts on the same host emit the
+// same (level, kind, target, msg) event (e.g. upd reports
+// `reboot "kernel updated"` and cln reports the same thing later), the
+// user wants to see one line, not several. The full record is preserved
+// in the sidecar / log file regardless.
 export function renderSummary(events, {verbose}) {
   if (events.length === 0) return;
+  const seen = new Set();
+  const unique = [];
+  for (const ev of events) {
+    const key = `${ev.level}\x00${ev.kind || ''}\x00${ev.target || ''}\x00${ev.msg}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(ev);
+  }
   const byLevel = {action: [], warn: [], error: [], info: []};
-  for (const ev of events) if (byLevel[ev.level]) byLevel[ev.level].push(ev);
+  for (const ev of unique) if (byLevel[ev.level]) byLevel[ev.level].push(ev);
 
   for (const ev of byLevel.action) {
     const kind = ev.kind || 'unknown';
@@ -51,12 +65,21 @@ export function renderSummary(events, {verbose}) {
 // across all hosts and produces a list of {level, kind, target, msg, hosts[]}.
 // Includes only events that span 2+ hosts (single-host events are already
 // shown in the per-host block).
+//
+// Per-slot dedupe: each host contributes at most one occurrence per
+// group key, even if it emitted the same event many times (e.g. upd
+// fires `reboot "kernel updated"` and cln fires it again later → one
+// host count, not two). This is the cross-host counterpart to the
+// per-host renderSummary dedupe.
 export function aggregateEvents(slots) {
   const groups = new Map();
   for (const slot of slots) {
+    const seenInSlot = new Set();
     for (const ev of slot.events || []) {
       if (ev.level !== 'warn' && ev.level !== 'action') continue;
       const key = `${ev.level}\x00${ev.kind || ''}\x00${ev.target || ''}`;
+      if (seenInSlot.has(key)) continue;
+      seenInSlot.add(key);
       let g = groups.get(key);
       if (!g) {
         g = {level: ev.level, kind: ev.kind, target: ev.target, msg: ev.msg, hosts: []};

@@ -23,12 +23,6 @@ playbash_step "system"
 playbash_info "running upd -y"
 upd -y
 
-# Post-hoc reboot detection. upd already prints a colored warning to
-# stdout when this file is present; the playbash_reboot call adds the
-# structured sidecar event so the runner's summary can aggregate
-# "N hosts need reboot" across a fleet.
-{{ if eq .osIdLike "linux-debian" -}}
-if [ -e /run/reboot-required ]; then
-  playbash_reboot "system update requires a reboot"
-fi
-{{- end }}
+# upd is now authoritative for reboot/restart/apparmor reporting via
+# maintenance.sh — it writes the same events to $PLAYBASH_REPORT that
+# we used to write here. No post-hoc check needed.

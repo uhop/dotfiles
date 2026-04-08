@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# playbash-demo — exercises the live output rectangle.
+# playbash-sample — exercises the live output rectangle.
 # Mixes regular lines, sleeps, a fake \r progress bar, and a few sidecar
 # events. Long enough to actually see the rectangle update.
 
