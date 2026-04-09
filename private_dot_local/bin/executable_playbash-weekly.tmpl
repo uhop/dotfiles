@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# playbash-weekly — weekly maintenance stack (daily + cleanup).
-#
-# Mirrors ansible stack-weekly.yml: chezmoi update, dcms, then upd -cy
-# (which runs cln after upd). Same playbash conventions as playbash-daily.
+# playbash-weekly — weekly maintenance stack: chezmoi update, dcms, then
+# upd -cy (which runs cln after upd). Same playbash conventions as
+# playbash-daily (sourced helpers, structured events via $PLAYBASH_REPORT).
 
 set -euCo pipefail
 shopt -s expand_aliases

@@ -6,7 +6,7 @@ Status checklist for `playbash`, the multi-host bash playbook runner that replac
 
 - **v1 (proof of concept)** — ✅ closed
 - **v2 (production polish + dogfooding)** — ✅ closed (no outstanding milestones; mission accomplished, ansible is gone)
-- **v3 (portability to vanilla hosts)** — not started
+- **v3 (portability to vanilla hosts)** — in progress; milestone 19 (bash completions) landed early as a DX improvement
 
 `playbash` has fully replaced the previous ansible setup. Daily and weekly cron runs across the fleet go through `playbash run daily all` / `playbash run weekly all`. Mac targets are supported end-to-end via the cross-platform Python PTY wrapper (verified during the milestone-11 PTY work).
 
@@ -27,6 +27,10 @@ Status checklist for `playbash`, the multi-host bash playbook runner that replac
 10. **Interactive input detection.** ✅ Stdin-watch regex over the captured PTY stream catches `sudo`/`doas`/`Password:`/`Sorry, try again.`/`[Y/n]` etc., with `LC_ALL=C` forced on the remote side so prompts are predictable; on match the runner kills the local ssh process group and reports `needs sudo` as a distinct per-host status. Idle-output watchdog default 90s. The Linux-only `/proc/$pid/wchan` precise path was deferred — the regex was sufficient for every prompt encountered in dogfooding.
 11. **Cross-platform PTY wrapper (Mac target support).** ✅ Replaced the Linux-only `script(1)` wrap with `~/.local/libs/playbash-wrap.py`, a small Python PTY wrapper deployed to every chezmoi-managed host. Same wrapper runs unmodified on Linux and Mac targets. Two Mac-specific bugs had to be fixed before the kill path propagated end-to-end: a 1-second `os.write(1, b"")` probe to compensate for `select.poll()` not delivering `POLLHUP` on Darwin, and `os.close(fd)` on the PTY master before `waitpid` to avoid a kernel-level deadlock where bash got stuck in `?Es` mid-exit while the controlling terminal couldn't be revoked. The Linux→Mac sudo-prompt path is now verified end-to-end. See [playbash-design.md § PTY allocation](./playbash-design.md#pty-allocation) and [playbash-debugging.md](./playbash-debugging.md) for the rationale and the full debugging trail.
 12. **`upd --restart-services` flag.** ✅ When set AND a docker-related upgrade is detected, `maintenance::restart_docker_services` runs `sudo systemctl restart containerd && sudo systemctl restart docker` to recover without a full reboot, falling back to `report_reboot` if either restart fails. The doas whitelist entries for these commands are in `run_onchange_before_install-packages.sh.tmpl:213-214`; existing hosts may need a manual `/etc/doas.conf` update.
+
+## Done — v3 prep (out of order)
+
+19. **Bash completions.** ✅ Pulled in early as a DX win — independent of the portability work and trivially reversible. `playbash --bash-completion` prints a bash completion script to stdout (matches the convention used by the options.bash-based CLIs in this repo) and `dot_bashrc` sources it via `eval "$(playbash --bash-completion)"` next to the existing `zoxide init bash` line. The script handles: subcommands (`run`/`debug`/`list`/`hosts`/`log`), playbook names (glob `~/.local/bin/playbash-*`, defensively skipping `.js` files), host + group names + the implicit `all`, and option flags (`-n`/`--lines`/`-p`/`--parallel`/`--self`). Targets are comma-separated and complete on the last token (`db1,we<tab>` → `db1,web1`) with `nospace` so the user can keep adding hosts. Inventory data comes from a hidden `playbash __complete-targets` subcommand so the bash side never parses `inventory.json` directly — single source of truth, live updates without re-sourcing the script. ~80ms per tab press for inventory completion (one node spawn); subcommand and playbook completion are bash-native and instant.
 
 ## Next — v3 priority order
 
@@ -52,7 +56,7 @@ Goal: run playbash against any Linux/Mac host with `bash`, `ssh`, and `python3` 
 
 18. **Offline host detection.** Pre-flight check before any ssh work, so an offline host fails fast with a distinct status instead of clogging the fan-out for 30+ seconds while ssh times out. Implementation: `ssh -o ConnectTimeout=2 -o BatchMode=yes <host> true` once per target at the start of the run, parallelized across the target list. Uses the actual ssh path so jump hosts, port overrides, and key selection from `~/.ssh/config` apply for free. Surface offline hosts as a distinct status in the StatusBoard (e.g. `· web2 offline`) and the post-run summary; exclude them from success/failure counts. Add a `--no-precheck` escape hatch. Independent of the rest of v3 — could land before milestone 14 if convenient.
 
-19. **Bash completions.** Subcommands (`run`, `debug`, `list`, `hosts`, `log`, plus the new v3 ones), playbook names (glob `~/.local/bin/playbash-*`), host names and group names (read from `~/.config/playbash/inventory.json`), `--self` / `-n` / `-p` / `--no-precheck`. Match the `--bash-completion` convention used by other CLIs in this repo: `playbash --bash-completion` prints a completion script to stdout. Big DX win — host name and playbook name completion alone makes the tool dramatically faster to drive interactively. Independent of the portability work — slot in whenever convenient.
+19. *(Bash completions)* — moved to **Done — v3 prep** above.
 
 ### Open questions for v3
 

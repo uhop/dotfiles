@@ -166,7 +166,7 @@ Consistent with other utilities (`imop`, `upd`, `ollama-sync`):
 
 - **Remote operation**: Run commands on remote servers via SSH.
   Could be as simple as `dcm update --host server1` wrapping `ssh server1 dcm update --all`,
-  or a more structured approach with `ansible` playbooks.
+  or via `playbash run` against a playbook that wraps `dcms` (which is what `playbash-daily`/`playbash-weekly` already do).
   The current single-machine design doesn't preclude this — the script is self-contained
   and can be installed on remote machines via chezmoi.
 - **Health checks**: After update, verify services are healthy via `docker compose ps`

@@ -70,6 +70,6 @@ Short name candidates — see plan document.
 ### Future directions
 
 - Update/restart all setups under `~/servers` at once.
-- Operate on remote servers via `ansible` or similar.
+- Operate on remote servers via `playbash` or similar.
 - Schedule updates with `cron` or `systemd` timers.
 - Notify when services are updated (log file, email, or push notification).

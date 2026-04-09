@@ -145,6 +145,7 @@ fi
 command -v doas &> /dev/null && complete -cf doas || true
 command -v xc &> /dev/null && complete -C "$(brew --prefix xc)" xc || true
 command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
+command -v playbash &> /dev/null && eval "$(playbash --bash-completion)" || true
 [ -s ~/.config/broot/launcher/bash/br ] && \. ~/.config/broot/launcher/bash/br || true
 
 if command -v fzf &> /dev/null; then
@@ -215,10 +216,6 @@ export EDITOR=micro
 export VISUAL=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export FORCE_COLOR=3
-
-if [ -f ~/ansible/inventory.yml ]; then
-  export ANSIBLE_INVENTORY=~/ansible/inventory.yml
-fi
 
 if [ -s ~/.env ]; then
   case "${unameOut}" in

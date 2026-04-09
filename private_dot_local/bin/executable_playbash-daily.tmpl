@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# playbash-daily — daily maintenance stack.
-#
-# Mirrors the existing ansible stack-daily.yml: chezmoi update, then
-# dcms, then upd -y. Sources playbash.sh so the runner gets structured
-# events, but stays directly runnable by hand (helpers fall back to
-# pretty-print when $PLAYBASH_REPORT is unset).
+# playbash-daily — daily maintenance stack: chezmoi update, then dcms,
+# then upd -y. Sources playbash.sh so the runner gets structured events,
+# but stays directly runnable by hand (helpers fall back to pretty-print
+# when $PLAYBASH_REPORT is unset).
 
 set -euCo pipefail
 shopt -s expand_aliases
