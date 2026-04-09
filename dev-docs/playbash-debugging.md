@@ -1,36 +1,33 @@
 # Playbash debugging
 
-It looks like the problem is that we cannot detect a password prompt (from `ssh`) when
-running remotely on Mac. It works locally on Mac, it works in both combinations on Linux,
-but doesn't work running remotely (from Linux).
+The problem: we cannot detect a password prompt when running remotely against a Mac
+target. It works locally on Mac, it works in both directions on Linux, but it fails
+when the operator is Linux and the target is Mac.
 
-When debugging we switched from `script` to a Python wrapper, yet the problem is still
-present.
-
-I think the whole debacle is because of systemic problems with the approach.
+We already switched from `script` to a Python wrapper, and the problem persists. The
+whole debacle likely stems from systemic issues with the approach.
 
 Questions:
 
-- Do we really have a difference between local and remote executions?
-  - We have different paths for running locally vs. remotely: `runLocally()` vs. `runRemote()`. How do we know that we don't see some difference between code in these two paths.
-- The AI agent suggested that there is a major difference between BSD `script` and Linux `script`: the former buffers ouput so it doesn't reach our regular expression matcher. Do we have a clean repro of that?
-  - We debug `upd` utiltity that can ask for a sudo password.
-    - Linux uses `doas` as a `sudo` replacement, which is configured not to ask for password in `upd` cases. Mac doesn't use `doas` (hard to install) and uses `sudo` that asks for password always. Are we going to see the same problem switching to `sudo` on Linux?
+- Is there really a difference between local and remote execution? `runLocally()` and
+  `runRemote()` are separate code paths — how do we know the divergence isn't hiding
+  the bug?
+- An AI agent claimed BSD `script` differs from Linux `script` in that the former
+  buffers output, so it never reaches our regex matcher. Do we have a clean repro?
+- We debug via the `upd` utility, which may ask for a sudo password. Linux uses `doas`
+  (configured passwordless for `upd`); Mac uses `sudo`, which always prompts. Would
+  switching Linux to `sudo` reproduce the same problem?
 
 ## Minimal runner
 
-Instead of debugging huge `playbash` utility we should distill the problem with
-a **minimally reproducible case**. No local vs. remote cases for now &mdash; all cases
-should be remote through `ssh` (it is possible to use `ssh` from the same computer).
-
-Running locally as a remote case via `ssh` allows to log all aspects of our runner
-in a local file, which can be inspected later.
+Instead of debugging the full `playbash` utility, distill the problem into a
+**minimally reproducible case**. Drop the local-vs-remote split for now — run
+everything remotely via `ssh`, including ssh-ing into the same machine. That lets us
+log every aspect of the runner to a local file for later inspection.
 
 ## Minimal payload
 
-The utility we run should be minimal.
-
-The initial version should be as simple as possible. Example:
+The script we run should be as small as possible. Start with:
 
 ```bash
 echo Start
@@ -38,10 +35,9 @@ read -p "Pattern:" answer
 echo "Finish. Answer: $answer"
 ```
 
-The example above doesn't use `sudo` at all and we can try to match "Pattern:"
-or any other text.
-
-If it works with our minimal runner we can try to use more complicated script:
+No `sudo` involved — we just try to match `Pattern:` (or any other text). If that
+works, escalate to a script that triggers a real password prompt while avoiding
+`doas`:
 
 ```bash
 echo Start
@@ -49,48 +45,98 @@ command sudo ls
 echo Finish
 ```
 
-It will trigger a password prompt and it avoids `doas`.
-
-We can use it as a debugging target.
+Use this as the debugging target.
 
 ## Local runner
 
-We already use a local runner written as a Python script that is sourced from
-a local file to a remote `python3` running remotely using `ssh`.
+We already have a Python wrapper (`playbash-wrap.py`) that is streamed from a local
+file into a remote `python3` over `ssh`.
 
-We need to make sure that the runner (`playbash-wrap.py`) runs locally as we want
-without `ssh`. After that we should run it with `ssh`. If it fails in this configuration,
-it means that there is a problem with `ssh` bridge. Solving the bridge problems is something
-that can be done later if we confirm the problem.
+First confirm the wrapper runs correctly **without** `ssh`. Then run it **with**
+`ssh`. If only the latter fails, the `ssh` bridge is the problem and we tackle it
+separately.
 
-The current size of the local runner of scripts is quite small, but, if it proves to be
-a problem, we should scale it down opting for a minimally possible version too.
+The wrapper is already small, but if it gets in the way, shrink it further to the
+minimum needed to reproduce the bug.
 
-## Tracing/logging
+## Tracing / logging
 
-Instead of relying on subtle side-effects or guessing what is going on, we should trace
-all actions and events in a local file (even with `ssh` we are running locally).
-It will help understand the problem. Having a minimally reproducible case it should be easy
-to add traces/logs.
+Stop relying on subtle side effects and guesswork. Trace every action and event to a
+local file (we are running locally, even over `ssh`). With a minimal repro, adding
+logs is cheap.
 
-Problem with stream events? Log all stream events. And so on.
+Stream-event problem? Log every stream event. And so on.
 
 ## Clean up
 
-All unsuccessful attempts to solve the problem left some unnecessary code in the codebase.
-Instead of rolling back after a failure, we added more code in the next attempts.
-We should avoid this trap and work with minimal code every single time, then, when we solved
-the problem, we should thoroughly clean up the `playbash`-related code removing all
-unnecessary code and opting for a minimizing the codebase.
+Each failed fix left dead code behind, and the next attempt piled more on top of it.
+Avoid that trap: work from minimal code each iteration, and once the bug is fixed,
+thoroughly prune all `playbash`-related code back to the smallest working form.
 
 # Summary
 
-We should start as small as possible: the runner (a stand-in for `playbash`), a script
-(what we run remotely), and the local runner (the harness that runs the script on a remote end).
+Start as small as possible: a stand-in for `playbash`, a tiny script to run, and a
+harness that runs the script on a remote end.
 
-We should use the current computer for `ssh`, so it is much easier to debug.
+Use the current machine as the `ssh` target — it makes debugging much easier.
 
-We should use logging/tracing to undersyand the actual flow.
+Use logging/tracing to understand the actual flow.
 
-Then, when we learn how to deal with it, we can scale it up back to the actual `playbash`
-codebase.
+Once we know how to handle it, scale back up to the real `playbash` codebase.
+
+# Resolution (2026-04-08)
+
+The minimal harness reproduced the hang on a single Mac via `ssh localhost`,
+which let us isolate two distinct Mac-only failure modes:
+
+1. **POLLHUP silence on macOS** — Python's `select.poll()` on Darwin does not
+   deliver `POLLHUP` on a closed pipe write end. The wrapper's
+   `os.write(1, b"")` 1-second probe (already in place from the previous
+   round) handles this correctly: the probe raises `EPIPE` when sshd has
+   half-closed the wrapper's stdout, and the loop exits. The `read -p` test
+   payload confirmed this path works end-to-end.
+
+2. **`waitpid` deadlock at exit** — when the `pty.fork()` child is a session
+   leader and its subtree includes a program that grabs the controlling
+   terminal (e.g. `sudo` reading a password), the kernel cannot finish
+   revoking the controlling terminal — and therefore cannot finish the
+   child's exit — while another process still holds the PTY master fd
+   open. The child stalls in `?Es` state and `os.waitpid(pid, 0)` blocks
+   forever, leaking the entire ssh channel. **The `read -p` payload
+   masked this bug**: only programs that put the PTY into raw mode trigger
+   the kernel revoke stall.
+
+   **Fix:** close the PTY master fd immediately before `waitpid` in
+   `private_dot_local/libs/playbash-wrap.py`. One-line change. Linux is
+   unaffected (master can stay open without blocking child exit).
+
+   Verified on this Mac via the harness in `~/pbdebug/`:
+   `read -p` payload: 2.6s, sudo payload (pre-fix): 10s deadline,
+   sudo payload (post-fix): 2.04s. No orphans.
+
+Lesson for future debugging: **never use `read -p` as a stand-in for
+`sudo`.** The PTY surface looks the same but the kernel teardown path
+isn't.
+
+## Open / TODO
+
+- **Defensive `waitpid` with timeout + `SIGKILL` escalation.** The
+  close-fd fix is the proven primary cleanup. As belt-and-braces against
+  future Mac kernel quirks, the final `os.waitpid(pid, 0)` could be
+  wrapped in a small loop using `WNOHANG` with a short deadline that
+  escalates to `SIGKILL` if reaping doesn't happen. Deliberately deferred
+  to avoid unnecessary complexity in code that should stay minimal —
+  revisit only if a similar deadlock surfaces again.
+
+- **End-to-end test against the real `playbash` runner.** The minimal
+  harness proves the wrapper itself is correct on Mac. The real
+  `playbash run daily mini2` from the Linux operator is still pending
+  validation. To smoke-test locally (Mac-only) without touching Linux,
+  temporarily comment out the `runLocally()` / `runRemote()` branch in
+  `dispatchRun()` so all runs go through `runRemote()`, then run
+  `playbash run fakesudo localhost` against this machine.
+
+- **Cleanup of `playbash`-related code per the "Clean up" section above.**
+  Once Linux end-to-end is validated, prune any remaining failed-attempt
+  artifacts and update `dev-docs/ansible-replacement-plan.md` milestone 10
+  with the final root cause.
