@@ -42,12 +42,13 @@ import {ensureWrapper} from '../share/playbash/staging.js';
 const USAGE = `usage:
   playbash run   <playbook> <targets> [-n LINES] [-p N] [--self]
   playbash debug <playbook> <targets> [--self]
+  playbash exec  <targets> [--] <command...> [options]
   playbash list
   playbash hosts
   playbash log   [path]
   playbash --bash-completion        # print bash completion script
 
-Options for run:
+Options (must come before \`--\` when using exec):
   -n, --lines N    height of the live output rectangle (default 5)
                    pass 0 to disable the rectangle and stream output raw
   -p, --parallel N max concurrent hosts in fan-out (default 0 = unlimited)
@@ -62,6 +63,11 @@ the live rectangle; multiple targets switch to a status board with
 parallel runs and a focused-host live view.
 
 <playbook> resolves to ~/.local/bin/playbash-<playbook> on the target host.
+
+\`exec\` runs an arbitrary command through the same wrapper / rectangle /
+fan-out pipeline as \`run\`, without a playbook. Use \`--\` before the
+command when it contains flags that might conflict with playbash options
+(e.g. \`playbash exec web1 -- ls -p\`). No sidecar events are collected.
 
 \`debug\` is equivalent to \`run\` with the rectangle disabled and info
 events surfaced in the summary — for when you want to see everything.
@@ -157,6 +163,17 @@ function buildRemoteCommand({reportPath, hostName, cols, rows, playbook, wrapper
     `PLAYBASH_HOST=${hostName} ` +
     `COLUMNS=${cols} LINES=${rows} ` +
     `exec python3 -u ${wrapperPath} ~/.local/bin/playbash-${playbook}`
+  );
+}
+
+// Build a remote command line for `playbash exec` — runs an arbitrary
+// command through the PTY wrapper, no playbook or sidecar.
+function buildExecCommand({cols, rows, command, wrapperPath}) {
+  const escaped = command.replace(/'/g, "'\\''");
+  return (
+    `LC_ALL=C ` +
+    `COLUMNS=${cols} LINES=${rows} ` +
+    `exec python3 -u ${wrapperPath} bash -c '${escaped}'`
   );
 }
 
@@ -432,66 +449,76 @@ function renderFailureTail(tail) {
   }
 }
 
-async function runRemote({playbook, hostName, address, rectHeight, verbose, inventory}) {
+async function runRemote({playbook, command, hostName, address, rectHeight, verbose, inventory}) {
   const wrapperPath = await ensureWrapper(address, hostName, inventory);
-  const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
+  const logLabel = playbook || 'exec';
+  const reportPath = playbook ? `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl` : '';
   await runHostSingle({
-    playbook, hostName, rectHeight, verbose, label: null,
+    playbook: logLabel, hostName, rectHeight, verbose, label: null,
     makeChild: ({cols, rows}) => {
-      // LC_ALL=C forces English-language prompts so the stdin-watch
-      // regex (sudo/doas/Password:/Sorry, try again.) matches reliably
-      // regardless of the remote host's default locale.
-      const wrapped = buildRemoteCommand({reportPath, hostName, cols, rows, playbook, wrapperPath});
+      const wrapped = command
+        ? buildExecCommand({cols, rows, command, wrapperPath})
+        : buildRemoteCommand({reportPath, hostName, cols, rows, playbook, wrapperPath});
       return spawn('ssh', ['-o', 'BatchMode=yes', address, '--', wrapped], {
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true, // own process group so killChild can group-kill
       });
     },
-    getSidecarText: async () => {
-      const fetch = await sshCapture(address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`);
-      return fetch.stdout;
-    },
+    getSidecarText: playbook
+      ? async () => { const r = await sshCapture(address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`); return r.stdout; }
+      : async () => '',
   });
 }
 
-async function runLocally({playbook, hostName, rectHeight, verbose}) {
+async function runLocally({playbook, command, hostName, rectHeight, verbose}) {
+  const logLabel = playbook || 'exec';
+  if (playbook) {
+    const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
+    if (!existsSync(playbookPath)) die(`local playbook not found: ${playbookPath}`);
+  }
   // Local sidecar lives in $TMPDIR. No ssh, no PTY allocation — the
-  // playbook runs as a direct child of Node. Tools that depend on a tty
-  // (e.g. interactive `apt`) will see a pipe; that matches "the bare
-  // script run by hand from a non-tty context."
-  const reportPath = join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`);
-  const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
-  if (!existsSync(playbookPath)) {
-    die(`local playbook not found: ${playbookPath}`);
+  // playbook/command runs as a direct child of Node.
+  const reportPath = playbook ? join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`) : '';
+  const childArgs = command ? ['-c', command] : [];
+  const childCmd = command ? 'bash' : join(homedir(), '.local', 'bin', `playbash-${playbook}`);
+  const env = {
+    ...process.env,
+    LC_ALL: 'C',
+    COLUMNS: String(process.stdout.columns || 80),
+    LINES: String(process.stdout.rows || 24),
+  };
+  if (playbook) {
+    env.PLAYBASH_REPORT = reportPath;
+    env.PLAYBASH_HOST = hostName;
   }
   await runHostSingle({
-    playbook, hostName, rectHeight, verbose, label: '(local)',
-    makeChild: ({cols, rows}) => spawn(playbookPath, [], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: true, // own process group so killChild can group-kill
-      env: {
-        ...process.env,
-        LC_ALL: 'C',
-        PLAYBASH_REPORT: reportPath,
-        PLAYBASH_HOST: hostName,
-        COLUMNS: String(cols),
-        LINES: String(rows),
-      },
-    }),
-    getSidecarText: async () => {
-      let text = '';
-      try { text = readFileSync(reportPath, 'utf8'); } catch {}
-      try { unlinkSync(reportPath); } catch {}
-      return text;
+    playbook: logLabel, hostName, rectHeight, verbose, label: '(local)',
+    makeChild: ({cols, rows}) => {
+      env.COLUMNS = String(cols);
+      env.LINES = String(rows);
+      return spawn(childCmd, childArgs, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true, // own process group so killChild can group-kill
+        env,
+      });
     },
+    getSidecarText: playbook
+      ? async () => {
+          let text = '';
+          try { text = readFileSync(reportPath, 'utf8'); } catch {}
+          try { unlinkSync(reportPath); } catch {}
+          return text;
+        }
+      : async () => '',
   });
 }
 
 // Run a list of targets in parallel through the StatusBoard, then print
 // per-host summaries (in input order) and the aggregated section.
-async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit, inventory}) {
+async function runFanout({playbook, command, targets, rectHeight, verbose, parallelLimit, inventory}) {
+  const logLabel = playbook || 'exec';
   const slots = targets.map(t => new HostSlot(t.name, t.address, rectHeight || 5));
-  const board = new StatusBoard(slots, {playbook, rectHeight: rectHeight || 5});
+  const board = new StatusBoard(slots, {playbook: logLabel, rectHeight: rectHeight || 5});
   board.start();
 
   // Per-host launcher. Builds the right backend (remote ssh+script or
@@ -503,54 +530,63 @@ async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit,
     const isSelf = await isSelfAddress(slot.address);
     let makeChild, getSidecarText;
     if (isSelf) {
-      const reportPath = join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`);
-      const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
-      if (!existsSync(playbookPath)) {
-        board.hostFinished(slot.name, {
-          ok: false, statusWord: 'no script', events: [], logPath: '', elapsedMs: 0,
-        });
-        return;
+      if (playbook) {
+        const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
+        if (!existsSync(playbookPath)) {
+          board.hostFinished(slot.name, {
+            ok: false, statusWord: 'no script', events: [], logPath: '', elapsedMs: 0,
+          });
+          return;
+        }
       }
-      makeChild = ({cols, rows}) => spawn(playbookPath, [], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true, // own process group so killChild can group-kill
-        env: {
+      const reportPath = playbook ? join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`) : '';
+      const childCmd = command ? 'bash' : join(homedir(), '.local', 'bin', `playbash-${playbook}`);
+      const childArgs = command ? ['-c', command] : [];
+      makeChild = ({cols, rows}) => {
+        const env = {
           ...process.env,
           LC_ALL: 'C',
-          PLAYBASH_REPORT: reportPath,
-          PLAYBASH_HOST: slot.name,
           COLUMNS: String(cols),
           LINES: String(rows),
-        },
-      });
-      getSidecarText = async () => {
-        let text = '';
-        try { text = readFileSync(reportPath, 'utf8'); } catch {}
-        try { unlinkSync(reportPath); } catch {}
-        return text;
+        };
+        if (playbook) {
+          env.PLAYBASH_REPORT = reportPath;
+          env.PLAYBASH_HOST = slot.name;
+        }
+        return spawn(childCmd, childArgs, {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: true, // own process group so killChild can group-kill
+          env,
+        });
       };
+      getSidecarText = playbook
+        ? async () => {
+            let text = '';
+            try { text = readFileSync(reportPath, 'utf8'); } catch {}
+            try { unlinkSync(reportPath); } catch {}
+            return text;
+          }
+        : async () => '';
     } else {
       const wrapperPath = await ensureWrapper(slot.address, slot.name, inventory);
-      const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
+      const reportPath = playbook ? `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl` : '';
       makeChild = ({cols, rows}) => {
-        // LC_ALL=C — see runRemote for rationale (stdin-watch regex).
-        const wrapped = buildRemoteCommand({
-          reportPath, hostName: slot.name, cols, rows, playbook, wrapperPath,
-        });
+        const wrapped = command
+          ? buildExecCommand({cols, rows, command, wrapperPath})
+          : buildRemoteCommand({reportPath, hostName: slot.name, cols, rows, playbook, wrapperPath});
         return spawn('ssh', ['-o', 'BatchMode=yes', slot.address, '--', wrapped], {
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: true, // own process group so killChild can group-kill
         });
       };
-      getSidecarText = async () => {
-        const fetch = await sshCapture(slot.address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`);
-        return fetch.stdout;
-      };
+      getSidecarText = playbook
+        ? async () => { const r = await sshCapture(slot.address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`); return r.stdout; }
+        : async () => '';
     }
 
     try {
       const summary = await runHost({
-        playbook, hostName: slot.name, makeChild, getSidecarText,
+        playbook: logLabel, hostName: slot.name, makeChild, getSidecarText,
         onChunk: chunk => board.hostChunk(slot.name, chunk),
       });
       board.hostFinished(slot.name, summary);
@@ -720,132 +756,10 @@ function cmdCompleteTargets() {
 
 // Print the bash completion script to stdout. Sourced from ~/.bashrc via
 // `eval "$(playbash --bash-completion)"` — same idiom as `zoxide init bash`.
-//
-// Strategy:
-//   - Subcommand list and option flags are static.
-//   - Playbook names come from a glob of ~/.local/bin/playbash-* (fast,
-//     no subprocess).
-//   - Target names come from `playbash __complete-targets` (one node
-//     spawn per tab press, ~80ms — acceptable, single source of truth).
-//
-// Targets are comma-separated, so completion splits on the last comma:
-// `db1,we<tab>` completes the `we` portion against the inventory and
-// re-prepends `db1,`. `nospace` keeps the cursor on the completion so
-// the user can keep typing `,morehosts`.
+// The script itself lives in completion.bash alongside the other playbash
+// modules — a plain bash file editable with full IDE support.
 function cmdBashCompletion() {
-  // Note: \${...} in the template literal escapes JS interpolation so the
-  // literal `${...}` reaches bash. Plain `$var` needs no escaping.
-  const script = `# playbash bash completion — sourced from ~/.bashrc
-_playbash() {
-  local cur prev
-  COMPREPLY=()
-  cur="\${COMP_WORDS[COMP_CWORD]}"
-  prev="\${COMP_WORDS[COMP_CWORD-1]}"
-
-  local subcommands="run debug list hosts log"
-
-  # Find the first subcommand-shaped token. Anything before it is options.
-  local subcommand=""
-  local i
-  for ((i = 1; i < COMP_CWORD; i++)); do
-    case "\${COMP_WORDS[i]}" in
-      run|debug|list|hosts|log)
-        subcommand="\${COMP_WORDS[i]}"
-        break
-        ;;
-    esac
-  done
-
-  # No subcommand yet → complete on the subcommand list (or top-level options).
-  if [[ -z "$subcommand" ]]; then
-    if [[ "$cur" == -* ]]; then
-      COMPREPLY=( $(compgen -W "--bash-completion -h --help" -- "$cur") )
-    else
-      COMPREPLY=( $(compgen -W "$subcommands" -- "$cur") )
-    fi
-    return
-  fi
-
-  case "$subcommand" in
-    list|hosts)
-      return
-      ;;
-    log)
-      COMPREPLY=( $(compgen -f -- "$cur") )
-      return
-      ;;
-    run|debug)
-      # Option values: -n/-p take a number, no completion to offer.
-      case "$prev" in
-        -n|--lines|-p|--parallel)
-          return
-          ;;
-      esac
-
-      # Count positional args before the cursor (skip subcommand + opt pairs).
-      local pos=0
-      local skip_next=0
-      for ((i = 1; i < COMP_CWORD; i++)); do
-        local w="\${COMP_WORDS[i]}"
-        if [[ "$skip_next" == "1" ]]; then
-          skip_next=0
-          continue
-        fi
-        case "$w" in
-          run|debug) ;;
-          -n|--lines|-p|--parallel) skip_next=1 ;;
-          -*) ;;
-          *) ((pos++)) ;;
-        esac
-      done
-
-      # Option flag completion takes priority over positional shape.
-      if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --self -h --help" -- "$cur") )
-        return
-      fi
-
-      if [[ $pos -eq 0 ]]; then
-        # Playbook name — glob ~/.local/bin/playbash-* and strip the prefix.
-        local playbooks=()
-        local p
-        for p in "$HOME"/.local/bin/playbash-*; do
-          [[ -e "$p" ]] || continue
-          [[ "$p" == *.js ]] && continue
-          playbooks+=( "\${p##*/playbash-}" )
-        done
-        COMPREPLY=( $(compgen -W "\${playbooks[*]}" -- "$cur") )
-        return
-      fi
-
-      if [[ $pos -eq 1 ]]; then
-        # Targets — comma-separated host/group/all. Split on the last comma.
-        local prefix last
-        if [[ "$cur" == *,* ]]; then
-          prefix="\${cur%,*},"
-          last="\${cur##*,}"
-        else
-          prefix=""
-          last="$cur"
-        fi
-        local targets
-        targets=$(playbash __complete-targets 2>/dev/null)
-        local m
-        COMPREPLY=()
-        while IFS= read -r m; do
-          [[ -n "$m" ]] && COMPREPLY+=( "\${prefix}\${m}" )
-        done < <(compgen -W "$targets" -- "$last")
-        # nospace so the user can keep typing ',nexthost'. Trailing space
-        # is added manually with a space keypress when the list is done.
-        compopt -o nospace 2>/dev/null
-        return
-      fi
-      ;;
-  esac
-}
-
-complete -F _playbash playbash
-`;
+  const script = readFileSync(join(homedir(), '.local', 'share', 'playbash', 'completion.bash'), 'utf8');
   process.stdout.write(script);
 }
 
@@ -881,7 +795,10 @@ const [command, ...rest] = positionals;
 //   - If length > 1: fan-out path (StatusBoard, parallel runs, aggregated
 //     summary). Self entries are silently dropped from the list unless
 //     --self is passed; a one-line dim notice is printed before launch.
-async function dispatchRun({playbook, targetArg, rectHeight, verbose}) {
+// Shared dispatcher for `run`, `debug`, and `exec`. The `job` object is
+// either {playbook: 'daily'} or {command: 'uptime && df -h'}. All target
+// resolution, self detection, filtering, and fan-out logic is shared.
+async function dispatch({job, targetArg, rectHeight, verbose}) {
   const inv = loadInventory();
   const resolved = resolveTargets(targetArg, inv);
   const {targets, skipped} = await filterSelf(resolved, values.self);
@@ -890,15 +807,15 @@ async function dispatchRun({playbook, targetArg, rectHeight, verbose}) {
     const only = resolved[0];
     const isSelf = await isSelfAddress(only.address);
     if (isSelf && !values.self) {
-      die(
-        `"${only.name}" (${only.address}) resolves to a local interface; refusing to run on self.\n` +
-        `pass --self to run locally, or invoke the bare script directly: playbash-${playbook}`
-      );
+      const hint = job.playbook
+        ? `pass --self to run locally, or invoke the bare script directly: playbash-${job.playbook}`
+        : `pass --self to run locally`;
+      die(`"${only.name}" (${only.address}) resolves to a local interface; refusing to run on self.\n${hint}`);
     }
     if (isSelf) {
-      await runLocally({playbook, hostName: only.name, rectHeight, verbose});
+      await runLocally({...job, hostName: only.name, rectHeight, verbose});
     } else {
-      await runRemote({playbook, hostName: only.name, address: only.address, rectHeight, verbose, inventory: inv});
+      await runRemote({...job, hostName: only.name, address: only.address, rectHeight, verbose, inventory: inv});
     }
     return;
   }
@@ -920,7 +837,7 @@ async function dispatchRun({playbook, targetArg, rectHeight, verbose}) {
   if (!Number.isFinite(parallelLimit) || parallelLimit < 0) {
     die(`--parallel must be a non-negative integer (0 = unlimited)`);
   }
-  await runFanout({playbook, targets, rectHeight, verbose, parallelLimit, inventory: inv});
+  await runFanout({...job, targets, rectHeight, verbose, parallelLimit, inventory: inv});
 }
 
 switch (command) {
@@ -952,14 +869,26 @@ switch (command) {
     if (!Number.isFinite(rectHeight) || rectHeight < 0) {
       die(`--lines must be a non-negative integer (0 disables the rectangle)`);
     }
-    await dispatchRun({playbook, targetArg, rectHeight, verbose: false});
+    await dispatch({job: {playbook}, targetArg, rectHeight, verbose: false});
     break;
   }
   case 'debug': {
     if (rest.length !== 2) die(`debug takes <playbook> <targets>\n${USAGE}`);
     const [playbook, targetArg] = rest;
     if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
-    await dispatchRun({playbook, targetArg, rectHeight: 0, verbose: true});
+    await dispatch({job: {playbook}, targetArg, rectHeight: 0, verbose: true});
+    break;
+  }
+  case 'exec': {
+    if (rest.length < 2) die(`exec takes <targets> <command...>\n${USAGE}`);
+    const [targetArg, ...cmdParts] = rest;
+    const command = cmdParts.join(' ');
+    if (!command) die(`exec requires a command after the target\n${USAGE}`);
+    const rectHeight = parseInt(values.lines, 10);
+    if (!Number.isFinite(rectHeight) || rectHeight < 0) {
+      die(`--lines must be a non-negative integer (0 disables the rectangle)`);
+    }
+    await dispatch({job: {command}, targetArg, rectHeight, verbose: false});
     break;
   }
   default:

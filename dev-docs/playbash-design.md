@@ -27,6 +27,7 @@ Companion docs:
 ```
 playbash run   <playbook> <targets> [-n LINES] [-p N] [--self]
 playbash debug <playbook> <targets> [--self]
+playbash exec  <targets> [--] <command...> [options]
 playbash list
 playbash hosts
 playbash log   [path]
@@ -37,6 +38,8 @@ playbash log   [path]
 `<playbook>` resolves to `~/.local/bin/playbash-<playbook>` on the target host.
 
 `debug` is equivalent to `run` with the rectangle disabled (`-n 0`) and `info` events surfaced in the summary — use it when you want to see everything.
+
+`exec` runs an arbitrary command through the same wrapper / rectangle / fan-out pipeline as `run`, without a playbook script. The wrapper invokes `bash -c '<command>'` on the remote; locally, `bash -c` is spawned directly. No sidecar events are collected. Use `--` before the command when it contains flags that might conflict with playbash options. Same `-n`, `-p`, `--self` options as `run`.
 
 `playbash log` prints a per-run log file with terminal-hostile escape sequences stripped — safe to view in any terminal. With no path, picks the most recent log under `~/.cache/playbash/runs/`. Direct `cat` of a log may inject control characters into the user's terminal.
 
@@ -281,6 +284,7 @@ private_dot_local/
       inventory.js                      # load, resolve, self detection, target filtering
       sidecar.js                        # JSON-lines parser, per-host + cross-host aggregation
       staging.js                        # wrapper staging for vanilla hosts, BatchMode ssh
+      completion.bash                   # bash completion script (read by --bash-completion)
     utils/
       comp.js                           # general-purpose comparison helpers
       semver.js                         # semver parsing

@@ -25,7 +25,8 @@
       "Bash(chezmoi execute-template:*)",
       "Bash(chezmoi cat:*)",
       "Bash(chezmoi verify:*)",
-      "Bash(chezmoi diff:*)"
+      "Bash(chezmoi diff:*)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }
