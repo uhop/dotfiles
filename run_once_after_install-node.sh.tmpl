@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# run_once_after_install-node.sh.tmpl — install latest stable node via nvm.
+# After this, `upd` keeps node current via update-node-versions.js.
+
+{{ template "install-prelude.sh" . }}
+
+echo "${PROMPT}Installing the latest stable node...${RESET}"
+mkdir -p ~/.nvm
+if [ -f "$(brew --prefix nvm)/nvm.sh" ]; then
+  \. "$(brew --prefix nvm)/nvm.sh"
+  nvm install stable
+fi

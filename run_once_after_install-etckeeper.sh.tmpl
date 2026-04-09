@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# run_once_after_install-etckeeper.sh.tmpl — initialize etckeeper /etc git repo (Linux only).
+
+{{ template "install-prelude.sh" . }}
+
+{{ if eq .osIdLike "linux-debian" -}}
+if ! command -v etckeeper &> /dev/null; then
+  exit 0
+fi
+
+if [ -d /etc/.git ]; then
+  exit 0
+fi
+
+if [ "$hasSudo" -eq 0 ]; then
+  echo "${PROMPT}Initializing etckeeper [sudo]...${RESET}"
+  sudo etckeeper init
+  sudo etckeeper commit "The very first commit."
+fi
+{{- end }}

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# run_once_after_install-tmux-tpm.sh.tmpl — install tmux plugin manager and run plugin install once.
+
+{{ template "install-prelude.sh" . }}
+
+if ! command -v tmux &> /dev/null; then
+  exit 0
+fi
+
+if [ ! -f "$HOME/.config/tmux/plugins/tpm/tpm" ]; then
+  echo "${PROMPT}Installing tmux plugin manager...${RESET}"
+  git clone https://github.com/tmux-plugins/tpm "$HOME/.config/tmux/plugins/tpm"
+fi
+
+if [ -f "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" ]; then
+  echo "${PROMPT}Installing tmux plugins...${RESET}"
+  "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" || true
+fi

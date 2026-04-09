@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+# run_onchange_after_install-doas.sh.tmpl — manage /etc/doas.conf with marker-block merge.
+#
+# Re-runs whenever the rendered script changes (i.e., when the rule list
+# below changes). Five behavior cases:
+#
+#   1. file doesn't exist           → write fresh + markers + perms
+#   2. file has chezmoi markers     → replace inside markers (preserve outside)
+#   3. file exists, no markers
+#      3a. content matches block    → silent upgrade (rewrite with markers added)
+#      3b. real conflict, can merge → drop into meld/vimdiff (TTY + tool required)
+#      3c. real conflict, can't     → refuse with recovery instructions
+#
+# Marker placement: at the END of the file. doas evaluates rules
+# top-to-bottom, last-match-wins, so chezmoi-managed `permit nopass` rules
+# at the bottom override anything user-defined above. Intentional — the
+# user wants passwordless apt/snap/systemctl regardless of preceding rules.
+#
+# Sudo prompts: this script may prompt for the doas password on first run
+# (`sudo cat` to read /etc/doas.conf, `sudo install` to write it back).
+# Subsequent runs are no-ops if the rendered block hasn't changed.
+#
+# Headless runs (no tty, no merge tool): cases 1, 2, and 3a still work.
+# Case 3 with real conflict prints recovery instructions and exits 1.
+
+{{ template "install-prelude.sh" . }}
+
+# Skip entirely if doas isn't installed.
+command -v doas &>/dev/null || exit 0
+[ "$hasSudo" -eq 0 ] || exit 0
+
+DOAS_PATH=/etc/doas.conf
+BEGIN_MARK="# BEGIN chezmoi-managed (do not edit between these markers)"
+END_MARK="# END chezmoi-managed"
+
+# The desired managed block content. Edit here to change what chezmoi installs.
+# Re-running chezmoi apply propagates changes to every machine via the
+# run_onchange_ hash (script content change → re-trigger).
+managed_block=$(cat <<BLOCK
+${BEGIN_MARK}
+permit persist keepenv setenv { PATH XAUTHORITY LANG LC_ALL } :sudo
+
+permit nopass :sudo cmd apt args update
+permit nopass :sudo cmd apt args upgrade
+permit nopass :sudo cmd apt args -y upgrade
+permit nopass :sudo cmd apt args upgrade -y
+permit nopass :sudo cmd apt args autoremove
+permit nopass :sudo cmd apt args -y autoremove
+permit nopass :sudo cmd apt args autoremove -y
+permit nopass :sudo cmd apt args autoclean
+permit nopass :sudo cmd apt args -y autoclean
+permit nopass :sudo cmd apt args autoclean -y
+
+permit nopass :sudo cmd snap args refresh
+
+permit nopass :sudo cmd ping
+permit nopass :sudo cmd prettyping
+
+permit nopass :sudo cmd aa-remove-unknown
+
+permit nopass :sudo cmd systemctl args restart docker
+permit nopass :sudo cmd systemctl args restart containerd
+${END_MARK}
+BLOCK
+)
+
+# Write CONTENT to DOAS_PATH atomically. Validates with `doas -C` first;
+# refuses on validation failure. Sets root ownership and 0400 permissions.
+install_doas() {
+  local content=$1
+  local tmp
+  tmp=$(mktemp)
+  # Force-overwrite (>|) because mktemp pre-created the file and the
+  # prelude sets `set -C` (noclobber) which would otherwise refuse `>`.
+  printf '%s\n' "$content" >| "$tmp"
+  if ! doas -C "$tmp" 2>/dev/null; then
+    echo "${WARN}doas -C validation failed; refusing to install${RESET}" >&2
+    rm -f "$tmp"
+    return 1
+  fi
+  echo "${WARN}Writing ${DOAS_PATH} requires sudo: expect asking for the sudo password (cached if already entered).${RESET}"
+  echo "${PROMPT}Installing new ${DOAS_PATH}...${RESET}"
+{{ if eq .osIdLike "darwin" -}}
+  sudo install -m 0400 -o root "$tmp" "$DOAS_PATH"
+{{- else -}}
+  sudo install -m 0400 -o root -g root "$tmp" "$DOAS_PATH"
+{{- end }}
+  rm -f "$tmp"
+  echo "${PROMPT}Updated ${DOAS_PATH}${RESET}"
+}
+
+# Strip blank lines, comments, and trailing whitespace; sort. Used to
+# compare two doas config bodies for equivalence.
+canonical() {
+  awk '!/^[[:space:]]*(#|$)/ { gsub(/[[:space:]]+$/, ""); print }' | sort -u
+}
+
+# CASE 1: file doesn't exist → write fresh.
+if [ ! -e "$DOAS_PATH" ]; then
+  echo "${PROMPT}Creating ${DOAS_PATH} with chezmoi-managed block...${RESET}"
+  install_doas "$managed_block"
+  exit $?
+fi
+
+echo "${WARN}Reading ${DOAS_PATH} requires sudo: expect asking for the sudo password.${RESET}"
+echo "${PROMPT}Reading ${DOAS_PATH} to check for chezmoi markers...${RESET}"
+current=$(sudo cat "$DOAS_PATH")
+
+# CASE 2: file has chezmoi markers → replace inside.
+if printf '%s\n' "$current" | grep -qF "$BEGIN_MARK"; then
+  new=$(awk -v block="$managed_block" -v begin="$BEGIN_MARK" -v end="$END_MARK" '
+    BEGIN { in_block = 0 }
+    $0 == begin { print block; in_block = 1; next }
+    $0 == end { in_block = 0; next }
+    !in_block { print }
+  ' <<< "$current")
+  if [ "$new" = "$current" ]; then
+    exit 0  # already in sync, no write needed
+  fi
+  install_doas "$new"
+  exit $?
+fi
+
+# CASE 3: file exists without markers. Sub-cases below.
+
+current_canonical=$(printf '%s\n' "$current" | canonical)
+block_canonical=$(printf '%s\n' "$managed_block" | canonical)
+
+# CASE 3a: existing rules are a subset of (or equal to) the chezmoi block —
+# i.e., the user has nothing custom, just an older version of the chezmoi
+# rules. Silent upgrade: rewrite with markers and any added rules.
+extra_in_existing=$(comm -23 <(printf '%s\n' "$current_canonical") <(printf '%s\n' "$block_canonical"))
+if [ -z "$extra_in_existing" ]; then
+  echo "${PROMPT}${DOAS_PATH} rules are a subset of the chezmoi block; upgrading with markers...${RESET}"
+  install_doas "$managed_block"
+  exit $?
+fi
+
+# CASES 3b/3c: real conflict. Build the proposed merged content.
+# Strategy: take current content, drop any line that exactly matches a
+# rule in our managed block (deduplicate), then append the marker block at
+# the end. User edits the result in 3c if a merge tool is available.
+managed_rule_lines=$(printf '%s\n' "$managed_block" | awk '!/^[[:space:]]*(#|$)/')
+proposed=$(awk -v lines="$managed_rule_lines" '
+  BEGIN {
+    n = split(lines, arr, "\n")
+    for (i = 1; i <= n; i++) seen[arr[i]] = 1
+  }
+  {
+    line = $0
+    sub(/[[:space:]]+$/, "", line)
+    if (line in seen) next
+    print
+  }
+' <<< "$current")
+proposed="${proposed}"$'\n'"$managed_block"
+
+# Detect environment for interactive merge.
+is_tty=0
+[ -t 0 ] && [ -t 1 ] && is_tty=1
+
+merge_tool=""
+if [ "$is_tty" = 1 ]; then
+  if [ -n "${DISPLAY:-}" ] && command -v meld &>/dev/null; then
+    merge_tool="meld"
+  elif command -v vimdiff &>/dev/null; then
+    merge_tool="vimdiff"
+  fi
+fi
+
+# CASE 3b: no merge tool available → refuse with instructions.
+if [ -z "$merge_tool" ]; then
+  cat >&2 <<MSG
+${WARN}${DOAS_PATH} has rules that don't match the chezmoi-managed block,
+and an interactive merge isn't available in this environment:
+  - stdin not a tty (running headless?), AND/OR
+  - neither 'meld' (with \$DISPLAY) nor 'vimdiff' is installed
+
+Pick one to recover:
+
+  (1) Re-run from an interactive terminal so the script can drop
+      into meld or vimdiff:
+        chezmoi apply
+
+  (2) Add chezmoi markers manually to ${DOAS_PATH}:
+        sudoedit ${DOAS_PATH}
+      Wrap the chezmoi-managed rules in:
+        ${BEGIN_MARK}
+        ...rules...
+        ${END_MARK}
+      Then re-run 'chezmoi apply'.
+
+  (3) Reset and let chezmoi recreate from scratch (loses any custom rules):
+        sudo mv ${DOAS_PATH} ${DOAS_PATH}.pre-chezmoi.bak
+        chezmoi apply
+${RESET}
+MSG
+  exit 1
+fi
+
+# CASE 3c: interactive merge.
+echo "${PROMPT}Opening ${merge_tool} to merge ${DOAS_PATH}...${RESET}"
+user_tmp=$(mktemp)
+proposed_tmp=$(mktemp)
+trap 'rm -f "$user_tmp" "$proposed_tmp"' EXIT
+
+echo "${PROMPT}Snapshotting ${DOAS_PATH} for the merge tool (sudo, cached if already entered)...${RESET}"
+# Force-overwrite (>|) because mktemp pre-created the temp files and the
+# prelude sets `set -C` (noclobber) which would otherwise refuse `>`.
+sudo cat "$DOAS_PATH" >| "$user_tmp"
+printf '%s\n' "$proposed" >| "$proposed_tmp"
+
+before_hash=$(sha256sum "$proposed_tmp" | awk '{print $1}')
+"$merge_tool" "$user_tmp" "$proposed_tmp"
+after_hash=$(sha256sum "$proposed_tmp" | awk '{print $1}')
+
+if [ "$before_hash" = "$after_hash" ]; then
+  echo "${WARN}No changes detected in the merge tool; refusing to update ${DOAS_PATH}${RESET}" >&2
+  exit 1
+fi
+
+if ! doas -C "$proposed_tmp" 2>/dev/null; then
+  echo "${WARN}doas -C validation failed; refusing to install${RESET}" >&2
+  exit 1
+fi
+
+echo
+echo "Diff vs current ${DOAS_PATH} (first 50 lines):"
+diff -u "$user_tmp" "$proposed_tmp" | head -50 || true
+echo
+read -r -p "Install merged config? [Y/n] " ans
+case "${ans:-Y}" in
+  n|N|no|NO|No)
+    echo "aborted"
+    exit 1
+    ;;
+esac
+
+install_doas "$(cat "$proposed_tmp")"

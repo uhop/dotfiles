@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# run_once_after_install-options-bash.sh.tmpl — clone the options.bash sparse worktree.
+# bootstrap.sh auto-pulls on every utility invocation, so no explicit pull
+# step is needed here — first install only.
+
+{{ template "install-prelude.sh" . }}
+
+if [ -d ~/.local/share/libs/scripts ]; then
+  exit 0
+fi
+
+echo "${PROMPT}Cloning options.bash...${RESET}"
+mkdir -p ~/.local/share/libs
+pushd ~/.local/share/libs > /dev/null
+git clone --filter=blob:none --sparse git@github.com:uhop/options.bash scripts
+cd scripts
+git sparse-checkout set --no-cone '/*.sh' '/README.md'
+popd > /dev/null

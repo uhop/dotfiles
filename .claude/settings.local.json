@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Read(//tmp/**)",
       "Read(~/.local/bin/**)",
       "Read(~/.local/libs/**)",
       "Bash(~/.local/bin/playbash hosts:*)",
@@ -15,8 +16,13 @@
       "Bash(command chmod:*)",
       "Bash(mkdir:*)",
       "Bash(command mkdir:*)",
+      "Bash(cat:*)",
+      "Bash(command cat:*)",
       "Bash(ln:*)",
-      "Bash(chezmoi apply:*)"
+      "Bash(chezmoi apply:*)",
+      "Bash(chezmoi --help)",
+      "Bash(chezmoi cat-config:*)",
+      "Bash(chezmoi execute-template:*)"
     ]
   }
 }

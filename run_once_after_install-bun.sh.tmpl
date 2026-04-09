@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# run_once_after_install-bun.sh.tmpl — install bun via the upstream installer.
+
+{{ template "install-prelude.sh" . }}
+
+if command -v bun &> /dev/null; then
+  exit 0
+fi
+
+echo "${PROMPT}Installing bun...${RESET}"
+curl -fsSL https://bun.sh/install | bash

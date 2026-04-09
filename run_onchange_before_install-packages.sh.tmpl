@@ -1,21 +1,11 @@
 #!/usr/bin/env bash
+# run_onchange_before_install-packages.sh.tmpl — install system + brew packages.
+#
+# Re-runs whenever this script's rendered content changes (apt list, brew
+# templates, hasGui flag, etc.). Bash strict mode, sudo detection, and
+# ANSI color macros come from the shared install prelude template.
 
-set -euCo pipefail
-shopt -s expand_aliases
-
-command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
-
-groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'
-hasSudo=$?
-
-CYAN="$(tput setaf 6)"
-BRIGHT_WHITE="$(tput setaf 15)"
-BG_BLUE="$(tput setab 4)"
-BOLD="$(tput bold)"
-RESET="$(tput op)$(tput sgr0)"
-
-WARN="$BOLD$BRIGHT_WHITE$BG_BLUE"
-PROMPT="$BOLD$CYAN"
+{{ template "install-prelude.sh" . }}
 
 {{ if eq .osIdLike "linux-debian" -}}
 if [ "$hasSudo" -eq 0 ]; then
@@ -36,53 +26,7 @@ fi
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 echo "${PROMPT}Installing brew packages...${RESET}"
 brew bundle --file=/dev/stdin <<EOF
-brew "aws-iam-authenticator"
-brew "awscli"
-brew "bandwhich"
-brew "bash-git-prompt"
-brew "bmon"
-brew "bottom"
-brew "broot"
-brew "btop"
-brew "cheat"
-brew "deno"
-brew "diff-so-fancy"
-brew "dust"
-brew "eza"
-brew "fastfetch"
-brew "fd"
-brew "fzf"
-brew "gping"
-brew "helix"
-brew "helm"
-brew "hub"
-brew "igrep"
-brew "kubernetes-cli"
-brew "lazygit"
-brew "lsr"
-brew "lua"
-brew "lua-language-server"
-brew "nvm"
-brew "onefetch"
-brew "pet"
-brew "pnpm"
-brew "prettier"
-brew "pyenv"
-brew "q"
-brew "rust-analyzer"
-brew "sd"
-brew "sops"
-brew "tealdeer"
-brew "tre"
-brew "typescript-language-server"
-brew "uv"
-brew "wabt"
-brew "whalebrew"
-brew "xc"
-brew "xh"
-brew "yazi"
-brew "zig"
-brew "zls"
+{{ template "Brewfile.common" . -}}
 EOF
 brew completions link
 {{ if .hasGui -}}flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo{{- end }}
@@ -95,178 +39,7 @@ elif [ -f /usr/local/bin/brew ]; then
 fi
 echo "${PROMPT}Installing brew packages...${RESET}"
 brew bundle --file=/dev/stdin <<EOF
-brew "aws-iam-authenticator"
-brew "awscli"
-brew "bandwhich"
-brew "bash-completion"
-brew "bash-git-prompt"
-brew "bat"
-brew "bmon"
-brew "bottom"
-brew "broot"
-brew "brotli"
-brew "btop"
-brew "cheat"
-brew "deno"
-brew "dialog"
-brew "diff-so-fancy"
-brew "duf"
-brew "dust"
-brew "eza"
-brew "fastfetch"
-brew "fd"
-brew "fzf"
-brew "gh"
-brew "git"
-{{ if .hasGui -}}brew "git-gui"{{- end }}
-brew "git-lfs"
-brew "go"
-brew "gopls"
-brew "gping"
-brew "grc"
-brew "helix"
-brew "helm"
-brew "htop"
-brew "httpie"
-brew "hub"
-brew "hyperfine"
-brew "igrep"
-brew "jq"
-brew "kubernetes-cli"
-brew "lazygit"
-brew "lsr"
-brew "lnav"
-brew "lua"
-brew "lua-language-server"
-brew "micro"
-brew "midnight-commander"
-brew "mosh"
-brew "ncdu"
-brew "nginx"
-brew "nvm"
-brew "onefetch"
-brew "parallel"
-brew "pet"
-brew "pnpm"
-brew "prettier"
-brew "prettyping"
-brew "pyenv"
-brew "python@3"
-brew "q"
-brew "ripgrep"
-brew "rust"
-brew "rust-analyzer"
-brew "sd"
-brew "shellcheck"
-brew "sops"
-brew "tealdeer"
-brew "the_silver_searcher"
-brew "tig"
-brew "tmux"
-brew "tre"
-brew "tree"
-brew "ttyd"
-brew "typescript-language-server"
-brew "util-linux"
-brew "uv"
-brew "wabt"
-brew "wget"
-brew "whalebrew"
-brew "xc"
-brew "xh"
-brew "yazi"
-brew "zig"
-brew "zls"
-brew "zoxide"
-{{ if .hasGui -}}cask "alacritty"{{- end }}
-{{ if .hasGui -}}cask "font-fira-code-nerd-font"{{- end }}
-{{ if .hasGui -}}cask "font-hack-nerd-font"{{- end }}
-{{ if .hasGui -}}cask "meld"{{- end }}
+{{ template "Brewfile.common" . -}}
+{{ template "Brewfile.Darwin" . -}}
 EOF
 {{- end }}
-
-if command -v doas &>/dev/null; then
-  if ! [ -f /etc/doas.conf ]; then
-    if [ "$hasSudo" -eq 0 ]; then
-      echo "${PROMPT}Installing the default doas config [sudo]...${RESET}"
-      sudo tee /etc/doas.conf >/dev/null <<EOF
-permit persist keepenv setenv { PATH XAUTHORITY LANG LC_ALL } :sudo
-
-permit nopass :sudo cmd apt args update
-permit nopass :sudo cmd apt args upgrade
-permit nopass :sudo cmd apt args -y upgrade
-permit nopass :sudo cmd apt args upgrade -y
-permit nopass :sudo cmd apt args autoremove
-permit nopass :sudo cmd apt args -y autoremove
-permit nopass :sudo cmd apt args autoremove -y
-permit nopass :sudo cmd apt args autoclean
-permit nopass :sudo cmd apt args -y autoclean
-permit nopass :sudo cmd apt args autoclean -y
-
-permit nopass :sudo cmd snap args refresh
-
-permit nopass :sudo cmd ping
-permit nopass :sudo cmd prettyping
-
-permit nopass :sudo cmd aa-remove-unknown
-
-permit nopass :sudo cmd systemctl args restart docker
-permit nopass :sudo cmd systemctl args restart containerd
-EOF
-      {{ if eq .osIdLike "darwin" -}}
-        sudo chown root /etc/doas.conf
-      {{- else -}}
-        sudo chown root:root /etc/doas.conf
-      {{- end }}
-      sudo chmod 0400 /etc/doas.conf
-    fi
-  fi
-fi
-
-if command -v tmux &> /dev/null; then
-  if [ ! -f "$HOME/.config/tmux/plugins/tpm/tpm" ]; then
-    echo "${PROMPT}Installing tmux plugin manager...${RESET}"
-    git clone https://github.com/tmux-plugins/tpm "$HOME/.config/tmux/plugins/tpm"
-  fi
-  if [ -f "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" ]; then
-    echo "${PROMPT}Installing tmux plugins...${RESET}"
-    "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" || true
-  fi
-fi
-
-if command -v etckeeper &> /dev/null; then
-  if [ ! -d /etc/.git ]; then
-    if [ "$hasSudo" -eq 0 ]; then
-      echo "${PROMPT}Initializing etckeeper [sudo]...${RESET}"
-      sudo etckeeper init
-      sudo etckeeper commit "The very first commit."
-    fi
-  fi
-fi
-
-echo "${PROMPT}Installing the latest stable node...${RESET}"
-[ ! -d ~/.nvm ] && mkdir ~/.nvm || true
-if [ -f "$(brew --prefix nvm)/nvm.sh" ]; then
-  \. "$(brew --prefix nvm)/nvm.sh"
-  nvm install stable
-fi
-
-if ! command -v bun &> /dev/null; then
-  echo "${PROMPT}Installing bun...${RESET}"
-  curl -fsSL https://bun.sh/install | bash
-fi
-
-if [ -d ~/.local/share/libs/scripts ]; then
-  echo "${PROMPT}Updating bash scripts...${RESET}"
-  pushd ~/.local/share/libs/scripts > /dev/null
-  git pull
-  popd > /dev/null
-else
-  echo "${PROMPT}Cloning bash scripts...${RESET}"
-  mkdir -p ~/.local/share/libs
-  pushd ~/.local/share/libs > /dev/null
-  git clone --filter=blob:none --sparse git@github.com:uhop/options.bash scripts
-  cd scripts
-  git sparse-checkout set --no-cone '/*.sh' '/README.md'
-  popd > /dev/null
-fi
