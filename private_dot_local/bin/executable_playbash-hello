@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-source ~/.local/libs/playbash.sh
+source "${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh"
 
 echo "hello from $(hostname) at $(date -Iseconds)"
 

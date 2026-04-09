@@ -18,7 +18,7 @@ Companion docs:
 ## Shape
 
 - **Runner**: Node CLI (`~/.local/bin/playbash`), single entrypoint, minimal deps. Handles inventory, connection lifecycle, sidecar collection, live output rendering, and the final summary.
-- **Playbooks**: `bash` scripts at `~/.local/bin/playbash-*`, distributed via chezmoi to every managed host, sourcing `~/.local/libs/playbash.sh` for the helper API. Playbooks stay readable, debuggable in isolation, and *directly runnable by hand* over plain `ssh` without setting any playbash-specific env vars — sidecar reporting activates only when `$PLAYBASH_REPORT` is set by the runner.
+- **Playbooks**: `bash` scripts at `~/.local/bin/playbash-*`, distributed via chezmoi to every managed host, sourcing `${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh` for the helper API. `PLAYBASH_LIBS` defaults to `~/.local/libs` and is overridable by the runner for upload mode (milestone 16). Playbooks stay readable, debuggable in isolation, and *directly runnable by hand* over plain `ssh` without setting any playbash-specific env vars — sidecar reporting activates only when `$PLAYBASH_REPORT` is set by the runner.
 - **PTY wrapper**: `~/.local/libs/playbash-wrap.py`, a small Python script the runner spawns on the remote host to allocate a PTY for the playbook and propagate signals back to the bash subtree on disconnect. Replaces the original `script(1)` approach (see [PTY allocation](#pty-allocation) below).
 - **Transport**: plain `ssh` / `rsync` / `sftp`. Connection multiplexing is delegated entirely to the user's existing `~/.ssh/config` (`ControlMaster auto`, `ControlPath ~/.ssh/sockets/%r@%h-%p`, `ControlPersist 5m`). See [Connection management](#connection-management) below.
 
@@ -123,7 +123,7 @@ Revisit if any of these become true: playbooks where deterministic teardown matt
 
 Playbooks are expected to already live on the target host, distributed by `chezmoi` to the same conventional locations as everything else: scripts in `~/.local/bin/` and sourced helpers in `~/.local/libs/`. This is the **primary mode**. It mirrors how `upd`, `cln`, and `dcm` are deployed today, and it has two important properties:
 
-- The playbook script is *directly runnable by hand* over plain `ssh` with no environment setup. Helpers locate their siblings via a relative path (`../libs/playbash.sh`). Sidecar reporting is opt-in: if `$PLAYBASH_REPORT` is unset, the helpers print human-readable output and skip the JSON-lines append.
+- The playbook script is *directly runnable by hand* over plain `ssh` with no environment setup. Helpers are found via `${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh` (the default expands to the chezmoi-managed path). Sidecar reporting is opt-in: if `$PLAYBASH_REPORT` is unset, the helpers print human-readable output and skip the JSON-lines append.
 - Playbash does not need to copy anything for the common case. It only sets a few env vars and runs the script.
 
 A secondary **upload mode** for ad-hoc playbooks not yet in the chezmoi tree is planned for v3 (see roadmap milestone 16). v1/v2 only ship the primary mode.

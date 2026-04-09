@@ -3,7 +3,7 @@
 # Usage from a playbook:
 #
 #     #!/usr/bin/env bash
-#     source ~/.local/libs/playbash.sh
+#     source "${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh"
 #     playbash_step "package-upgrade"
 #     playbash_warn "package X held back" --target apt
 #     playbash_reboot "kernel updated to 6.17.2"
@@ -24,6 +24,7 @@
 # Playbooks that source bootstrap.sh for their own needs can use
 # options.bash and this library side by side.
 
+: "${PLAYBASH_LIBS:=$HOME/.local/libs}"
 : "${PLAYBASH_STEP:=}"
 
 _playbash_report_broken=

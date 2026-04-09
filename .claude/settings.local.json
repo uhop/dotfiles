@@ -4,7 +4,6 @@
       "Read(//tmp/**)",
       "Read(~/.local/bin/**)",
       "Read(~/.local/libs/**)",
-      "Bash(~/.local/bin/playbash hosts:*)",
       "Bash(git mv:*)",
       "Bash(git rm:*)",
       "Bash(ls:*)",

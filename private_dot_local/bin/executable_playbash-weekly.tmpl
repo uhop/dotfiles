@@ -6,7 +6,7 @@
 set -euCo pipefail
 shopt -s expand_aliases
 
-source ~/.local/libs/playbash.sh
+source "${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh"
 
 playbash_step "chezmoi"
 playbash_info "running chezmoi update"

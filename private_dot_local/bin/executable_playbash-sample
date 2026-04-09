@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-source ~/.local/libs/playbash.sh
+source "${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh"
 
 playbash_step "demo"
 
