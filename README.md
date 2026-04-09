@@ -35,7 +35,7 @@ And update your GitHub user name in `.chezmoi.toml.tmpl` and at the bottom of `.
 
 Three layers of maintenance scripts:
 
-1. **`upd`** &mdash; updates `apt`, `snap`, `flatpak`, `brew`, `bun`. Detects `docker-ce`/AppArmor upgrades and surfaces reboot recommendations.
+1. **`upd`** &mdash; updates `apt`, `snap`, `flatpak`, `brew`, `bun`. Detects `docker-ce`/AppArmor upgrades and surfaces reboot recommendations; `upd -r` recovers from a `docker-ce` upgrade by restarting `containerd` + `docker` instead of asking for a full reboot.
 2. **`cln`** &mdash; cleanups for the same package managers, plus old `node` versions. `upd -c` runs `cln` after `upd`.
 3. **`playbash`** &mdash; multi-host playbook runner. Wraps `upd`/`cln`/`chezmoi update`/`dcms` into `playbash-daily` and `playbash-weekly` and runs them across an inventory of hosts in parallel, with a per-host live view and an aggregated summary. Replaces the older Ansible-based stack. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management).
 

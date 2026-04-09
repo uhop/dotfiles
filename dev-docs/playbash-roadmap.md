@@ -1,14 +1,14 @@
 # Playbash — roadmap
 
-Status checklist for `playbash`, the multi-host bash playbook runner that replaced our ansible-based maintenance stack. For technical rationale and protocol details see [`playbash-design.md`](./playbash-design.md). For the original motivation see [`ansible-replacement.md`](./ansible-replacement.md).
+Status checklist for `playbash`, the multi-host bash playbook runner that replaced our ansible-based maintenance stack. For technical rationale and protocol details see [`playbash-design.md`](./playbash-design.md).
 
 ## Status
 
-- **v1 (proof of concept)** — ✅ done
-- **v2 (production polish + dogfooding)** — ✅ done
-- **v3 (portability to vanilla hosts)** — in progress; first two prep milestones done
+- **v1 (proof of concept)** — ✅ closed
+- **v2 (production polish + dogfooding)** — ✅ closed (no outstanding milestones; mission accomplished, ansible is gone)
+- **v3 (portability to vanilla hosts)** — not started
 
-`playbash` has fully replaced the previous ansible setup. Daily and weekly cron runs across the fleet go through `playbash run daily all` / `playbash run weekly all`. Mac targets are supported end-to-end (verified during the milestone-10/11 PTY work).
+`playbash` has fully replaced the previous ansible setup. Daily and weekly cron runs across the fleet go through `playbash run daily all` / `playbash run weekly all`. Mac targets are supported end-to-end via the cross-platform Python PTY wrapper (verified during the milestone-11 PTY work).
 
 ## Done — v1
 
@@ -28,15 +28,13 @@ Status checklist for `playbash`, the multi-host bash playbook runner that replac
 11. **Cross-platform PTY wrapper (Mac target support).** ✅ Replaced the Linux-only `script(1)` wrap with `~/.local/libs/playbash-wrap.py`, a small Python PTY wrapper deployed to every chezmoi-managed host. Same wrapper runs unmodified on Linux and Mac targets. Two Mac-specific bugs had to be fixed before the kill path propagated end-to-end: a 1-second `os.write(1, b"")` probe to compensate for `select.poll()` not delivering `POLLHUP` on Darwin, and `os.close(fd)` on the PTY master before `waitpid` to avoid a kernel-level deadlock where bash got stuck in `?Es` mid-exit while the controlling terminal couldn't be revoked. The Linux→Mac sudo-prompt path is now verified end-to-end. See [playbash-design.md § PTY allocation](./playbash-design.md#pty-allocation) and [playbash-debugging.md](./playbash-debugging.md) for the rationale and the full debugging trail.
 12. **`upd --restart-services` flag.** ✅ When set AND a docker-related upgrade is detected, `maintenance::restart_docker_services` runs `sudo systemctl restart containerd && sudo systemctl restart docker` to recover without a full reboot, falling back to `report_reboot` if either restart fails. The doas whitelist entries for these commands are in `run_onchange_before_install-packages.sh.tmpl:213-214`; existing hosts may need a manual `/etc/doas.conf` update.
 
-## Done — v3 prep
-
-13. **`PLAYBASH_LIBS` env override.** ✅ `playbash.sh` and the in-tree playbooks honor `"${PLAYBASH_LIBS:-$HOME/.local/libs}"` instead of hard-coding `~/.local/libs`. Zero behavior change for chezmoi-managed hosts (the default expands to the same path). Prerequisite for milestone 16 (upload mode): when the runner stages helpers into a scratch dir, the playbook needs to find them there.
-
 ## Next — v3 priority order
 
 Goal: run playbash against any Linux/Mac host with `bash`, `ssh`, and `python3` (≥ 3.9) without requiring chezmoi or any pre-deployment. Heterogeneous fleets (mix of chezmoi-managed and vanilla hosts) are first-class.
 
-**ssh authentication requirement.** All ssh invocations from the runner are non-interactive: the spawn uses `stdio: ['ignore', 'pipe', 'pipe']` AND `detached: true` (which calls `setsid(2)`, leaving the child without a controlling terminal). ssh therefore has nowhere to prompt for a key passphrase or remote password. **Passwordless ssh is a hard requirement** (same as ansible / pyinfra / fabric): the operator must have either ssh-agent running with the key loaded, or public-key auth pre-configured per host. As of v3 every ssh spawn passes `-o BatchMode=yes` so any auth that would require interaction fails immediately with a clear error message. Bootstrapping a vanilla host's `~/.ssh/authorized_keys` is an interactive setup step done outside the runner (see [Future](#future)).
+**ssh authentication requirement.** All ssh invocations from the runner will be non-interactive: the spawn uses `stdio: ['ignore', 'pipe', 'pipe']` AND `detached: true` (which calls `setsid(2)`, leaving the child without a controlling terminal). ssh therefore has nowhere to prompt for a key passphrase or remote password. **Passwordless ssh will be a hard requirement** (same as ansible / pyinfra / fabric): the operator must have either ssh-agent running with the key loaded, or public-key auth pre-configured per host. As of v3 every ssh spawn will pass `-o BatchMode=yes` so any auth that would require interaction fails immediately with a clear error message. Bootstrapping a vanilla host's `~/.ssh/authorized_keys` is an interactive setup step done outside the runner (see [Future](#future)).
+
+13. **`PLAYBASH_LIBS` env override.** Cleanup. Make `playbash.sh` and the in-tree playbooks honor `"${PLAYBASH_LIBS:-$HOME/.local/libs}"` instead of hard-coding `~/.local/libs`. Zero behavior change for chezmoi-managed hosts (the default expands to the same path). Prerequisite for milestone 16: when the runner stages helpers into a scratch dir, the playbook needs to find them there. Tiny patch — one variable per `source` line in each playbook script + one path substitution in `playbash.sh`.
 
 14. **Wrapper staging primitive.** Internal helper that ensures the python wrapper is present on a remote host before a run. For chezmoi-managed hosts, no-op — the wrapper is already at `~/.local/libs/playbash-wrap.py`. For vanilla hosts, `mktemp -d` once per host, push the wrapper (probably via `cat <wrapper> | ssh host 'cat > <staging>/playbash-wrap.py'` since the wrapper is small and this avoids depending on `scp`/`rsync`), return the staging dir path. Result cached locally under `~/.cache/playbash/staging/<hostkey>/` keyed by the wrapper's sha so a `chezmoi apply` that updates the wrapper naturally invalidates all per-host staging dirs. No user-visible CLI surface — substrate consumed by milestones 15, 16, and 17.
 
@@ -70,11 +68,11 @@ Decide during implementation, not before.
 Beyond v3. These are real wants flagged by the user and worth their own design conversations before coding.
 
 - **`playbash bootstrap <host>`.** Interactive setup helper for vanilla hosts: runs `ssh-copy-id` (or its equivalent) to push the operator's public key into `~/.ssh/authorized_keys` on the target, then verifies that subsequent non-interactive ssh works. Explicitly NOT in v3 because it's interactive — runs against the v3 runner's "no stdin to remote, no `/dev/tty`, `BatchMode=yes`" architecture and needs its own UX. Pairs with the "sudo support" item below as the second "interactive setup" thing that needs its own design conversation. Until this lands, the documented workflow for a new vanilla host is "run `ssh-copy-id host` once by hand, then use playbash."
-- **`sudo` support.** The unsolved problem from [ansible-replacement.md § Unsolved: sudo password](./ansible-replacement.md#unsolved-sudo-password). Currently scripts are assumed to never ask, and milestone 10's "needs sudo" detection lets the runner abort cleanly when a prompt appears. Actually *answering* the prompt is a different problem. The right shape is unclear and worth a real design conversation before any code — the trade-offs around password handling, certificate-based sudo, sidecar-driven elevation, and detect-and-abort all need to be on the table together.
+- **`sudo` support.** Currently scripts are assumed to never ask for a sudo password, and milestone 10's "needs sudo" detection lets the runner abort cleanly when a prompt appears. Actually *answering* the prompt is a different problem and the right shape is unclear. Constraints from the original analysis: running the whole playbook as `sudo` is not an option — non-`sudo` parts still execute, and any files they write end up owned by root, breaking subsequent non-`sudo` runs. Supplying the password as text is insecure. The operator already uses ssh certificates for login (password auth is off for ssh), so a certificate-based `sudo` would be ideal if it existed. Trade-offs around password handling, certificate-based sudo, sidecar-driven elevation, and detect-and-abort all need to be on the table together — worth a real design conversation before any code.
 
 ## Wiki sync followup
 
-When v3 ships, re-audit the four `external_wiki/` files that mention playbash. Vanilla-host workflow + `playbash exec`/`put`/`get`/`bootstrap` will reshape the user-facing surface significantly.
+Wiki audited at v2 closure. When v3 ships, re-audit the same four `external_wiki/` files — vanilla-host workflow + `playbash exec`/`put`/`get`/`bootstrap` will reshape the user-facing surface significantly:
 
 - `Playbash-Server-Management.md` — primary doc; will need the most edits.
 - `Utilities.md` — likely a one-line entry; spot-check.

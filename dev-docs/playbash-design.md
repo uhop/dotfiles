@@ -6,11 +6,10 @@ Companion docs:
 
 - [`playbash-roadmap.md`](./playbash-roadmap.md) — milestone checklist and current status.
 - [`playbash-debugging.md`](./playbash-debugging.md) — full debugging trail for the milestone-11 Mac PTY bugs.
-- [`ansible-replacement.md`](./ansible-replacement.md) — original motivation, kept as a historical artifact (the project shipped, ansible is gone).
 
 ## Why not pyinfra
 
-[`pyinfra`](https://pyinfra.com/) was evaluated against current usage and ruled out (full discussion in [`ansible-replacement.md` § Addendum](./ansible-replacement.md#addendum-pyinfra)):
+[`pyinfra`](https://pyinfra.com/) was evaluated against current usage and ruled out:
 
 - Operations abstraction (apt/apk/brew/zfs/...) is overkill — we only want to run existing shell commands.
 - Step-synchronized fan-out across hosts; we want each host to run independently, in isolation.
@@ -122,7 +121,7 @@ Revisit if any of these become true: playbooks where deterministic teardown matt
 
 ## Runtime model
 
-Playbooks are expected to already live on the target host, distributed by `chezmoi` to the same conventional locations as everything else: scripts in `~/.local/bin/` and sourced helpers in `~/.local/libs/`. This is the **primary mode**. It mirrors how `upd`, `cln`, `dcm`, and the previous `ansible-daily` are deployed today, and it has two important properties:
+Playbooks are expected to already live on the target host, distributed by `chezmoi` to the same conventional locations as everything else: scripts in `~/.local/bin/` and sourced helpers in `~/.local/libs/`. This is the **primary mode**. It mirrors how `upd`, `cln`, and `dcm` are deployed today, and it has two important properties:
 
 - The playbook script is *directly runnable by hand* over plain `ssh` with no environment setup. Helpers locate their siblings via a relative path (`../libs/playbash.sh`). Sidecar reporting is opt-in: if `$PLAYBASH_REPORT` is unset, the helpers print human-readable output and skip the JSON-lines append.
 - Playbash does not need to copy anything for the common case. It only sets a few env vars and runs the script.

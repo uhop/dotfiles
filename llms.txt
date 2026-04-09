@@ -54,35 +54,35 @@ Options: `-v, --version`, `-h, --help`
 
 Supported formats: `.tar.br`, `.tar.bz2`, `.tar.gz`, `.tar.xz`, `.tar.zst`, `.tar`, `.tbz2`, `.tgz`, `.7z`, `.deb`, `.rar`, `.zip`, `.br`, `.bz2`, `.gz`, `.xz`, `.zst`, `.Z`
 
-### Ansible Server Management
+### Playbash Server Management
 
-Remote server automation using Ansible. All commands use colored terminal output and target the Ansible inventory.
+Multi-host bash playbook runner. Replaced the previous Ansible-based stack at v2 closure (mission accomplished — no `ansible-*` commands remain). See `dev-docs/playbash-design.md` and `dev-docs/playbash-roadmap.md`.
 
-**Individual commands:**
-- `ansible-chezmoi` — `chezmoi update` on all servers
-- `ansible-dcms` — `dcms` (Docker Compose update) on all servers
-- `ansible-upd` — `upd -y` (software update) on all servers
+**Runner:** Node CLI at `~/.local/bin/playbash` (single entrypoint + three modules under `~/.local/share/playbash/`). Cross-platform PTY allocation via `~/.local/libs/playbash-wrap.py` (Python). Linux + macOS targets supported end-to-end.
 
-**Maintenance stacks (fail-fast, stop on first error):**
-- `ansible-daily` — Daily sequence: chezmoi → dcms → upd -y
-- `ansible-weekly` — Weekly sequence with cleanup: chezmoi → dcms → upd -cy
+**Subcommands:**
+- `playbash run <playbook> <targets> [-n LINES] [-p N] [--self]` — run with live rectangle (single target) or status board (multiple targets)
+- `playbash debug <playbook> <targets>` — same with `-n 0` and verbose summary
+- `playbash list` — list playbooks at `~/.local/bin/playbash-*`
+- `playbash hosts` — list inventory entries (marks self)
+- `playbash log [path]` — view a per-run log file with terminal-hostile escapes stripped
 
-**Common options:**
-- `--limit <host>` — run on specific server only (e.g., `--limit croc`)
-- `--limit <group>` — run on group only (e.g., `--limit ubuntu` or `--limit mac`)
-- `--check` — dry run (check mode)
+**Targets:** comma-separated host names, group names, and the implicit `all` group. Resolved from `~/.config/playbash/inventory.json` (plain JSON: string shorthand, object with `address`, or array for groups). Unknown names pass through to ssh, so `~/.ssh/config` aliases keep working.
 
-**Inventory groups:** `ubuntu` (croc, mini, nuke), `mac` (mini2)
+**Built-in playbooks:**
+- `playbash-hello` — smoke test
+- `playbash-sample` — exercises rectangle + sidecar
+- `playbash-daily` — `chezmoi update` → `dcms` → `upd -y`
+- `playbash-weekly` — `chezmoi update` → `dcms` → `upd -cy`
 
-**Playbook location:** `~/ansible/playbooks/`
+**Reporting model:** playbooks emit JSON-lines events into a per-run sidecar (`$PLAYBASH_REPORT`). Two helper libraries write into it: `~/.local/libs/playbash.sh` (general API: `playbash_info`/`warn`/`error`/`action`/`reboot`/`step`) and `~/.local/libs/maintenance.sh` (used by `upd`/`cln`: `report_reboot`/`report_warn`/`report_action`). Both pretty-print to stderr when `$PLAYBASH_REPORT` is unset, so playbook scripts remain runnable by hand. The runner aggregates per host and across hosts, deduping identical events from multiple sources.
 
-### ansible-inventory-transfer
+**Self detection:** runtime IP comparison via `os.networkInterfaces()` + `dns.lookup`. Single self target is refused unless `--self` is passed; in fan-out, self is silently dropped unless `--self` flips it. With `--self`, the playbook runs locally as a child process (no ssh) through the same sidecar/summary pipeline.
 
-Transfer Ansible inventory to a remote server. Reads local inventory, adds current host to OS-appropriate group (Linux/Darwin), excludes target host, and copies via SSH.
-
-**Usage:**
-```bash
-ansible-inventory-transfer croc    # Transfer inventory to croc (excludes croc)
+**Cron:** runs without a tty, falls back to plain (non-rectangle, non-color) output suitable for log capture. Typical entries:
+```cron
+0 3 * * * /home/eugene/.local/bin/playbash run daily all
+0 4 * * 0 /home/eugene/.local/bin/playbash run weekly all
 ```
 
 ### upd
@@ -92,9 +92,12 @@ System updater. Template: `executable_upd.tmpl`.
 Options:
 - `-c, --clean` — run `cln` after updating
 - `-y, --yes` — assume yes to all prompts
+- `-r, --restart-services` — after a `docker-ce`/`containerd`/`docker-buildx-plugin`/`docker-compose-plugin` upgrade, run `sudo systemctl restart containerd && sudo systemctl restart docker` to recover without a full reboot (falls back to a reboot recommendation if either restart fails). Doas whitelist entries for these commands ship in `run_onchange_before_install-packages.sh.tmpl`.
 - `-v, --version`, `-h, --help`
 
 Updates: `apt` (Debian), `snap` (Debian), `flatpak`, `softwareupdate` (macOS), `mas` (macOS), `brew`, `tmux` plugins, `bun`.
+
+Sources `~/.local/libs/maintenance.sh` for `report_*` helpers and apt-history scanning. After the apt step, `maintenance::check_apt_since` diffs `/var/log/apt/history.log` since the pre-step snapshot and reacts: docker-related upgrades → restart-or-reboot, AppArmor upgrades → eager `aa-remove-unknown` + recovery marker file at `~/.cache/playbash/needs-aa-cleanup`, `/run/reboot-required` → `report_reboot` with the package list as the reason. All events flow into `$PLAYBASH_REPORT` when running under `playbash`.
 
 ### cln
 
