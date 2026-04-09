@@ -187,6 +187,33 @@ On a match (either path):
 
 This status is reported per host so the daily run across many hosts produces a clean "these N hosts need you" list rather than a wall of stderr.
 
+**Implementation notes (2026-04-08).** v1 cheap path shipped (regex over the
+captured PTY stream + `LC_ALL=C` on the remote side); idle-output watchdog
+and v2 `/proc/$pid/wchan` path both deferred — the regex turned out to be
+sufficient for every prompt we hit in dogfooding. Two Mac-only bugs in the
+python wrapper (`private_dot_local/libs/playbash-wrap.py`) were uncovered
+during dogfooding and had to be fixed before the kill path actually
+propagated end-to-end on Mac targets:
+
+1. **`select.poll()` on Darwin doesn't deliver `POLLHUP` on a closed pipe
+   write end.** Fixed by a 1-second `os.write(1, b"")` probe — a zero-byte
+   write raises `EPIPE` reliably on Darwin within milliseconds of the read
+   end closing.
+2. **macOS `waitpid` deadlock at exit.** When the `pty.fork()` child is a
+   session leader and its subtree includes a program that grabs the
+   controlling terminal in raw mode (e.g. `sudo` reading a password), the
+   kernel cannot finish revoking the controlling terminal — and therefore
+   cannot finish the child's exit — while another process still holds the
+   PTY master fd open. The child stalls in `?Es` state and `waitpid`
+   blocks forever, leaking the entire ssh channel. Fixed by `os.close(fd)`
+   on the PTY master immediately before `waitpid`. Linux is unaffected.
+
+The `read -p` test payload used in earlier rounds masked bug 2 because
+`read` doesn't manipulate termios — only programs that put the PTY into
+raw mode trigger the kernel revoke stall. **Lesson: never use `read -p`
+as a stand-in for `sudo` in PTY tests.** Full debugging trail and minimal
+repro in [playbash-debugging.md](./playbash-debugging.md).
+
 ## Sidecar protocol (detailed)
 
 The sidecar is a single file on the remote host whose path is in `$PLAYBASH_REPORT`. The playbook (via helpers) appends one JSON object per line. JSON-lines is chosen for: append-safety, partial-read tolerance, and trivial parsing.
@@ -312,11 +339,11 @@ Exact paths to be confirmed against existing chezmoi conventions before coding.
 7. **Groups + parallel fan-out.** ✅ Comma-separated CLI lists, group expansion (no recursion), implicit `all`, self-exclusion with notice (`--self` flips it). Single resolved target uses the live rectangle; multiple targets switch to a `StatusBoard` with parallel runs (default unlimited, `-p N` to cap). Sticky most-recently-active focused-host rectangle. Per-host summaries in input order, cross-host aggregation at the end. Continue-on-failure, exit code 1 if any host failed.
 8. **File split + reorg.** ✅ Runner split into entry + three modules (`render.js`, `inventory.js`, `sidecar.js`). Then moved out of `bin/` into `private_share/playbash/` and `private_share/utils/` (deploy to `~/.local/share/playbash/` and `~/.local/share/utils/` with private permissions; chezmoi `private_` attribute). Helpers for the node-version scripts dropped the `-utils` suffix at the same time (`comp.js`, `semver.js`, `nvm.js`).
 9. **`upd`/`cln` refactor.** ✅ New `~/.local/libs/maintenance.sh` providing `report_reboot`, `report_warn`, `report_action` (each prints colored output AND writes a JSON-lines event to `$PLAYBASH_REPORT` when set). Inlined JSON writer; no `playbash.sh` dependency. `maintenance::snapshot_apt` + `maintenance::check_apt_since` snapshot the apt history-log byte position before each script's apt operations and scan the diff after, detecting docker-related upgrades (→ `report_reboot`), AppArmor upgrades (→ eager `aa-remove-unknown` + recovery-marker file at `~/.cache/playbash/needs-aa-cleanup` for interrupted runs), and `/run/reboot-required` (→ `report_reboot` with the package name from `.pkgs`). Both `upd` and `cln` source the helper, both call `cleanup_apparmor_if_marked` at startup as the recovery path for interrupted runs. The post-hoc `[ -e /run/reboot-required ]` check was removed from `playbash-daily`/`playbash-weekly` (the helper now writes the same events authoritatively). Per-host renderer dedupe and per-host aggregator dedupe collapse identical events from multiple sources (e.g. upd + cln) into one user-visible line.
+10. **Interactive input detection.** ✅ v1 cheap path shipped: stdin-watch regex over the captured PTY stream catches sudo/doas/`Password:`/`Sorry, try again.`/`[Y/n]` etc., with `LC_ALL=C` forced on the remote side so prompts are predictable; on match the runner kills the local ssh process group and reports `needs sudo` as a distinct per-host status. Idle-output watchdog and v2 `/proc/$pid/wchan` precise path both deferred — the regex was sufficient for every prompt encountered in dogfooding. Required two follow-on Mac-only fixes in the python PTY wrapper (`private_dot_local/libs/playbash-wrap.py`) before the kill path actually propagated end-to-end against Mac targets: a 1-second `os.write(1, b"")` probe to compensate for `select.poll()` not delivering `POLLHUP` on Darwin, and `os.close(fd)` on the PTY master before `waitpid` to avoid a kernel-level deadlock where bash got stuck in `?Es` mid-exit while the controlling terminal couldn't be revoked. See [Interactive input detection](#interactive-input-detection) and [playbash-debugging.md](./playbash-debugging.md) for the full debugging trail and minimal repro.
 
 ### Next (v2 — priority order)
 
-10. **Interactive input detection.** Generic stdin-wait detection to catch the `chezmoi update`-needs-sudo case and similar. v1 cheap path: regex over output + idle-output watchdog with `LC_ALL=C`. v2 precise path: `/proc/$pid/wchan` inspection on Linux. macOS falls back to v1. See [Interactive input detection](#interactive-input-detection).
-11. **macOS remote target support.** BSD `script(1)` syntax in the remote command wrap. Detect at first contact, cache per host. Lets you `playbash run daily <mac-host>` from any other machine. Local execution on the Mac via `--self` already works.
+11. **macOS remote target support.** BSD `script(1)` syntax in the remote command wrap. Detect at first contact, cache per host. Lets you `playbash run daily <mac-host>` from any other machine. Local execution on the Mac via `--self` already works. (Note: the Mac PTY wrapper itself was already in place for milestone 10, so the Linux→Mac sudo-prompt path is verified end-to-end. What remains here is wrapping non-prompt-driven playbooks against Mac targets in the same fan-out flow as Linux targets.)
 12. **`upd --restart-services` flag.** Follow-up to milestone 9. When set AND a docker-related upgrade was detected, attempt `sudo systemctl restart docker; sudo systemctl restart containerd` to recover without a full reboot, falling back to `report_reboot` if the restart fails. The doas whitelist entries for these commands are already added to `run_onchange_before_install-packages.sh.tmpl`; existing hosts need a manual `/etc/doas.conf` update.
 
 ### Future (post-v2 — discussion needed)
