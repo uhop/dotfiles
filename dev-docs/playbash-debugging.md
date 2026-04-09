@@ -138,5 +138,5 @@ isn't.
 
 - **Cleanup of `playbash`-related code per the "Clean up" section above.**
   Once Linux end-to-end is validated, prune any remaining failed-attempt
-  artifacts and update `dev-docs/ansible-replacement-plan.md` milestone 10
+  artifacts and update `dev-docs/playbash-roadmap.md` milestone 10
   with the final root cause.
