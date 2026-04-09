@@ -1,9 +1,22 @@
+{{- /* Precompute paths at chezmoi apply time */ -}}
+{{- $brew_prefix := "" -}}
+{{- $brew_bash_git_prompt := "" -}}
+{{- $brew_nvm := "" -}}
+{{- $pyenv_root := "" -}}
+{{- if lookPath "brew" -}}
+{{-   $brew_prefix = output "brew" "--prefix" | trim -}}
+{{-   $brew_bash_git_prompt = output "brew" "--prefix" "bash-git-prompt" | trim -}}
+{{-   $brew_nvm = output "brew" "--prefix" "nvm" | trim -}}
+{{- end -}}
+{{- if lookPath "pyenv" -}}
+{{-   $pyenv_root = output "pyenv" "root" | trim -}}
+{{- end }}
 # ~/.bashrc: executed by bash(1) for non-login shells.
 # see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
 # for examples
 
-VISUAL=yes
-[ -z "$PS1" ] && VISUAL=
+__INTERACTIVE=yes
+[ -z "$PS1" ] && __INTERACTIVE=
 
 # don't put duplicate lines or lines starting with space in the history.
 # See bash(1) for more options
@@ -36,7 +49,7 @@ esac
 # should be on the output of commands, not on the prompt
 #force_color_prompt=yes
 
-if [ "$VISUAL" == yes ]; then
+if [ "$__INTERACTIVE" == yes ]; then
 	if [ -n "$force_color_prompt" ]; then
 	    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
 	        # We have color support; assume it's compliant with Ecma-48
@@ -53,37 +66,33 @@ if [ "$VISUAL" == yes ]; then
 	    PS1='\w \$ '
 	fi
 fi
-
-unameOut="$(uname -s)"
-case "${unameOut}" in
-    Linux*)     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)";;
-    Darwin*)
-      if [ -s /opt/homebrew/bin/brew ]; then
-      	eval "$(/opt/homebrew/bin/brew shellenv)"
-      elif [ -s /usr/local/bin/brew ]; then
-      	eval "$(/usr/local/bin/brew shellenv)"
-      fi
-    	;;
-esac
-
-if [ "$VISUAL" == yes ]; then
-	BGP="$(brew --prefix bash-git-prompt)"
-	if [ -s "$BGP/share/gitprompt.sh" ]; then
+{{ if eq .chezmoi.os "linux" }}
+[ -x /home/linuxbrew/.linuxbrew/bin/brew ] && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+{{- else if eq .chezmoi.os "darwin" }}
+if [ -s /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -s /usr/local/bin/brew ]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
+{{- end }}
+{{ if $brew_bash_git_prompt }}
+if [ "$__INTERACTIVE" == yes ]; then
+	if [ -s "{{ $brew_bash_git_prompt }}/share/gitprompt.sh" ]; then
 	    #GIT_PROMPT_ONLY_IN_REPO=1
 	    #GIT_PROMPT_FETCH_REMOTE_STATUS=0   # uncomment to avoid fetching remote status
 	    #GIT_PROMPT_THEME=Default
 	    #GIT_PROMPT_THEME=Single_line_Solarized
-	    __GIT_PROMPT_DIR="$BGP/share"
+	    __GIT_PROMPT_DIR="{{ $brew_bash_git_prompt }}/share"
 	    GIT_PROMPT_THEME=Single_line
-	    \. "$BGP/share/gitprompt.sh"
+	    \. "{{ $brew_bash_git_prompt }}/share/gitprompt.sh"
 	fi
-	unset BGP
 fi
+{{- end }}
 
 unset color_prompt force_color_prompt
 
 # If this is an xterm set the title to user@host:dir
-if [ "$VISUAL" == yes ]; then
+if [ "$__INTERACTIVE" == yes ]; then
 	case "$TERM" in
 	xterm*|rxvt*)
 	    PS1="\[\e]0;\u@\h: \w\a\]$PS1"
@@ -96,42 +105,41 @@ fi
 # set PATH so it includes user's private bin if it exists
 [ -d ~/bin ] && PATH="$HOME/bin:$PATH" || true
 [ -d ~/.local/bin ] && PATH="$HOME/.local/bin:$PATH" || true
-
-BP="$(brew --prefix)"
-if [ -s "$BP/etc/profile.d/bash_completion.sh" ]; then
-  \. "$BP/etc/profile.d/bash_completion.sh"
-elif [ -d "$BP/etc/bash_completion.d/" ]; then
-  for COMPLETION in "$BP/etc/bash_completion.d/"*
+{{ if $brew_prefix }}
+if [ -s "{{ $brew_prefix }}/etc/profile.d/bash_completion.sh" ]; then
+  \. "{{ $brew_prefix }}/etc/profile.d/bash_completion.sh"
+elif [ -d "{{ $brew_prefix }}/etc/bash_completion.d/" ]; then
+  for COMPLETION in "{{ $brew_prefix }}/etc/bash_completion.d/"*
   do
     [ -s "${COMPLETION}" ] && \. "${COMPLETION}"
   done
 fi
 # util-linux should be in the path
-[ -d "$BP/opt/util-linux/bin" ] && PATH="$BP/opt/util-linux/bin:$PATH" || true
-[ -d "$BP/opt/util-linux/sbin" ] && PATH="$BP/opt/util-linux/sbin:$PATH" || true
-unset BP
+[ -d "{{ $brew_prefix }}/opt/util-linux/bin" ] && PATH="{{ $brew_prefix }}/opt/util-linux/bin:$PATH" || true
+[ -d "{{ $brew_prefix }}/opt/util-linux/sbin" ] && PATH="{{ $brew_prefix }}/opt/util-linux/sbin:$PATH" || true
+{{- end }}
 
 # git completion
 [ -s ~/.config/git/git-completion.bash ] && \. ~/.config/git/git-completion.bash
-
+{{ if $brew_nvm }}
 # NVM for node.js
-BPN="$(brew --prefix nvm)"
-if [ -s "$BPN/nvm.sh" ]; then
+if [ -s "{{ $brew_nvm }}/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
-  \. "$BPN/nvm.sh"
+  \. "{{ $brew_nvm }}/nvm.sh"
   # nvm use stable
-  if [ -s "$BPN/etc/bash_completion.d/nvm" ]; then
-    \. "$BPN/etc/bash_completion.d/nvm"
+  if [ -s "{{ $brew_nvm }}/etc/bash_completion.d/nvm" ]; then
+    \. "{{ $brew_nvm }}/etc/bash_completion.d/nvm"
   fi
 fi
-unset BPN
-
+{{- end }}
+{{ if $pyenv_root }}
 # pyenv
 if command -v pyenv &> /dev/null; then
-  export PYENV_ROOT="$HOME/.pyenv"
-  export PATH="$PYENV_ROOT/bin:$(pyenv root)/shims:${PATH}"
+  export PYENV_ROOT="{{ $pyenv_root }}"
+  export PATH="$PYENV_ROOT/bin:$PYENV_ROOT/shims:${PATH}"
   eval "$(pyenv init -)"
 fi
+{{- end }}
 
 # bun
 if [ -s ~/.bun/bin/bun ]; then
@@ -143,7 +151,7 @@ fi
 [ -d ~/.lmstudio/bin ] && PATH="$HOME/.lmstudio/bin:$PATH" || true
 
 command -v doas &> /dev/null && complete -cf doas || true
-command -v xc &> /dev/null && complete -C "$(brew --prefix xc)" xc || true
+command -v xc &> /dev/null && complete -C xc xc || true
 command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
 command -v playbash &> /dev/null && eval "$(playbash --bash-completion)" || true
 [ -s ~/.config/broot/launcher/bash/br ] && \. ~/.config/broot/launcher/bash/br || true
@@ -163,8 +171,8 @@ fi
 
 if command -v pet &> /dev/null; then
   function ppet() {
-    PREV=$(echo `history | tail -n2 | head -n1` | sed 's/[0-9]* //')
-    sh -c "pet new `printf %q "$PREV"`"
+    PREV=$(history | tail -n2 | head -n1 | sed 's/^[[:space:]]*[0-9]*[[:space:]]*//')
+    pet new "$(printf %q "$PREV")"
   }
 
   function pet-select() {
@@ -199,7 +207,7 @@ if [[ $TERM_PROGRAM != "WarpTerminal" ]]; then
   [ -s ~/.iterm2_shell_integration.bash ] && \. ~/.iterm2_shell_integration.bash || true
 fi
 
-if [ "$VISUAL" == yes ] && [ -z "$WINDSURF_CASCADE_TERMINAL" ]; then
+if [ "$__INTERACTIVE" == yes ] && [ -z "$WINDSURF_CASCADE_TERMINAL" ]; then
 	# [ "$SHLVL" == "1" ] && command -v fastfetch &> /dev/null && fastfetch || true
 	if command -v fastfetch &> /dev/null; then
 	  SPN=$(ps -p $PPID | awk '{print substr($0, index($0, $4))}' | tail -1)
@@ -210,7 +218,7 @@ if [ "$VISUAL" == yes ] && [ -z "$WINDSURF_CASCADE_TERMINAL" ]; then
 	fi
 fi
 
-unset VISUAL
+unset __INTERACTIVE
 
 export EDITOR=micro
 export VISUAL=micro
@@ -218,12 +226,10 @@ export BASH_SILENCE_DEPRECATION_WARNING=1
 export FORCE_COLOR=3
 
 if [ -s ~/.env ]; then
-  case "${unameOut}" in
-      Linux*)             export $(grep -v '^#' ~/.env | xargs -d '\n');;
-      Darwin* | FreeBSD*) export $(grep -v '^#' ~/.env | xargs -0);;
-  esac
+  set -a
+  \. ~/.env
+  set +a
 fi
-unset unameOut
 
 export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
 
@@ -240,19 +246,22 @@ export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
 
 [ -s ~/.bash_aliases ] && \. ~/.bash_aliases || true
 
-# dedupe path (based on https://www.linuxjournal.com/content/removing-duplicate-path-entries)
-# export PATH=$(echo -n "$PATH" | awk -v RS=: '!($0 in a) {a[$0]; printf("%s%s", length(a) > 1 ? ":" : "", $0)}')
-
-# custom dedupe
-if command -v node &> /dev/null; then
-  export PATH=$(node -e '
-    const path = new Set(process.env.PATH.split(":"));
-    path.delete("");
-    let nvm;
-    for (const p of path) {
-      if (/\.nvm\b/.test(p)) nvm = p;
-    }
-    if (nvm) path.delete(nvm);
-    console.log((nvm ? [nvm, ...path] : [...path]).join(":"));
-  ')
-fi
+# dedupe path, ensure nvm is first
+_dedup_path() {
+  local result="" nvm_entry="" seen=":"
+  local IFS=: p
+  for p in $PATH; do
+    [[ -z "$p" ]] && continue
+    case "$seen" in *:"$p":*) continue ;; esac
+    seen+="$p:"
+    if [[ "$p" =~ \.nvm ]]; then
+      nvm_entry="$p"
+    else
+      result+="${result:+:}$p"
+    fi
+  done
+  [[ -n "$nvm_entry" ]] && result="$nvm_entry:$result"
+  echo "$result"
+}
+export PATH="$(_dedup_path)"
+unset -f _dedup_path

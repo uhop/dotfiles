@@ -6,6 +6,7 @@
       "Read(~/.local/libs/**)",
       "Bash(~/.local/bin/playbash hosts:*)",
       "Bash(git mv:*)",
+      "Bash(git rm:*)",
       "Bash(ls:*)",
       "Bash(command ls:*)",
       "Bash(ps:*)",
@@ -22,7 +23,10 @@
       "Bash(chezmoi apply:*)",
       "Bash(chezmoi --help)",
       "Bash(chezmoi cat-config:*)",
-      "Bash(chezmoi execute-template:*)"
+      "Bash(chezmoi execute-template:*)",
+      "Bash(chezmoi cat:*)",
+      "Bash(chezmoi verify:*)",
+      "Bash(chezmoi diff:*)"
     ]
   }
 }

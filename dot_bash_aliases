@@ -202,15 +202,15 @@ fi
 if command -v prettyping &> /dev/null; then
   alias ping='sudo prettyping --nolegend'
 fi
-alias top="htop"
+command -v htop &> /dev/null && alias top="htop" || true
 du() {
-  if [ $# -eq 0 ]; then
+  if [ $# -eq 0 ] && command -v ncdu &> /dev/null; then
     ncdu --color dark -rr -x --exclude .git --exclude node_modules
   else
     command du "$@"
   fi
 }
-alias help='tldr'
+command -v tldr &> /dev/null && alias help='tldr' || true
 
 # System rebooting
 
@@ -240,7 +240,7 @@ fi
 
 # copied from https://www.reddit.com/r/linuxquestions/comments/16tgbh9/what_are_your_favorite_aliases_to_use/
 
-alias duf="duf -only local,fuse"
+alias duf="command duf -only local,fuse"
 
 nowrap() {
     # this is a function so it can have params
