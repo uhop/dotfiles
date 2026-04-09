@@ -123,4 +123,11 @@ except OSError:
     pass
 
 _, st = os.waitpid(pid, 0)
-raise SystemExit(os.waitstatus_to_exitcode(st))
+# Portable exit-code extraction — works back to Python 3.3 (no
+# os.waitstatus_to_exitcode which requires 3.9+).
+if os.WIFEXITED(st):
+    raise SystemExit(os.WEXITSTATUS(st))
+elif os.WIFSIGNALED(st):
+    raise SystemExit(128 + os.WTERMSIG(st))
+else:
+    raise SystemExit(1)

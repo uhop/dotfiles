@@ -280,6 +280,7 @@ private_dot_local/
       render.js                         # Rectangle, HostSlot, StatusBoard, COLOR, sanitizer
       inventory.js                      # load, resolve, self detection, target filtering
       sidecar.js                        # JSON-lines parser, per-host + cross-host aggregation
+      staging.js                        # wrapper staging for vanilla hosts, BatchMode ssh
     utils/
       comp.js                           # general-purpose comparison helpers
       semver.js                         # semver parsing
@@ -292,7 +293,8 @@ Notes:
 - General-purpose helpers (`comp.js`, `semver.js`, `nvm.js`) live in `private_share/utils/` and are imported by other Node executables (`update-node-versions.js`, `trim-node-versions.js`).
 - There is no `connection.js` because connection lifecycle is delegated to `~/.ssh/config` (see [Connection management](#connection-management)).
 - `cmdList` filters out `.js` files defensively, in case future helpers land in `bin/`.
-- Dependency graph: entry → all three playbash modules; sidecar → render (for `COLOR`). No cycles.
+- Dependency graph: entry → all four playbash modules; sidecar → render (for `COLOR`). No cycles.
+- All ssh invocations pass `-o BatchMode=yes`. Passwordless auth (key agent or pre-configured public-key) is a hard requirement — same as ansible / pyinfra / fabric. Auth failures are fast and deterministic.
 
 ## Reboot/warning reporting in upd/cln
 

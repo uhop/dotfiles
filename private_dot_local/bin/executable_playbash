@@ -5,9 +5,10 @@
 // run pipelines, and the list/hosts/log subcommands. Rendering, inventory,
 // and sidecar handling live in sibling modules:
 //
-//   playbash-render.js   — Rectangle, StatusBoard, COLOR, sanitizer
+//   playbash-render.js    — Rectangle, StatusBoard, COLOR, sanitizer
 //   playbash-inventory.js — load/resolve/group/self
-//   playbash-sidecar.js  — parse, per-host summary, cross-host aggregation
+//   playbash-sidecar.js   — parse, per-host summary, cross-host aggregation
+//   playbash-staging.js   — wrapper staging for vanilla hosts, BatchMode ssh
 
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
@@ -36,6 +37,7 @@ import {
   renderAggregated,
   renderSummary,
 } from '../share/playbash/sidecar.js';
+import {ensureWrapper} from '../share/playbash/staging.js';
 
 const USAGE = `usage:
   playbash run   <playbook> <targets> [-n LINES] [-p N] [--self]
@@ -127,7 +129,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 
 function sshCapture(host, remote) {
   return new Promise((resolve, reject) => {
-    const proc = spawn('ssh', [host, '--', remote], {stdio: ['ignore', 'pipe', 'pipe']});
+    const proc = spawn('ssh', ['-o', 'BatchMode=yes', host, '--', remote], {stdio: ['ignore', 'pipe', 'pipe']});
     let stdout = '', stderr = '';
     proc.stdout.on('data', c => (stdout += c));
     proc.stderr.on('data', c => (stderr += c));
@@ -148,13 +150,13 @@ function sshCapture(host, remote) {
 // (host names are validated against [a-zA-Z0-9._-]), so plain string
 // interpolation is safe. `exec` so python becomes the direct child of
 // sshd's session shell — no intermediate bash -c layer to absorb signals.
-function buildRemoteCommand({reportPath, hostName, cols, rows, playbook}) {
+function buildRemoteCommand({reportPath, hostName, cols, rows, playbook, wrapperPath}) {
   return (
     `LC_ALL=C ` +
     `PLAYBASH_REPORT=${reportPath} ` +
     `PLAYBASH_HOST=${hostName} ` +
     `COLUMNS=${cols} LINES=${rows} ` +
-    `exec python3 -u ~/.local/libs/playbash-wrap.py ~/.local/bin/playbash-${playbook}`
+    `exec python3 -u ${wrapperPath} ~/.local/bin/playbash-${playbook}`
   );
 }
 
@@ -430,7 +432,8 @@ function renderFailureTail(tail) {
   }
 }
 
-async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
+async function runRemote({playbook, hostName, address, rectHeight, verbose, inventory}) {
+  const wrapperPath = await ensureWrapper(address, hostName, inventory);
   const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
   await runHostSingle({
     playbook, hostName, rectHeight, verbose, label: null,
@@ -438,8 +441,8 @@ async function runRemote({playbook, hostName, address, rectHeight, verbose}) {
       // LC_ALL=C forces English-language prompts so the stdin-watch
       // regex (sudo/doas/Password:/Sorry, try again.) matches reliably
       // regardless of the remote host's default locale.
-      const wrapped = buildRemoteCommand({reportPath, hostName, cols, rows, playbook});
-      return spawn('ssh', [address, '--', wrapped], {
+      const wrapped = buildRemoteCommand({reportPath, hostName, cols, rows, playbook, wrapperPath});
+      return spawn('ssh', ['-o', 'BatchMode=yes', address, '--', wrapped], {
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true, // own process group so killChild can group-kill
       });
@@ -486,7 +489,7 @@ async function runLocally({playbook, hostName, rectHeight, verbose}) {
 
 // Run a list of targets in parallel through the StatusBoard, then print
 // per-host summaries (in input order) and the aggregated section.
-async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}) {
+async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit, inventory}) {
   const slots = targets.map(t => new HostSlot(t.name, t.address, rectHeight || 5));
   const board = new StatusBoard(slots, {playbook, rectHeight: rectHeight || 5});
   board.start();
@@ -527,13 +530,14 @@ async function runFanout({playbook, targets, rectHeight, verbose, parallelLimit}
         return text;
       };
     } else {
+      const wrapperPath = await ensureWrapper(slot.address, slot.name, inventory);
       const reportPath = `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
       makeChild = ({cols, rows}) => {
         // LC_ALL=C — see runRemote for rationale (stdin-watch regex).
         const wrapped = buildRemoteCommand({
-          reportPath, hostName: slot.name, cols, rows, playbook,
+          reportPath, hostName: slot.name, cols, rows, playbook, wrapperPath,
         });
-        return spawn('ssh', [slot.address, '--', wrapped], {
+        return spawn('ssh', ['-o', 'BatchMode=yes', slot.address, '--', wrapped], {
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: true, // own process group so killChild can group-kill
         });
@@ -894,7 +898,7 @@ async function dispatchRun({playbook, targetArg, rectHeight, verbose}) {
     if (isSelf) {
       await runLocally({playbook, hostName: only.name, rectHeight, verbose});
     } else {
-      await runRemote({playbook, hostName: only.name, address: only.address, rectHeight, verbose});
+      await runRemote({playbook, hostName: only.name, address: only.address, rectHeight, verbose, inventory: inv});
     }
     return;
   }
@@ -916,7 +920,7 @@ async function dispatchRun({playbook, targetArg, rectHeight, verbose}) {
   if (!Number.isFinite(parallelLimit) || parallelLimit < 0) {
     die(`--parallel must be a non-negative integer (0 = unlimited)`);
   }
-  await runFanout({playbook, targets, rectHeight, verbose, parallelLimit});
+  await runFanout({playbook, targets, rectHeight, verbose, parallelLimit, inventory: inv});
 }
 
 switch (command) {
