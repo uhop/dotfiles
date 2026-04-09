@@ -1,12 +1,22 @@
 {
   "permissions": {
     "allow": [
+      "Read(~/.local/bin/**)",
+      "Read(~/.local/libs/**)",
+      "Bash(~/.local/bin/playbash hosts:*)",
       "Bash(git mv:*)",
       "Bash(ls:*)",
-      "Read(//Users/eugene/.local/bin/**)",
-      "Read(//Users/eugene/.local/libs/**)",
-      "Bash(~/.local/bin/playbash hosts:*)",
-      "Bash(ps:*)"
+      "Bash(command ls:*)",
+      "Bash(ps:*)",
+      "Bash(grep:*)",
+      "Bash(cp:*)",
+      "Bash(command cp:*)",
+      "Bash(chmod:*)",
+      "Bash(command chmod:*)",
+      "Bash(mkdir:*)",
+      "Bash(command mkdir:*)",
+      "Bash(ln:*)",
+      "Bash(chezmoi apply:*)"
     ]
   }
 }

@@ -3,7 +3,7 @@ AGENTS.md
 ARCHITECTURE.md
 CLAUDE.md
 llms.txt
-.claude
+.claude/settings.local.json
 .clinerules
 .cursor
 .cursorrules
