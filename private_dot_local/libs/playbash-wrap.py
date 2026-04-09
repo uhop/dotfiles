@@ -106,5 +106,21 @@ finally:
     except Exception:
         pass
 
+# Close the PTY master BEFORE waitpid. On macOS, when the pty.fork() child
+# is a session leader and its subtree includes a program that grabbed the
+# controlling terminal in raw mode (e.g. `sudo` reading a password), the
+# kernel cannot finish revoking the controlling terminal — and therefore
+# cannot finish the child's exit — while another process still holds the
+# PTY master fd open. The child stalls in `?Es` state and waitpid below
+# blocks forever, holding sshd's stdin/stdout pipes half-closed and
+# leaking the entire ssh channel. Closing the master here lets the
+# revoke complete so the child can transition to a zombie and waitpid
+# can reap it. Linux is unaffected either way (master can stay open).
+# See dev-docs/playbash-debugging.md for the minimal repro.
+try:
+    os.close(fd)
+except OSError:
+    pass
+
 _, st = os.waitpid(pid, 0)
 raise SystemExit(os.waitstatus_to_exitcode(st))
