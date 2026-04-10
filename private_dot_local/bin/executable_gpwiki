@@ -9,5 +9,5 @@ echoRun() {
 }
 
 echoRun "git pull --recurse-submodules"
-[ -d wiki ] && echoRun "cd wiki; git-pull-main" || true
-[ -d external_wiki ] && echoRun "cd external_wiki; git-pull-main" || true
+[ -d wiki ] && [ -f wiki/.git ] && echoRun "cd wiki; git-pull-main" || true
+[ -d external_wiki ] && [ -f external_wiki/.git ] && echoRun "cd external_wiki; git-pull-main" || true
