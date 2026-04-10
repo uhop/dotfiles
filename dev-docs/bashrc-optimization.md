@@ -1,28 +1,38 @@
 # .bashrc non-interactive optimization
 
-`.bashrc` currently gates only prompt setup, git-prompt, and fastfetch behind `__INTERACTIVE`. Everything else — completions, tool initialization, `eval` calls — runs unconditionally, even for non-interactive shells (e.g., `ssh host some-command`).
+**Status: ✅ Done.**
 
-## What should be gated
+`.bashrc` now gates completions and tool initialization behind `__INTERACTIVE`. Non-interactive shells (e.g., `ssh host some-command`) get only PATH, exports, and aliases.
 
-**High priority** (expensive `eval` or subprocess spawns):
-- NVM initialization (`nvm.sh` + completions) — spawns a subshell
-- pyenv init — spawns a subshell
-- fzf initialization — multiple `eval` calls + keybinding setup
-- pet setup — keybindings and function definitions, interactive-only
+## What changed
 
-**Medium priority** (unnecessary for non-interactive):
-- All bash completions (brew, git, playbash, doas, xc)
-- zoxide init, broot init
-- fzf-git.sh
-- iTerm2 shell integration
+The file is organized into two phases:
 
-**Keep unconditional:**
-- Brew shellenv (needed for PATH in non-interactive scripts)
-- PATH additions, exports, aliases (scripts may source `.bashrc` and rely on these)
+### Always (non-interactive safe)
+- History, shell options
+- Prompt setup (already gated by earlier `__INTERACTIVE` checks)
+- Brew shellenv (PATH)
+- PATH additions (user bin, util-linux, pyenv, bun, lm studio)
+- NVM sourcing (`nvm.sh` — sets up PATH and `NVM_DIR`)
+- pyenv PATH and `PYENV_ROOT` (but NOT `pyenv init -`)
+- Exports (`EDITOR`, `VISUAL`, `FORCE_COLOR`, etc.)
 - `.env` loading
+- Aliases (`.bash_aliases`)
 
-## Implementation approach
+### Interactive-only (gated)
+- Brew bash completions
+- Git completion
+- NVM completion
+- `pyenv init -` (sets up shell functions, shims)
+- doas, xc, zoxide, playbash, broot completions and init
+- fzf initialization, completions, fzf-git.sh
+- pet setup (functions, keybindings, fzf integration)
+- iterm2 shell integration
+- `/etc/bash_completion`
+- fastfetch
 
-Wrap the interactive-only block with the existing `__INTERACTIVE` flag. The early-exit pattern (`[ -z "$PS1" ] && return` at the top) is tempting but would skip PATH setup and exports that non-interactive shells need. Better to expand the existing `if [ "$__INTERACTIVE" == yes ]` blocks to cover completions and tool inits, or reorganize into two clear sections: environment (always) and interactive setup (gated).
+## Design decisions
 
-An alternative: `.bash_profile` sources `.bashrc` unconditionally. We could move the interactive-only parts out of `.bashrc` into a file that `.bashrc` sources only when interactive. This keeps `.bashrc` fast for non-interactive use.
+- **NVM sourcing stays unconditional.** `nvm.sh` sets up PATH and the `nvm` function. Non-interactive scripts that run `node` need the correct version on PATH. Only the NVM *completion* is gated.
+- **pyenv split into two parts.** PATH and `PYENV_ROOT` are unconditional (scripts need the right Python). `pyenv init -` (which sets up shell functions and rehash hooks) is interactive-only.
+- **Aliases stay unconditional.** Some scripts source `.bashrc` and rely on aliases being available.

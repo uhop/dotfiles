@@ -108,38 +108,22 @@ fi
 [ -d ~/bin ] && PATH="$HOME/bin:$PATH" || true
 [ -d ~/.local/bin ] && PATH="$HOME/.local/bin:$PATH" || true
 {{ if $brew_prefix }}
-if [ -s "{{ $brew_prefix }}/etc/profile.d/bash_completion.sh" ]; then
-  \. "{{ $brew_prefix }}/etc/profile.d/bash_completion.sh"
-elif [ -d "{{ $brew_prefix }}/etc/bash_completion.d/" ]; then
-  for COMPLETION in "{{ $brew_prefix }}/etc/bash_completion.d/"*
-  do
-    [ -s "${COMPLETION}" ] && \. "${COMPLETION}"
-  done
-fi
 # util-linux should be in the path
 [ -d "{{ $brew_prefix }}/opt/util-linux/bin" ] && PATH="{{ $brew_prefix }}/opt/util-linux/bin:$PATH" || true
 [ -d "{{ $brew_prefix }}/opt/util-linux/sbin" ] && PATH="{{ $brew_prefix }}/opt/util-linux/sbin:$PATH" || true
 {{- end }}
-
-# git completion
-[ -s ~/.config/git/git-completion.bash ] && \. ~/.config/git/git-completion.bash
 {{ if $brew_nvm }}
-# NVM for node.js
+# NVM for node.js — environment only (PATH, NVM_DIR); full init is interactive-only
 if [ -s "{{ $brew_nvm }}/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"
   \. "{{ $brew_nvm }}/nvm.sh"
-  # nvm use stable
-  if [ -s "{{ $brew_nvm }}/etc/bash_completion.d/nvm" ]; then
-    \. "{{ $brew_nvm }}/etc/bash_completion.d/nvm"
-  fi
 fi
 {{- end }}
 {{ if $pyenv_root }}
-# pyenv
+# pyenv — environment only (PATH, PYENV_ROOT); full init is interactive-only
 if command -v pyenv &> /dev/null; then
   export PYENV_ROOT="{{ $pyenv_root }}"
   export PATH="$PYENV_ROOT/bin:$PYENV_ROOT/shims:${PATH}"
-  eval "$(pyenv init -)"
 fi
 {{- end }}
 
@@ -151,76 +135,6 @@ fi
 
 # lm studio
 [ -d ~/.lmstudio/bin ] && PATH="$HOME/.lmstudio/bin:$PATH" || true
-
-command -v doas &> /dev/null && complete -cf doas || true
-command -v xc &> /dev/null && complete -C xc xc || true
-command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
-command -v playbash &> /dev/null && eval "$(playbash --bash-completion)" || true
-[ -s ~/.config/broot/launcher/bash/br ] && \. ~/.config/broot/launcher/bash/br || true
-
-if command -v fzf &> /dev/null; then
-	eval "$(fzf --bash)"
-  if declare -F _fzf_setup_completion >/dev/null; then
-    _fzf_setup_completion dir z tree ltr zl
-    _fzf_setup_completion path cp mv rm cat
-    _fzf_setup_completion path l ls ll la lla l.
-    _fzf_setup_completion path mic micro gimme
-    _fzf_setup_completion path cpg mvg rcp rmv rup rsy
-    _fzf_setup_completion host ping prettyping sftp ssht mosh mosht
-  fi
-	[ -s ~/.local/vendors/fzf-git.sh ] && \. ~/.local/vendors/fzf-git.sh || true
-fi
-
-if command -v pet &> /dev/null; then
-  function ppet() {
-    PREV=$(history | tail -n2 | head -n1 | sed 's/^[[:space:]]*[0-9]*[[:space:]]*//')
-    pet new "$(printf %q "$PREV")"
-  }
-
-  function pet-select() {
-    BUFFER=$(pet search --query "$READLINE_LINE")
-    READLINE_LINE=$BUFFER
-    READLINE_POINT=${#BUFFER}
-  }
-  bind -x '"\C-x\C-r": pet-select' 2>/dev/null
-
-  function _pet_move_cursor_to_next_parameter() {
-    match="$(echo "$READLINE_LINE" | perl -nle 'print $& if /<.*?>/')"
-    if [ -n "$match" ]; then
-      default="$(echo "$match" | perl -nle 'print $& if /(?<==).*(?=>)/')"
-      match_len=${#match}
-      default_len=${#default}
-
-      pre_match=${READLINE_LINE%%$match*}
-      parameter_offset=${#pre_match}
-
-      READLINE_POINT="$((${parameter_offset} + ${default_len}))"
-      READLINE_LINE="${READLINE_LINE:0:$parameter_offset}${default}${READLINE_LINE:$parameter_offset+$match_len}"
-    fi
-  }
-  bind -x '"\C-n": _pet_move_cursor_to_next_parameter' 2>/dev/null
-
-  if command -v fzf &> /dev/null; then
-    export FZF_CTRL_R_OPTS="--reverse --cycle --info=right --color header:italic --header 'alt+s (pet new)' --preview 'echo {}' --preview-window down:3:hidden:wrap --bind '?:toggle-preview' --bind 'alt-s:execute(pet new --tag {2..})+abort'"
-  fi
-fi
-
-if [[ $TERM_PROGRAM != "WarpTerminal" ]]; then
-  [ -s ~/.iterm2_shell_integration.bash ] && \. ~/.iterm2_shell_integration.bash || true
-fi
-
-if [ "$__INTERACTIVE" == yes ] && [ -z "$WINDSURF_CASCADE_TERMINAL" ]; then
-	# [ "$SHLVL" == "1" ] && command -v fastfetch &> /dev/null && fastfetch || true
-	if command -v fastfetch &> /dev/null; then
-	  SPN=$(ps -p $PPID | awk '{print substr($0, index($0, $4))}' | tail -1)
-	  if [ "$SHLVL" == "2" ] && [[ "$SPN" == *tmux* ]] || [ "$SHLVL" == "1" ]; then
-	  	fastfetch
-	  fi
-	  unset SPN
-	fi
-fi
-
-unset __INTERACTIVE
 
 export EDITOR=micro
 export VISUAL=micro
@@ -235,18 +149,105 @@ fi
 
 export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
 
-# enable programmable completion features (you don't need to enable
-# this, if it's already enabled in /etc/bash.bashrc and /etc/profile
-# sources /etc/bash.bashrc).
-
-[ -s /etc/bash_completion ] && ! shopt -oq posix && \. /etc/bash_completion || true
-
 # Alias definitions.
-# You may want to put all your additions into a separate file like
-# ~/.bash_aliases, instead of adding them here directly.
-# See /usr/share/doc/bash-doc/examples in the bash-doc package.
-
 [ -s ~/.bash_aliases ] && \. ~/.bash_aliases || true
+
+# --- Interactive-only setup (completions, tool init, keybindings) ---
+
+if [ "$__INTERACTIVE" == yes ]; then
+{{ if $brew_prefix }}
+  if [ -s "{{ $brew_prefix }}/etc/profile.d/bash_completion.sh" ]; then
+    \. "{{ $brew_prefix }}/etc/profile.d/bash_completion.sh"
+  elif [ -d "{{ $brew_prefix }}/etc/bash_completion.d/" ]; then
+    for COMPLETION in "{{ $brew_prefix }}/etc/bash_completion.d/"*
+    do
+      [ -s "${COMPLETION}" ] && \. "${COMPLETION}"
+    done
+  fi
+{{- end }}
+
+  [ -s ~/.config/git/git-completion.bash ] && \. ~/.config/git/git-completion.bash
+{{ if $brew_nvm }}
+  if [ -s "{{ $brew_nvm }}/etc/bash_completion.d/nvm" ]; then
+    \. "{{ $brew_nvm }}/etc/bash_completion.d/nvm"
+  fi
+{{- end }}
+{{ if $pyenv_root }}
+  command -v pyenv &> /dev/null && eval "$(pyenv init -)" || true
+{{- end }}
+
+  command -v doas &> /dev/null && complete -cf doas || true
+  command -v xc &> /dev/null && complete -C xc xc || true
+  command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
+  command -v playbash &> /dev/null && eval "$(playbash --bash-completion)" || true
+  [ -s ~/.config/broot/launcher/bash/br ] && \. ~/.config/broot/launcher/bash/br || true
+
+  if command -v fzf &> /dev/null; then
+    eval "$(fzf --bash)"
+    if declare -F _fzf_setup_completion >/dev/null; then
+      _fzf_setup_completion dir z tree ltr zl
+      _fzf_setup_completion path cp mv rm cat
+      _fzf_setup_completion path l ls ll la lla l.
+      _fzf_setup_completion path mic micro gimme
+      _fzf_setup_completion path cpg mvg rcp rmv rup rsy
+      _fzf_setup_completion host ping prettyping sftp ssht mosh mosht
+    fi
+    [ -s ~/.local/vendors/fzf-git.sh ] && \. ~/.local/vendors/fzf-git.sh || true
+  fi
+
+  if command -v pet &> /dev/null; then
+    function ppet() {
+      PREV=$(history | tail -n2 | head -n1 | sed 's/^[[:space:]]*[0-9]*[[:space:]]*//')
+      pet new "$(printf %q "$PREV")"
+    }
+
+    function pet-select() {
+      BUFFER=$(pet search --query "$READLINE_LINE")
+      READLINE_LINE=$BUFFER
+      READLINE_POINT=${#BUFFER}
+    }
+    bind -x '"\C-x\C-r": pet-select' 2>/dev/null
+
+    function _pet_move_cursor_to_next_parameter() {
+      match="$(echo "$READLINE_LINE" | perl -nle 'print $& if /<.*?>/')"
+      if [ -n "$match" ]; then
+        default="$(echo "$match" | perl -nle 'print $& if /(?<==).*(?=>)/')"
+        match_len=${#match}
+        default_len=${#default}
+
+        pre_match=${READLINE_LINE%%$match*}
+        parameter_offset=${#pre_match}
+
+        READLINE_POINT="$((${parameter_offset} + ${default_len}))"
+        READLINE_LINE="${READLINE_LINE:0:$parameter_offset}${default}${READLINE_LINE:$parameter_offset+$match_len}"
+      fi
+    }
+    bind -x '"\C-n": _pet_move_cursor_to_next_parameter' 2>/dev/null
+
+    if command -v fzf &> /dev/null; then
+      export FZF_CTRL_R_OPTS="--reverse --cycle --info=right --color header:italic --header 'alt+s (pet new)' --preview 'echo {}' --preview-window down:3:hidden:wrap --bind '?:toggle-preview' --bind 'alt-s:execute(pet new --tag {2..})+abort'"
+    fi
+  fi
+
+  if [[ $TERM_PROGRAM != "WarpTerminal" ]]; then
+    [ -s ~/.iterm2_shell_integration.bash ] && \. ~/.iterm2_shell_integration.bash || true
+  fi
+
+  [ -s /etc/bash_completion ] && ! shopt -oq posix && \. /etc/bash_completion || true
+
+  if [ -z "$WINDSURF_CASCADE_TERMINAL" ]; then
+    # [ "$SHLVL" == "1" ] && command -v fastfetch &> /dev/null && fastfetch || true
+    if command -v fastfetch &> /dev/null; then
+      SPN=$(ps -p $PPID | awk '{print substr($0, index($0, $4))}' | tail -1)
+      if [ "$SHLVL" == "2" ] && [[ "$SPN" == *tmux* ]] || [ "$SHLVL" == "1" ]; then
+        fastfetch
+      fi
+      unset SPN
+    fi
+  fi
+fi
+
+unset __INTERACTIVE
 
 # dedupe path, ensure nvm is first
 _dedup_path() {
