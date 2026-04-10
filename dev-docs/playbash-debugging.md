@@ -128,15 +128,9 @@ isn't.
   to avoid unnecessary complexity in code that should stay minimal —
   revisit only if a similar deadlock surfaces again.
 
-- **End-to-end test against the real `playbash` runner.** The minimal
-  harness proves the wrapper itself is correct on Mac. The real
-  `playbash run mini2 daily` from the Linux operator is still pending
-  validation. To smoke-test locally (Mac-only) without touching Linux,
-  temporarily comment out the `runLocally()` / `runRemote()` branch in
-  `dispatchRun()` so all runs go through `runRemote()`, then run
-  `playbash run localhost fakesudo` against this machine.
+- ~~**End-to-end test against the real `playbash` runner.**~~ ✅ Mac targets are verified end-to-end (v3 milestone 11). `playbash run all daily` works across Linux and Mac hosts in production.
 
-- **Cleanup of `playbash`-related code per the "Clean up" section above.**
+- ~~**Cleanup of `playbash`-related code per the "Clean up" section above.**~~ ✅ Done during v3 file split + reorg (milestone 8).
   Once Linux end-to-end is validated, prune any remaining failed-attempt
   artifacts and update `dev-docs/playbash-roadmap.md` milestone 10
   with the final root cause.

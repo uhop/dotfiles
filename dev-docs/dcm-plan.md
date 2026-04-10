@@ -1,6 +1,14 @@
 # dcm — Docker Compose Manager
 
+**Status: ✅ Core implementation complete (Phases 1-3).** `dcm` is fully implemented and documented in [Utilities](https://github.com/uhop/dotfiles/wiki/Utilities#dcm).
+
 Implementation plan for `dcm`, a CLI utility that manages Docker Compose setups.
+
+**Implementation diverged from the original plan in several ways:**
+- No `--all` flag — instead, passing a directory that contains subdirectories with compose files automatically discovers and operates on all of them.
+- No `--no-prune` flag — pruning is a separate `prune` command instead.
+- Added `prune` (`p`) as a standalone command for global Docker image pruning.
+- `dcms` is a convenience wrapper that runs `dcm ~/servers`.
 
 ## Design decisions
 
@@ -77,31 +85,29 @@ AppArmor recovery applies only on Linux. The detection function should be a no-o
 
 ## Implementation phases
 
-### Phase 1: Core single-setup commands
+### Phase 1: Core single-setup commands ✅
 
-- Bash script at `private_dot_local/bin/executable_dcm`.
-- Boilerplate: `options.bash` integration, tool detection (`docker`, `docker compose`).
-- `update` command: `docker compose pull` → `docker compose up -d` → `docker image prune -af`.
-- `down`, `stop`, `start`, `restart`, `status` commands.
-- `--force` and `--no-prune` flags.
-- `--dry-run` support.
-- Default command inference: no args or bare `[dir]` → `update`.
-- Validate that target directory contains a compose file.
+- ✅ Bash script at `private_dot_local/bin/executable_dcm`.
+- ✅ Boilerplate: `options.bash` integration, tool detection (`docker`, `docker compose`).
+- ✅ `update` command: `docker compose pull` → `docker compose up -d`.
+- ✅ `down`, `stop`, `start`, `restart`, `status` commands.
+- ✅ `--force` flag.
+- ✅ `--dry-run` support.
+- ✅ Default command inference: no args or bare `[dir]` → `update`.
+- ✅ Validate that target directory contains a compose file.
+- ✅ Added `prune` as a standalone command (replaced planned `--no-prune` flag).
 
-### Phase 2: AppArmor recovery
+### Phase 2: AppArmor recovery ✅
 
-- `run_compose()` wrapper that captures stderr and detects AppArmor errors.
-- Automatic `sudo aa-remove-unknown` + retry.
-- Linux-only guard (`uname -s`).
+- ✅ `run_compose()` wrapper that captures stderr and detects AppArmor errors.
+- ✅ Automatic `sudo aa-remove-unknown` + retry.
+- ✅ Linux-only guard.
 
-### Phase 3: Multi-setup (`--all`)
+### Phase 3: Multi-setup ✅
 
-- Discover setups: find directories under `~/servers` containing a compose file
-  (`compose.yaml`, `compose.yml`, `docker-compose.yaml`, or `docker-compose.yml`).
-- Iterate and run the requested command in each.
-- Summary report at the end (which setups succeeded/failed).
-- The base directory (`~/servers`) should be a variable at the top of the script for easy
-  customization. Future: make it configurable via env var or config file.
+- ✅ Discover setups: scan immediate subdirectories for compose files (replaced planned `--all` flag).
+- ✅ Iterate and run the requested command in each.
+- ✅ `dcms` convenience wrapper for `dcm ~/servers`.
 
 ## Command flow: `dcm update`
 
@@ -164,11 +170,7 @@ Consistent with other utilities (`imop`, `upd`, `ollama-sync`):
 
 ### Long-term
 
-- **Remote operation**: Run commands on remote servers via SSH.
-  Could be as simple as `dcm update --host server1` wrapping `ssh server1 dcm update --all`,
-  or via `playbash run` against a playbook that wraps `dcms` (which is what `playbash-daily`/`playbash-weekly` already do).
-  The current single-machine design doesn't preclude this — the script is self-contained
-  and can be installed on remote machines via chezmoi.
+- ~~**Remote operation**~~: ✅ Solved by `playbash`. `playbash-daily` and `playbash-weekly` run `dcms` on all hosts. Ad-hoc: `playbash exec all -- dcm`.
 - **Health checks**: After update, verify services are healthy via `docker compose ps`
   and report any that failed to start.
 - **Rollback**: Before updating, record current image digests. If the new version fails

@@ -129,7 +129,7 @@ Playbooks are expected to already live on the target host, distributed by `chezm
 - The playbook script is *directly runnable by hand* over plain `ssh` with no environment setup. Helpers are found via `${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh` (the default expands to the chezmoi-managed path). Sidecar reporting is opt-in: if `$PLAYBASH_REPORT` is unset, the helpers print human-readable output and skip the JSON-lines append.
 - Playbash does not need to copy anything for the common case. It only sets a few env vars and runs the script.
 
-A secondary **upload mode** for ad-hoc playbooks not yet in the chezmoi tree is planned for v3 (see roadmap milestone 16). v1/v2 only ship the primary mode.
+A secondary **upload mode** for ad-hoc playbooks not yet in the chezmoi tree shipped in v3 (roadmap milestones 16 + custom playbook paths). See below.
 
 ### Primary mode
 

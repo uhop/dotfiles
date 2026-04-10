@@ -1,5 +1,7 @@
 # imop Implementation Plan
 
+**Status: ✅ All three phases complete.** `imop` is fully implemented and documented in [Utilities](https://github.com/uhop/dotfiles/wiki/Utilities#imop).
+
 Based on research and `imop-ideas.md`.
 
 ## Tool selection
@@ -114,27 +116,27 @@ With `--suffix TAG`: **multi-extension** — `image.jpg` → `image.jpg.TAG.webp
 
 ## Implementation phases
 
-### Phase 1 — Core single-file operations
+### Phase 1 — Core single-file operations ✅
 
-1. Rewrite `executable_imop` with `options.bash` (source `bootstrap.sh`).
-2. Implement `optimize` command (lossless re-compression, single file).
-3. Implement `convert` command (format conversion, single file).
-4. Tool detection with fallback chain.
-5. Quality mapping.
+1. ✅ Rewrite `executable_imop` with `options.bash` (source `bootstrap.sh`).
+2. ✅ Implement `optimize` command (lossless re-compression, single file).
+3. ✅ Implement `convert` command (format conversion, single file).
+4. ✅ Tool detection with fallback chain.
+5. ✅ Quality mapping.
 
-### Phase 2 — Batch processing
+### Phase 2 — Batch processing ✅
 
-1. Implement `batch` with single directory (in-place traversal via `find`).
-2. Implement `batch` with two directories (preserve structure in output dir).
-3. Support `--to EXT` for batch conversion.
-4. Implement `--suffix` naming.
-5. Implement `--dry-run`.
+1. ✅ Implement `batch` with single directory (in-place traversal via `find`).
+2. ✅ Implement `batch` with two directories (preserve structure in output dir).
+3. ✅ Support `--to EXT` for batch conversion.
+4. ✅ Implement `--suffix` naming.
+5. ✅ Implement `--dry-run`.
 
 ### Phase 3 — Polish
 
-1. Progress reporting (file count, sizes before/after, percentage saved).
-2. Parallel processing (background jobs with a concurrency limit).
-3. Add to wiki documentation.
+1. ⬜ Progress reporting (file count, sizes before/after, percentage saved).
+2. ⬜ Parallel processing (background jobs with a concurrency limit).
+3. ✅ Add to wiki documentation.
 
 ## Design decisions (resolved)
 
