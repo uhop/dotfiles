@@ -34,18 +34,23 @@ const CACHE_DIR       = join(homedir(), '.cache', 'playbash', 'staging');
 // --- ssh helpers ---
 
 // Run a command on a remote host via ssh with BatchMode=yes.
-// Returns {code, stdout, stderr}. If `input` is provided it is piped to stdin.
-// Exported for use by put/get transfer commands.
-export function sshRun(address, remoteCmd, input) {
+// Returns {code, stdout, stderr}. Options:
+//   input — Buffer/string piped to stdin (default: no stdin)
+//   raw   — return stdout as a Buffer instead of a string (for binary data)
+export function sshRun(address, remoteCmd, {input, raw} = {}) {
   return new Promise((resolve, reject) => {
     const proc = spawn('ssh', ['-o', 'BatchMode=yes', address, '--', remoteCmd], {
       stdio: [input != null ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
-    let stdout = '', stderr = '';
-    proc.stdout.on('data', c => (stdout += c));
+    const chunks = [];
+    let stderr = '';
+    proc.stdout.on('data', c => chunks.push(c));
     proc.stderr.on('data', c => (stderr += c));
     proc.on('error', reject);
-    proc.on('close', code => resolve({code, stdout, stderr}));
+    proc.on('close', code => {
+      const buf = Buffer.concat(chunks);
+      resolve({code, stdout: raw ? buf : buf.toString(), stderr});
+    });
     if (input != null) {
       proc.stdin.write(input);
       proc.stdin.end();
@@ -84,7 +89,7 @@ async function stageWrapper(address, hostName) {
   const r = await sshRun(
     address,
     `mkdir -p ${STAGING_DIR} && cat > ${WRAPPER_STAGED} && chmod +x ${WRAPPER_STAGED}`,
-    content,
+    {input: content},
   );
   if (r.code !== 0) {
     throw new Error(`failed to stage wrapper on ${hostName}: ${r.stderr.trim() || `exit ${r.code}`}`);
@@ -152,7 +157,7 @@ export async function stagePlaybookFiles(address, hostName, playbookName, custom
     const cmd = executable
       ? `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${name} && chmod +x ${STAGING_DIR}/${name}`
       : `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${name}`;
-    return sshRun(address, cmd, content);
+    return sshRun(address, cmd, {input: content});
   };
 
   const results = await Promise.all(needed.map(stageOne));

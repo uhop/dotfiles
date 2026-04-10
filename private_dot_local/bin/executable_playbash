@@ -161,16 +161,6 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 
 // --- run mechanics ---
 
-function sshCapture(host, remote) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('ssh', ['-o', 'BatchMode=yes', host, '--', remote], {stdio: ['ignore', 'pipe', 'pipe']});
-    let stdout = '', stderr = '';
-    proc.stdout.on('data', c => (stdout += c));
-    proc.stderr.on('data', c => (stderr += c));
-    proc.on('error', reject);
-    proc.on('close', code => resolve({code, stdout, stderr}));
-  });
-}
 
 // Pre-flight connectivity check. Parallel `ssh -o ConnectTimeout=2 true`
 // for every target. Returns {online, offline} arrays of {name, address}.
@@ -508,20 +498,6 @@ function expandTemplate(template, vars) {
   return template.replace(/\{(\w+)\}/g, (m, key) => vars[key] ?? m);
 }
 
-// Capture stdout as a Buffer (binary-safe) from a remote ssh command.
-function sshCaptureRaw(address, remoteCmd) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('ssh', ['-o', 'BatchMode=yes', address, '--', remoteCmd], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    const chunks = [];
-    let stderr = '';
-    proc.stdout.on('data', c => chunks.push(c));
-    proc.stderr.on('data', c => (stderr += c));
-    proc.on('error', reject);
-    proc.on('close', code => resolve({code, stdout: Buffer.concat(chunks), stderr}));
-  });
-}
 
 // Transfer a single file or directory to a remote host.
 async function putOne(address, localPath, remotePath, isDir) {
@@ -533,13 +509,13 @@ async function putOne(address, localPath, remotePath, isDir) {
       p.on('error', reject);
       p.on('close', code => code === 0 ? resolve(Buffer.concat(ch)) : reject(new Error(`tar exit ${code}`)));
     });
-    const r = await sshRun(address, `mkdir -p ${remotePath} && tar xf - -C ${remotePath}`, tarBuf);
+    const r = await sshRun(address, `mkdir -p ${remotePath} && tar xf - -C ${remotePath}`, {input: tarBuf});
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
   } else {
     const content = readFileSync(localPath);
     const remoteDir = remotePath.includes('/') ? remotePath.substring(0, remotePath.lastIndexOf('/')) : '';
     const mkdirCmd = remoteDir ? `mkdir -p ${remoteDir} && ` : '';
-    const r = await sshRun(address, `${mkdirCmd}cat > ${remotePath}`, content);
+    const r = await sshRun(address, `${mkdirCmd}cat > ${remotePath}`, {input: content});
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
   }
 }
@@ -547,7 +523,7 @@ async function putOne(address, localPath, remotePath, isDir) {
 // Transfer a single file or directory from a remote host.
 async function getOne(address, remotePath, localPath, isRemoteDir) {
   if (isRemoteDir) {
-    const r = await sshCaptureRaw(address, `tar cf - -C ${remotePath} .`);
+    const r = await sshRun(address, `tar cf - -C ${remotePath} .`, {raw: true});
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
     mkdirSync(localPath, {recursive: true});
     await new Promise((resolve, reject) => {
@@ -558,82 +534,12 @@ async function getOne(address, remotePath, localPath, isRemoteDir) {
       p.on('close', code => code === 0 ? resolve() : reject(new Error(`tar extract exit ${code}`)));
     });
   } else {
-    const r = await sshCaptureRaw(address, `cat ${remotePath}`);
+    const r = await sshRun(address, `cat ${remotePath}`, {raw: true});
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
     const localDir = dirname(localPath);
     if (localDir) mkdirSync(localDir, {recursive: true});
     writeFileSync(localPath, r.stdout);
   }
-}
-
-// Fan-out for put/get. Simpler than runFanout — no PTY, no sidecar, no log.
-async function transferFanout({mode, targets, parallelLimit, offlineNames, transfer}) {
-  const slots = targets.map(t => new HostSlot(t.name, t.address, 0));
-  const board = new StatusBoard(slots, {playbook: mode, rectHeight: 0});
-  board.start();
-
-  const launchOne = async (slot) => {
-    if (offlineNames.has(slot.name)) {
-      board.hostFinished(slot.name, {
-        ok: false, statusWord: 'offline', events: [], logPath: '', elapsedMs: 0,
-      });
-      return;
-    }
-    board.hostStarted(slot.name);
-    const start = Date.now();
-    try {
-      const message = await transfer(slot.name, slot.address);
-      const summary = {ok: true, statusWord: '', events: [], logPath: '', elapsedMs: Date.now() - start};
-      if (message) summary.capturedOutput = message;
-      board.hostFinished(slot.name, summary);
-    } catch (err) {
-      board.hostFinished(slot.name, {
-        ok: false, statusWord: err.message.slice(0, 60), events: [], logPath: '', elapsedMs: Date.now() - start,
-      });
-    }
-  };
-
-  const queue = [...slots];
-  const inFlight = new Set();
-  const limit = parallelLimit > 0 ? parallelLimit : queue.length;
-  const launchNext = () => {
-    while (queue.length > 0 && inFlight.size < limit) {
-      const slot = queue.shift();
-      const p = launchOne(slot).finally(() => { inFlight.delete(p); launchNext(); });
-      inFlight.add(p);
-    }
-  };
-  launchNext();
-  while (inFlight.size > 0) await Promise.race(inFlight);
-
-  board.finish();
-
-  let okCount = 0, failCount = 0, offlineCount = 0;
-  for (const slot of slots) {
-    if (slot.statusWord === 'offline') offlineCount++;
-    else if (slot.state === 'ok') okCount++;
-    else failCount++;
-    const elapsed = (slot.elapsedMs / 1000).toFixed(1);
-    process.stderr.write(buildStatusLine({
-      ok: slot.state === 'ok', hostName: slot.name, playbook: mode,
-      label: null, status: slot.statusWord, elapsed,
-    }) + '\n');
-    if (slot.capturedOutput) {
-      process.stderr.write(`  ${COLOR.dim}${slot.capturedOutput}${COLOR.reset}\n`);
-    }
-    if (slot.state !== 'ok' && slot.statusWord !== 'offline') {
-      process.stderr.write(`  ${COLOR.dim}${slot.statusWord}${COLOR.reset}\n`);
-    }
-  }
-
-  const totalElapsed = slots.length > 0 ? ((Date.now() - slots[0].startedAt) / 1000).toFixed(1) : '0.0';
-  let parts = [];
-  if (okCount > 0) parts.push(`${okCount} ok`);
-  if (failCount > 0) parts.push(`${COLOR.bold}${COLOR.red}${failCount} failed${COLOR.reset}`);
-  if (offlineCount > 0) parts.push(`${COLOR.dim}${offlineCount} offline${COLOR.reset}`);
-  process.stderr.write(`\n${COLOR.dim}done in ${totalElapsed}s${COLOR.reset} · ${parts.join(', ')}\n`);
-
-  process.exit(failCount > 0 ? 1 : 0);
 }
 
 async function runRemote({playbook, command, customPath, hostName, address, rectHeight, verbose, managed}) {
@@ -666,7 +572,7 @@ async function runRemote({playbook, command, customPath, hostName, address, rect
       });
     },
     getSidecarText: playbook
-      ? async () => { const r = await sshCapture(address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`); return r.stdout; }
+      ? async () => { const r = await sshRun(address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`); return r.stdout; }
       : async () => '',
   });
 }
@@ -716,16 +622,15 @@ async function runLocally({playbook, command, hostName, rectHeight, verbose}) {
 
 // Run a list of targets in parallel through the StatusBoard, then print
 // per-host summaries (in input order) and the aggregated section.
-async function runFanout({playbook, command, customPath, targets, rectHeight, verbose, parallelLimit, inventory, push, offlineNames}) {
-  const logLabel = playbook || 'exec';
-  const slots = targets.map(t => new HostSlot(t.name, t.address, rectHeight ?? 5));
-  const board = new StatusBoard(slots, {playbook: logLabel, rectHeight: rectHeight ?? 5});
+// When `transfer` is provided (for put/get), each host runs the simple
+// transfer callback instead of the full runHost pipeline.
+async function runFanout({playbook, command, customPath, targets, rectHeight, verbose, parallelLimit, inventory, push, offlineNames, transfer}) {
+  const logLabel = playbook || transfer?.label || 'exec';
+  const effectiveRect = transfer ? 0 : (rectHeight ?? 5);
+  const slots = targets.map(t => new HostSlot(t.name, t.address, effectiveRect));
+  const board = new StatusBoard(slots, {playbook: logLabel, rectHeight: effectiveRect});
   board.start();
 
-  // Per-host launcher. Builds the right backend (remote ssh+script or
-  // local child) for this host, then calls runHost. Self detection
-  // already happened in the dispatcher; here we still re-check per-host
-  // because the same fan-out can mix self and non-self when --self is on.
   const launchOne = async (slot) => {
     if (offlineNames.has(slot.name)) {
       board.hostFinished(slot.name, {
@@ -734,6 +639,23 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
       return;
     }
     board.hostStarted(slot.name);
+
+    // Transfer mode (put/get): simple async callback, no PTY/sidecar/log.
+    if (transfer) {
+      const start = Date.now();
+      try {
+        const message = await transfer.fn(slot.name, slot.address);
+        const summary = {ok: true, statusWord: '', events: [], logPath: '', elapsedMs: Date.now() - start};
+        if (message) summary.capturedOutput = message;
+        board.hostFinished(slot.name, summary);
+      } catch (err) {
+        board.hostFinished(slot.name, {
+          ok: false, statusWord: err.message.slice(0, 60), events: [], logPath: '', elapsedMs: Date.now() - start,
+        });
+      }
+      return;
+    }
+
     const isSelf = await isSelfAddress(slot.address);
     let makeChild, getSidecarText;
     if (isSelf) {
@@ -807,7 +729,7 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
         });
       };
       getSidecarText = playbook
-        ? async () => { const r = await sshCapture(slot.address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`); return r.stdout; }
+        ? async () => { const r = await sshRun(slot.address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`); return r.stdout; }
         : async () => '';
     }
 
@@ -870,15 +792,17 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
       status: slot.statusWord,
       elapsed,
     }) + '\n');
-    if (command) {
-      // exec: show captured output per host
+    if (transfer || command) {
+      // transfer/exec: show captured output per host
       if (slot.capturedOutput && slot.capturedOutput.trim()) {
         for (const line of slot.capturedOutput.trimEnd().split('\n')) {
           process.stderr.write(`  ${line}\n`);
         }
       }
-      if (slot.state !== 'ok' && slot.logPath) {
-        process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+      if (slot.state !== 'ok' && slot.statusWord !== 'offline' && slot.statusWord !== 'skipped') {
+        if (slot.logPath) {
+          process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+        }
       }
     } else {
       renderSummary(slot.events, {verbose});
@@ -1079,15 +1003,122 @@ const [command, ...rest] = positionals;
 //   - If length > 1: fan-out path (StatusBoard, parallel runs, aggregated
 //     summary). Self entries are silently dropped from the list unless
 //     --self is passed; a one-line dim notice is printed before launch.
-// Shared dispatcher for `run`, `push`, `debug`, and `exec`. The `job`
-// object is either {playbook: 'daily'} or {command: 'uptime && df -h'}.
-// `push` forces upload mode for all targets; `run`/`debug` use inventory
-// membership (hosts in the inventory are managed, bare ssh aliases get
-// the playbook pushed automatically with a notice).
-async function dispatch({job, targetArg, rectHeight, verbose, push}) {
-  const inv = loadInventory();
-  const resolved = resolveTargets(targetArg, inv);
+// --- put / get commands ---
+
+// Single-host transfer (shared by put/get). Prints status line and exits on failure.
+async function runTransferSingle(target, mode, transferFn) {
+  try {
+    const start = Date.now();
+    const msg = await transferFn(target.name, target.address);
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    process.stderr.write(buildStatusLine({ok: true, hostName: target.name, playbook: mode, label: null, status: '', elapsed}) + '\n');
+    if (msg) process.stderr.write(`  ${COLOR.dim}${msg}${COLOR.reset}\n`);
+  } catch (err) {
+    process.stderr.write(buildStatusLine({ok: false, hostName: target.name, playbook: mode, label: null, status: err.message.slice(0, 60), elapsed: '0.0'}) + '\n');
+    process.exit(1);
+  }
+}
+
+async function cmdPut(targetArg, localPathTemplate, remotePathArg) {
+  const remoteTemplate = remotePathArg || localPathTemplate;
+  const hasLocalTemplate = localPathTemplate.includes('{host}');
+  if (!hasLocalTemplate && !existsSync(localPathTemplate)) die(`local path not found: ${localPathTemplate}`);
+  const {targets, offlineNames, parallelLimit} = await resolveAndValidate(targetArg);
+
+  const doPut = async (hostName, address) => {
+    const lp = expandTemplate(localPathTemplate, {host: hostName});
+    if (!existsSync(lp)) {
+      if (hasLocalTemplate) return null;
+      throw new Error(`not found: ${lp}`);
+    }
+    const isDir = statSync(lp).isDirectory();
+    const rp = expandTemplate(remoteTemplate.endsWith('/') && !isDir ? remoteTemplate + basename(lp) : remoteTemplate, {host: hostName});
+    await putOne(address, lp, rp, isDir);
+    return `${lp} → ${rp}`;
+  };
+
+  if (targets.length === 1 && !offlineNames.has(targets[0].name)) {
+    await runTransferSingle(targets[0], 'put', doPut);
+  } else {
+    await runFanout({
+      targets, parallelLimit, offlineNames,
+      transfer: {label: 'put', fn: async (hostName, address) => {
+        const msg = await doPut(hostName, address);
+        return msg === null ? 'skipped (file not found)' : msg;
+      }},
+    });
+  }
+}
+
+async function cmdGet(targetArg, remoteTemplate, localPathArg) {
+  const {targets, offlineNames, parallelLimit} = await resolveAndValidate(targetArg);
+  const remoteBase = basename(remoteTemplate);
+  const defaultLocal = targets.length === 1 ? remoteBase : `{host}-${remoteBase}`;
+  const localTemplate = localPathArg || defaultLocal;
+  if (targets.length > 1 && !localTemplate.includes('{host}')) {
+    die(`multiple targets require {host} in the local path to avoid overwrites`);
+  }
+
+  const doGet = async (hostName, address) => {
+    const rp = expandTemplate(remoteTemplate, {host: hostName});
+    const lp = expandTemplate(localTemplate, {host: hostName});
+    const isDir = (await sshRun(address, `test -d ${rp} && echo d || echo f`)).stdout.trim() === 'd';
+    await getOne(address, rp, lp, isDir);
+    return `${rp} → ${lp}`;
+  };
+
+  if (targets.length === 1 && !offlineNames.has(targets[0].name)) {
+    await runTransferSingle(targets[0], 'get', doGet);
+  } else {
+    await runFanout({
+      targets, parallelLimit, offlineNames,
+      transfer: {label: 'get', fn: doGet},
+    });
+  }
+}
+
+// Shared target validation: resolve, self-filter, empty-check, precheck,
+// offline detection. Used by dispatch, put, and get. Returns validated
+// {inventory, resolved, targets, offlineNames, parallelLimit} or dies.
+async function resolveAndValidate(targetArg) {
+  const inventory = loadInventory();
+  const resolved = resolveTargets(targetArg, inventory);
   const {targets, skipped} = await filterSelf(resolved, values.self);
+
+  if (targets.length === 0) {
+    if (skipped.length > 0) die(`all targets resolved to self; pass --self to include`);
+    die('target list resolved to nothing');
+  }
+
+  if (skipped.length > 0) {
+    process.stderr.write(
+      `${COLOR.dim}· skipping self (${skipped.join(', ')}); pass --self to include${COLOR.reset}\n`,
+    );
+  }
+
+  const offlineNames = new Set();
+  if (!values['no-precheck']) {
+    const {offline} = await probeConnectivity(targets);
+    for (const t of offline) offlineNames.add(t.name);
+    if (offlineNames.size > 0) {
+      process.stderr.write(
+        `${COLOR.dim}· offline: ${[...offlineNames].join(', ')}${COLOR.reset}\n`,
+      );
+    }
+    if (offlineNames.size === targets.length) die('all targets are unreachable');
+  }
+
+  const parallelLimit = parseInt(values.parallel, 10);
+  if (!Number.isFinite(parallelLimit) || parallelLimit < 0) {
+    die(`--parallel must be a non-negative integer (0 = unlimited)`);
+  }
+
+  return {inventory, resolved, targets, offlineNames, parallelLimit};
+}
+
+// Shared dispatcher for `run`, `push`, `debug`, and `exec`.
+async function dispatch({job, targetArg, rectHeight, verbose, push}) {
+  const {inventory: inv, resolved, targets, offlineNames, parallelLimit} = await resolveAndValidate(targetArg);
 
   if (resolved.length === 1) {
     const only = resolved[0];
@@ -1101,10 +1132,6 @@ async function dispatch({job, targetArg, rectHeight, verbose, push}) {
     if (isSelf) {
       await runLocally({...job, hostName: only.name, rectHeight, verbose});
     } else {
-      if (!values['no-precheck']) {
-        const {offline} = await probeConnectivity([only]);
-        if (offline.length > 0) die(`${only.name} (${only.address}) is unreachable`);
-      }
       const managed = !push && inv.hosts.has(only.name);
       if (!push && job.playbook && !managed) {
         process.stderr.write(`${COLOR.dim}· ${only.name} not in inventory — pushing playbook${COLOR.reset}\n`);
@@ -1112,35 +1139,6 @@ async function dispatch({job, targetArg, rectHeight, verbose, push}) {
       await runRemote({...job, hostName: only.name, address: only.address, rectHeight, verbose, managed});
     }
     return;
-  }
-
-  if (targets.length === 0) {
-    if (skipped.length > 0) {
-      die(`all targets resolved to self (${skipped.join(', ')}); pass --self to include them`);
-    }
-    die(`target list resolved to nothing`);
-  }
-
-  if (skipped.length > 0) {
-    process.stderr.write(
-      `${COLOR.dim}· skipping self (${skipped.join(', ')}); pass --self to include${COLOR.reset}\n`,
-    );
-  }
-
-  // Pre-flight connectivity check. Offline hosts get a distinct status
-  // in the board and are excluded from success/failure counts.
-  const offlineNames = new Set();
-  if (!values['no-precheck']) {
-    const {offline} = await probeConnectivity(targets);
-    for (const t of offline) offlineNames.add(t.name);
-    if (offlineNames.size > 0) {
-      process.stderr.write(
-        `${COLOR.dim}· offline: ${[...offlineNames].join(', ')}${COLOR.reset}\n`,
-      );
-    }
-    if (offlineNames.size === targets.length) {
-      die('all targets are unreachable');
-    }
   }
 
   if (!push && job.playbook) {
@@ -1152,10 +1150,6 @@ async function dispatch({job, targetArg, rectHeight, verbose, push}) {
     }
   }
 
-  const parallelLimit = parseInt(values.parallel, 10);
-  if (!Number.isFinite(parallelLimit) || parallelLimit < 0) {
-    die(`--parallel must be a non-negative integer (0 = unlimited)`);
-  }
   await runFanout({...job, targets, rectHeight, verbose, parallelLimit, inventory: inv, push, offlineNames});
 }
 
@@ -1218,139 +1212,12 @@ switch (command) {
   }
   case 'put': {
     if (rest.length < 2 || rest.length > 3) die(`put takes <targets> <local-path> [<remote-path>]\n${USAGE}`);
-    const [targetArg, localPathTemplate, remotePathArg] = rest;
-    const remoteTemplate = remotePathArg || localPathTemplate;
-    // If the local path has no {host} template, validate it up front.
-    const hasLocalTemplate = localPathTemplate.includes('{host}');
-    if (!hasLocalTemplate) {
-      if (!existsSync(localPathTemplate)) die(`local path not found: ${localPathTemplate}`);
-    }
-    const inv = loadInventory();
-    const resolved = resolveTargets(targetArg, inv);
-    const {targets: putTargets, skipped: putSkipped} = await filterSelf(resolved, values.self);
-    if (resolved.length === 1) {
-      const only = resolved[0];
-      if (await isSelfAddress(only.address) && !values.self) {
-        die(`"${only.name}" resolves to self; pass --self to include`);
-      }
-    }
-    if (putTargets.length === 0) {
-      if (putSkipped.length > 0) die(`all targets resolved to self; pass --self to include`);
-      die('target list resolved to nothing');
-    }
-    if (putSkipped.length > 0) {
-      process.stderr.write(`${COLOR.dim}· skipping self (${putSkipped.join(', ')}); pass --self to include${COLOR.reset}\n`);
-    }
-    const offlineNames = new Set();
-    if (!values['no-precheck']) {
-      const {offline} = await probeConnectivity(putTargets);
-      for (const t of offline) offlineNames.add(t.name);
-      if (offlineNames.size > 0) {
-        process.stderr.write(`${COLOR.dim}· offline: ${[...offlineNames].join(', ')}${COLOR.reset}\n`);
-      }
-      if (offlineNames.size === putTargets.length) die('all targets are unreachable');
-    }
-    const parallelLimit = parseInt(values.parallel, 10) || 0;
-    // Per-host transfer: expand {host} in both paths, check existence after expansion.
-    const doPut = async (hostName, address) => {
-      const lp = expandTemplate(localPathTemplate, {host: hostName});
-      if (!existsSync(lp)) {
-        if (hasLocalTemplate) return null; // skip missing per-host files
-        throw new Error(`not found: ${lp}`);
-      }
-      const isDir = statSync(lp).isDirectory();
-      const rp = expandTemplate(remoteTemplate.endsWith('/') && !isDir ? remoteTemplate + basename(lp) : remoteTemplate, {host: hostName});
-      await putOne(address, lp, rp, isDir);
-      return `${lp} → ${rp}`;
-    };
-    if (putTargets.length === 1 && !offlineNames.has(putTargets[0].name)) {
-      const t = putTargets[0];
-      try {
-        const start = Date.now();
-        const msg = await doPut(t.name, t.address);
-        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-        process.stderr.write(buildStatusLine({ok: true, hostName: t.name, playbook: 'put', label: null, status: '', elapsed}) + '\n');
-        if (msg) process.stderr.write(`  ${COLOR.dim}${msg}${COLOR.reset}\n`);
-      } catch (err) {
-        process.stderr.write(buildStatusLine({ok: false, hostName: t.name, playbook: 'put', label: null, status: err.message.slice(0, 60), elapsed: '0.0'}) + '\n');
-        process.exit(1);
-      }
-    } else {
-      await transferFanout({
-        mode: 'put', targets: putTargets, parallelLimit, offlineNames,
-        transfer: async (hostName, address) => {
-          const msg = await doPut(hostName, address);
-          if (msg === null) return 'skipped (file not found)';
-          return msg;
-        },
-      });
-    }
+    await cmdPut(rest[0], rest[1], rest[2]);
     break;
   }
   case 'get': {
     if (rest.length < 2 || rest.length > 3) die(`get takes <targets> <remote-path> [<local-path>]\n${USAGE}`);
-    const [targetArg, remoteTemplate, localPathArg] = rest;
-    const inv = loadInventory();
-    const resolved = resolveTargets(targetArg, inv);
-    const {targets: getTargets, skipped: getSkipped} = await filterSelf(resolved, values.self);
-    if (resolved.length === 1) {
-      const only = resolved[0];
-      if (await isSelfAddress(only.address) && !values.self) {
-        die(`"${only.name}" resolves to self; pass --self to include`);
-      }
-    }
-    if (getTargets.length === 0) {
-      if (getSkipped.length > 0) die(`all targets resolved to self; pass --self to include`);
-      die('target list resolved to nothing');
-    }
-    if (getSkipped.length > 0) {
-      process.stderr.write(`${COLOR.dim}· skipping self (${getSkipped.join(', ')}); pass --self to include${COLOR.reset}\n`);
-    }
-    // Default local path: basename for single target, {host}-basename for multiple.
-    const remoteBase = basename(remoteTemplate);
-    const defaultLocal = getTargets.length === 1
-      ? remoteBase
-      : `{host}-${remoteBase}`;
-    const localTemplate = localPathArg || defaultLocal;
-    if (getTargets.length > 1 && !localTemplate.includes('{host}')) {
-      die(`multiple targets require {host} in the local path to avoid overwrites`);
-    }
-    const offlineNames = new Set();
-    if (!values['no-precheck']) {
-      const {offline} = await probeConnectivity(getTargets);
-      for (const t of offline) offlineNames.add(t.name);
-      if (offlineNames.size > 0) {
-        process.stderr.write(`${COLOR.dim}· offline: ${[...offlineNames].join(', ')}${COLOR.reset}\n`);
-      }
-      if (offlineNames.size === getTargets.length) die('all targets are unreachable');
-    }
-    // Per-host transfer: expand {host} in both paths, detect dir per-host.
-    const doGet = async (hostName, address) => {
-      const rp = expandTemplate(remoteTemplate, {host: hostName});
-      const lp = expandTemplate(localTemplate, {host: hostName});
-      const isDir = (await sshCapture(address, `test -d ${rp} && echo d || echo f`)).stdout.trim() === 'd';
-      await getOne(address, rp, lp, isDir);
-      return `${rp} → ${lp}`;
-    };
-    const parallelLimit = parseInt(values.parallel, 10) || 0;
-    if (getTargets.length === 1 && !offlineNames.has(getTargets[0].name)) {
-      const t = getTargets[0];
-      try {
-        const start = Date.now();
-        const msg = await doGet(t.name, t.address);
-        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-        process.stderr.write(buildStatusLine({ok: true, hostName: t.name, playbook: 'get', label: null, status: '', elapsed}) + '\n');
-        process.stderr.write(`  ${COLOR.dim}${msg}${COLOR.reset}\n`);
-      } catch (err) {
-        process.stderr.write(buildStatusLine({ok: false, hostName: t.name, playbook: 'get', label: null, status: err.message.slice(0, 60), elapsed: '0.0'}) + '\n');
-        process.exit(1);
-      }
-    } else {
-      await transferFanout({
-        mode: 'get', targets: getTargets, parallelLimit, offlineNames,
-        transfer: doGet,
-      });
-    }
+    await cmdGet(rest[0], rest[1], rest[2]);
     break;
   }
   default:
