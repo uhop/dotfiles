@@ -56,33 +56,33 @@ Supported formats: `.tar.br`, `.tar.bz2`, `.tar.gz`, `.tar.xz`, `.tar.zst`, `.ta
 
 ### Playbash Server Management
 
-Multi-host bash playbook runner. Replaced the previous Ansible-based stack at v2 closure (mission accomplished — no `ansible-*` commands remain). See `dev-docs/playbash-design.md` and `dev-docs/playbash-roadmap.md`.
+Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansible-based stack. See `dev-docs/playbash-design.md` and `dev-docs/playbash-roadmap.md`.
 
-**Runner:** Node CLI at `~/.local/bin/playbash` (single entrypoint + three modules under `~/.local/share/playbash/`). Cross-platform PTY allocation via `~/.local/libs/playbash-wrap.py` (Python). Linux + macOS targets supported end-to-end.
+**Runner:** Node CLI at `~/.local/bin/playbash` (single entrypoint + four modules under `~/.local/share/playbash/`: `render.js`, `inventory.js`, `sidecar.js`, `staging.js`, plus `completion.bash`). Cross-platform PTY allocation via `~/.local/libs/playbash-wrap.py` (Python). Linux + macOS targets supported end-to-end.
 
-**Subcommands:**
-- `playbash run <playbook> <targets> [-n LINES] [-p N] [--self]` — run with live rectangle (single target) or status board (multiple targets)
-- `playbash debug <playbook> <targets>` — same with `-n 0` and verbose summary
-- `playbash list` — list playbooks at `~/.local/bin/playbash-*`
-- `playbash hosts` — list inventory entries (marks self)
-- `playbash log [path]` — view a per-run log file with terminal-hostile escapes stripped
+**Subcommands** (targets always come first):
+- `playbash run <targets> <playbook>` — run with live rectangle (single target) or status board (multiple targets)
+- `playbash push <targets> <script-path>` — upload a local script and run it (always uploads)
+- `playbash debug <targets> <playbook>` — same as `run` with `-n 0` and verbose summary
+- `playbash exec <targets> [--] <command...>` — one-shot command, no playbook
+- `playbash put <targets> <local-path> [<remote-path>]` — upload a file or directory
+- `playbash get <targets> <remote-path> [<local-path>]` — download a file or directory
+- `playbash list` / `playbash hosts` / `playbash log [host] [command]`
 
-**Targets:** comma-separated host names, group names, and the implicit `all` group. Resolved from `~/.config/playbash/inventory.json` (plain JSON: string shorthand, object with `address`, or array for groups). Unknown names pass through to ssh, so `~/.ssh/config` aliases keep working.
+**Options:** `-n/--lines N` (rectangle height, default 5; 0 for exec), `-p/--parallel N`, `--self`, `-N/--no-precheck` (skip offline detection).
 
-**Built-in playbooks:**
-- `playbash-hello` — smoke test
-- `playbash-sample` — exercises rectangle + sidecar
-- `playbash-daily` — `chezmoi update` → `dcms` → `upd -y`
-- `playbash-weekly` — `chezmoi update` → `dcms` → `upd -cy`
+**Targets:** comma-separated host names, group names, and the implicit `all` group. Resolved from `~/.config/playbash/inventory.json`. Inventory hosts are **managed** (playbooks pre-deployed via chezmoi); bare ssh aliases get the playbook pushed automatically. `put`/`get`/`push` support `{host}` template expansion in paths. Custom script paths (containing `/`) in `run`/`push` always use upload mode.
 
-**Reporting model:** playbooks emit JSON-lines events into a per-run sidecar (`$PLAYBASH_REPORT`). Two helper libraries write into it: `~/.local/libs/playbash.sh` (general API: `playbash_info`/`warn`/`error`/`action`/`reboot`/`step`) and `~/.local/libs/maintenance.sh` (used by `upd`/`cln`: `report_reboot`/`report_warn`/`report_action`). Both pretty-print to stderr when `$PLAYBASH_REPORT` is unset, so playbook scripts remain runnable by hand. The runner aggregates per host and across hosts, deduping identical events from multiple sources.
+**Offline detection:** pre-flight `ssh -o ConnectTimeout=2 true` parallelized across all targets. Offline hosts get a distinct status, excluded from failure counts. `-N` to skip.
 
-**Self detection:** runtime IP comparison via `os.networkInterfaces()` + `dns.lookup`. Single self target is refused unless `--self` is passed; in fan-out, self is silently dropped unless `--self` flips it. With `--self`, the playbook runs locally as a child process (no ssh) through the same sidecar/summary pipeline.
+**Reporting model:** playbooks emit JSON-lines events into a per-run sidecar (`$PLAYBASH_REPORT`). Two helper libraries: `~/.local/libs/playbash.sh` (`playbash_info`/`warn`/`error`/`action`/`reboot`/`step`) and `~/.local/libs/maintenance.sh` (`report_reboot`/`report_warn`/`report_action`). Both pretty-print to stderr when `$PLAYBASH_REPORT` is unset.
 
-**Cron:** runs without a tty, falls back to plain (non-rectangle, non-color) output suitable for log capture. Typical entries:
+**Logs:** at `~/.cache/playbash/runs/<host>/<command>/<timestamp>.log`. `playbash log [host] [command]` finds the most recent.
+
+**Cron:** typical entries (falls back to plain output without a tty):
 ```cron
-0 3 * * * /home/eugene/.local/bin/playbash run daily all
-0 4 * * 0 /home/eugene/.local/bin/playbash run weekly all
+0 3 * * * /home/eugene/.local/bin/playbash run all daily
+0 4 * * 0 /home/eugene/.local/bin/playbash run all weekly
 ```
 
 ### upd

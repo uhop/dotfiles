@@ -63,7 +63,7 @@ dotfiles/                              # chezmoi source directory
 │   │                                  # (sourced by upd, cln; writes both colored output and
 │   │                                  # JSON-lines events to $PLAYBASH_REPORT when set)
 │   ├── private_share/                 # → ~/.local/share/ (private permissions)
-│   │   ├── playbash/                  # playbash runner modules (render, inventory, sidecar)
+│   │   ├── playbash/                  # playbash runner modules (render, inventory, sidecar, staging, completion)
 │   │   ├── utils/                     # general Node helpers (comp, semver, nvm)
 │   │   └── private_gnome-shell/       # GNOME shell extensions
 │   └── vendors/
@@ -170,4 +170,4 @@ For the full `options.bash` API see [its wiki](https://github.com/uhop/options.b
 - `sudo` operations check for group membership first (`groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'`).
 - Node.js helper modules live under `private_share/utils/` (general) and `private_share/playbash/` (runner-specific). They deploy to `~/.local/share/utils/` and `~/.local/share/playbash/` respectively. Executables in `bin/` import them via relative paths like `../share/utils/nvm.js`.
 - Maintenance scripts (`upd`, `cln`) source `~/.local/libs/maintenance.sh` for shared `report_reboot` / `report_warn` / `report_action` helpers. Each helper prints a colored message via options.bash AND writes a JSON-lines event to `$PLAYBASH_REPORT` when the script runs under the playbash runner. The helpers do not depend on `playbash.sh`; the JSON writer is inlined.
-- The playbash runner (`~/.local/bin/playbash`) is a multi-host playbook runner that wraps shell scripts at `~/.local/bin/playbash-*`. Replaces the previous ansible-based maintenance stack. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management) on the wiki, [`dev-docs/playbash-design.md`](./dev-docs/playbash-design.md) for technical rationale, and [`dev-docs/playbash-roadmap.md`](./dev-docs/playbash-roadmap.md) for the milestone checklist.
+- The playbash runner (`~/.local/bin/playbash`) is a multi-host playbook runner (v1–v3 complete). Subcommands: `run`, `push`, `debug`, `exec`, `put`, `get`, `list`, `hosts`, `log`. Targets always come first: `playbash <cmd> <targets> <rest>`. Inventory hosts are managed; bare ssh aliases get playbooks pushed automatically. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management) on the wiki, [`dev-docs/playbash-design.md`](./dev-docs/playbash-design.md) for technical rationale, and [`dev-docs/playbash-roadmap.md`](./dev-docs/playbash-roadmap.md) for the milestone log.

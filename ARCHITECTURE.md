@@ -59,7 +59,9 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── playbash/                              # playbash runner modules
 │   │   │   ├── render.js                          # COLOR, Rectangle, StatusBoard, sanitizer
 │   │   │   ├── inventory.js                       # load + group + self detection
-│   │   │   └── sidecar.js                         # JSON-lines parser + summary + aggregator
+│   │   │   ├── sidecar.js                         # JSON-lines parser + summary + aggregator
+│   │   │   ├── staging.js                         # SSH helpers, file staging for vanilla hosts
+│   │   │   └── completion.bash                    # bash completion script
 │   │   ├── utils/                                 # general Node helpers
 │   │   │   ├── comp.js                            # sorting comparator/less-function adapters
 │   │   │   ├── semver.js                          # semver parsing
@@ -96,6 +98,9 @@ private_share/playbash/render.js     ← COLOR, Rectangle, StatusBoard, ANSI san
 private_share/playbash/inventory.js  ← inventory load, group expansion, self detection
 private_share/playbash/sidecar.js    ← JSON-lines parser, per-host summary, cross-host aggregator
                                        (imports COLOR from render.js)
+private_share/playbash/staging.js    ← SSH helpers (sshRun), file staging for vanilla hosts,
+                                       remote SHA-256 probe, wrapper/playbook upload
+private_share/playbash/completion.bash ← bash completion (sourced via --bash-completion)
 
 playbash-{daily,weekly,sample,hello}  ← playbook scripts deployed to every host
     ↓
