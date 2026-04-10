@@ -15,7 +15,7 @@ for the user to run it interactively."
 
 args_program_usage="${BOLD}bootstrap-dotfiles${RESET_BOLD} <host> [options]"
 
-args::option "--github-user" "GitHub username for chezmoi (default: uhop)" "name"
+args::option "--github-user" "GitHub username for chezmoi (default: \$GITHUB_USERNAME or uhop)" "name"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 args::option "--bash-completion" "Show bash completion"
@@ -29,7 +29,7 @@ WARN="$BOLD$FG_YELLOW"
 OK="$BOLD$FG_GREEN"
 DIM="$FG_WHITE"
 
-GITHUB_USER="uhop"
+GITHUB_USER="${GITHUB_USERNAME:-uhop}"
 [[ -v args_options["--github-user"] ]] && GITHUB_USER="${args_options["--github-user"]}"
 
 HOST="${1:-}"
