@@ -19,6 +19,12 @@ Each wiki page should answer: **"I need to do X — what does this project give 
 | CLI utilities (upd, cln, arx, jot, etc.) | [Utilities](Utilities) | ✅ Full reference for every utility. |
 | Playbash runner | [Playbash Server Management](Playbash-Server-Management) | ✅ Comprehensive. |
 
+### Setup pages
+
+| Topic | Page | Status |
+|-------|------|--------|
+| New machine setup | [Setting Up a New Machine](Setting-Up-a-New-Machine) | ✅ SSH keys, server hardening, dotfiles install, post-setup checklist. |
+
 ### Workflow pages
 
 | Topic | Page | Status |
@@ -33,7 +39,6 @@ Each wiki page should answer: **"I need to do X — what does this project give 
 | Topic | Notes | Priority |
 |-------|-------|----------|
 | **Searching** | `where`, `upfind`, `upfd`, `upsearch`, `gre`, fzf-git.sh. Already documented in Shell-Environment as a reference; could use a workflow section in Workflows: general showing when to reach for each tool. | Medium |
-| **New machine bootstrap** | End-to-end setup of a vanilla machine. Content exists in README and Platform Notes but is scattered. See "Bootstrap workflow" section below. | High |
 
 Items previously listed as gaps but already covered:
 - Docker workflows → now in Workflows: maintenance.
@@ -45,96 +50,21 @@ Items previously listed as gaps but already covered:
 
 ## Bootstrap workflow
 
-Setting up a vanilla machine is currently documented across three places:
+[Setting Up a New Machine](Setting-Up-a-New-Machine) now covers SSH key setup, server hardening, dotfiles installation, and a post-setup verification checklist. Content was consolidated from README + Platform Notes.
 
-1. **README.md** — generic install steps + Ubuntu/macOS platform-specific sections.
-2. **Platform Notes** — post-install configuration (fonts, video, clipboard, Docker).
-3. **`run_onchange_before_install-packages.sh.tmpl`** — the actual automation (apt/brew packages, nvm, bun, tmux plugins, doas).
+### Remaining open questions
 
-### What exists today
+1. **Remote bootstrap.** Can a new machine be set up remotely? See [bootstrap-plan.md](./bootstrap-plan.md) for automation ideas.
 
-The current flow: install SSH keys → install prerequisites (`build-essential`, `curl`, `git`, `git-gui`, `gitk`, `micro`) → install brew → `brew install chezmoi` → `chezmoi init --apply uhop` → reboot. The `run_onchange_before_` script handles the heavy lifting automatically.
+2. **README vs wiki.** The README still duplicates Platform Notes for Ubuntu/macOS. Consider condensing to the quickstart + link to the wiki.
 
-### Open questions
+3. **Partial bootstrap.** What if someone only wants the shell aliases, not the full tool suite? The current `run_onchange_before_` is all-or-nothing. May not be worth solving now.
 
-1. **Remote bootstrap.** Can a new machine be set up remotely? The prerequisites step needs `sudo` access. `playbash exec` can run ad-hoc commands on any SSH-reachable host, but the interactive `sudo` prompt is currently detected-and-killed by playbash (by design, to avoid hanging playbooks). Options:
-   - A dedicated bootstrap script that runs the prerequisite + brew + chezmoi steps, designed to be `scp`'d and run manually via `ssht`.
-   - Extending `playbash exec` with a `--sudo` mode (passwordless sudo via `doas.conf` is only available *after* chezmoi runs).
-   - Keeping it manual — the prerequisites step is short and only runs once per machine.
+## Related dev-docs
 
-2. **README vs wiki.** The README duplicates Platform Notes for Ubuntu/macOS. Consider condensing README to the quickstart (generic 4-step flow) and linking to a dedicated wiki page for platform details.
-
-3. **Post-bootstrap verification.** No checklist exists for verifying a new machine is fully set up (are all tools working? is the correct Node version active? are tmux plugins installed?). A short verification section would catch silent failures.
-
-4. **Partial bootstrap.** What if someone only wants the shell aliases, not the full tool suite? The current `run_onchange_before_` is all-or-nothing. This may not be worth solving now but is worth noting.
-
-### Proposed action
-
-- Create a **Workflows: bootstrap** wiki page that consolidates the setup narrative from README + Platform Notes into a single walkthrough.
-- Condense README's platform sections to a brief summary + link to the wiki page.
-- Add a post-bootstrap verification checklist.
-- Document the `playbash exec` + `ssht` remote bootstrap path as a known pattern, even if it stays manual.
-
-## .bashrc non-interactive optimization
-
-`.bashrc` currently gates only prompt setup, git-prompt, and fastfetch behind `__INTERACTIVE`. Everything else — completions, tool initialization, `eval` calls — runs unconditionally, even for non-interactive shells (e.g., `ssh host some-command`).
-
-### What should be gated
-
-**High priority** (expensive `eval` or subprocess spawns):
-- NVM initialization (`nvm.sh` + completions) — spawns a subshell
-- pyenv init — spawns a subshell
-- fzf initialization — multiple `eval` calls + keybinding setup
-- pet setup — keybindings and function definitions, interactive-only
-
-**Medium priority** (unnecessary for non-interactive):
-- All bash completions (brew, git, playbash, doas, xc)
-- zoxide init, broot init
-- fzf-git.sh
-- iTerm2 shell integration
-
-**Keep unconditional:**
-- Brew shellenv (needed for PATH in non-interactive scripts)
-- PATH additions, exports, aliases (scripts may source `.bashrc` and rely on these)
-- `.env` loading
-
-### Implementation approach
-
-Wrap the interactive-only block with the existing `__INTERACTIVE` flag. The early-exit pattern (`[ -z "$PS1" ] && return` at the top) is tempting but would skip PATH setup and exports that non-interactive shells need. Better to expand the existing `if [ "$__INTERACTIVE" == yes ]` blocks to cover completions and tool inits, or reorganize into two clear sections: environment (always) and interactive setup (gated).
-
-An alternative: `.bash_profile` sources `.bashrc` unconditionally. We could move the interactive-only parts out of `.bashrc` into a file that `.bashrc` sources only when interactive. This keeps `.bashrc` fast for non-interactive use.
-
-## Bootstrap automation
-
-### Current manual flow
-
-1. SSH into vanilla machine with password.
-2. Set up passwordless SSH certificates, disable password login and root login.
-3. Copy-paste prerequisite commands from README.md (`sudo apt install build-essential curl git git-gui gitk micro`, brew install, chezmoi init).
-4. Reboot.
-
-### Automation opportunities
-
-**SSH hardening (step 2):** Could be a standalone script that:
-- Copies the local SSH public key (`ssh-copy-id` or manual `.authorized_keys`)
-- Disables `PasswordAuthentication`, `PermitRootLogin` in `sshd_config`
-- Restarts `sshd`
-
-This is a common pattern with well-known pitfalls (locking yourself out). A careful script with dry-run mode would be valuable. Could be an `scp`+`ssh` one-liner run from the local machine, or a utility in `~/.local/bin/`.
-
-**Prerequisites + chezmoi (step 3):** Could be a single bootstrap script that:
-- Installs `build-essential`, `curl`, `git`, etc. via `apt`
-- Installs brew
-- Installs chezmoi and runs `chezmoi init --apply uhop`
-
-This script must run with `sudo` access. It could be `scp`'d to the remote host and run via `ssht`. Playbash can't easily do this because the host has no tooling yet and may require interactive `sudo`.
-
-**Proposed approach:** A `bootstrap-remote` script in `~/.local/bin/` that takes a hostname and:
-1. Copies itself + SSH public key to the remote host
-2. Runs the prerequisites remotely
-3. Does NOT harden SSH (separate concern, should be explicit)
-
-The SSH hardening step remains manual or a separate opt-in script. Doing it wrong has high consequences.
+- **[bashrc-optimization.md](./bashrc-optimization.md)** — plan to gate completions and tool inits behind `__INTERACTIVE` for faster non-interactive shells.
+- **[bootstrap-plan.md](./bootstrap-plan.md)** — automation plan for setting up vanilla machines (SSH hardening, prerequisites, chezmoi init).
+- **[playbash-roadmap.md](./playbash-roadmap.md)** § Future — `playbash doctor`, `playbash bootstrap`, inventory-from-SSH-config, sudo support.
 
 ## Tool overlap analysis
 
@@ -192,10 +122,9 @@ Audit performed 2026-04-10. Findings addressed:
 3. ~~Split Workflows: general → general + remote + maintenance.~~
 4. ~~Deduplicate Git-Configuration shell alias table.~~
 5. ~~Fix dcm docs (no `--all`; scans child dirs) and playbash argument order.~~
-6. Add a "Searching" section to Workflows: general.
-7. Create Workflows: bootstrap wiki page; condense README accordingly.
-8. Optimize `.bashrc` for non-interactive shells (gate completions + tool inits behind `__INTERACTIVE`).
-9. Write a `bootstrap-remote` script or document the manual remote bootstrap pattern.
+6. ~~Document SSH key setup, distribution, client config, and server hardening in Workflows: remote.~~
+7. ~~Create setup page; move one-time SSH/bootstrap content out of Workflows: remote.~~
+8. Add a "Searching" section to Workflows: general.
+9. Condense README platform sections to link to wiki.
 10. Document tool overlap story in workflow pages (which tool for which job).
 11. Note Micro editor rationale in Application Notes.
-12. Update Home.md index as pages are added.
