@@ -31,6 +31,39 @@ EOF
 brew completions link
 {{ if .hasGui -}}flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo{{- end }}
 
+{{- else if or (eq .osIdLike "linux-rhel") (eq .osIdLike "linux-fedora") -}}
+if [ "$hasSudo" -eq 0 ]; then
+  echo "${WARN}dnf requires sudo: expect asking for the sudo password.${RESET}"
+{{ if ne .osIdLike "linux-fedora" -}}
+  if ! dnf repolist --enabled | grep -q epel; then
+    echo "${PROMPT}Enabling EPEL repository...${RESET}"
+    sudo dnf install -y epel-release
+    sudo dnf config-manager --set-enabled crb 2>/dev/null || sudo dnf config-manager --set-enabled powertools 2>/dev/null || true
+  fi
+{{- end }}
+  echo "${PROMPT}Installing command line apps: sudo dnf install...${RESET}"
+  sudo dnf install -y gcc gcc-c++ make bash-completion unzip wget curl git tmux jq \
+    python3 golang rust cargo net-tools
+  sudo dnf install -y --skip-broken micro mosh dialog bat ncdu \
+    the_silver_searcher tig htop parallel tree brotli mc ripgrep \
+    nginx ShellCheck clang-tools-extra git-lfs etckeeper \
+    fuse-sshfs lnav || true
+  command -v gh &>/dev/null || sudo dnf install -y gh || true
+fi
+{{ if .hasGui -}}
+if [ "$hasSudo" -eq 0 ]; then
+  echo "${PROMPT}Installing GUI apps: sudo dnf install...${RESET}"
+  sudo dnf install -y meld flatpak
+fi
+{{- end }}
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+echo "${PROMPT}Installing brew packages...${RESET}"
+brew bundle --file=/dev/stdin <<EOF
+{{ template "Brewfile.common" . -}}
+EOF
+brew completions link
+{{ if .hasGui -}}flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo{{- end }}
+
 {{- else if eq .osIdLike "darwin" -}}
 if [ -f /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"

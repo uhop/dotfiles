@@ -8,4 +8,13 @@ if command -v bun &> /dev/null; then
 fi
 
 echo "${PROMPT}Installing bun...${RESET}"
+bash_profile_backup=""
+if [ -f ~/.bash_profile ]; then
+  bash_profile_backup=$(mktemp)
+  cp ~/.bash_profile "$bash_profile_backup"
+fi
 curl -fsSL https://bun.sh/install | bash
+if [ -n "$bash_profile_backup" ]; then
+  cp "$bash_profile_backup" ~/.bash_profile
+  rm -f "$bash_profile_backup"
+fi

@@ -18,7 +18,7 @@ else
   echo "${PROMPT}Cloning bash scripts...${RESET}"
   mkdir -p ~/.local/share/libs
   pushd ~/.local/share/libs > /dev/null
-  git clone --filter=blob:none --sparse git@github.com:uhop/options.bash scripts
+  git clone --filter=blob:none --sparse https://github.com/uhop/options.bash scripts
   cd scripts
   git sparse-checkout set --no-cone '/*.sh' '/README.md'
   popd > /dev/null

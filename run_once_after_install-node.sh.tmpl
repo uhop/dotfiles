@@ -5,7 +5,8 @@
 {{ template "install-prelude.sh" . }}
 
 echo "${PROMPT}Installing the latest stable node...${RESET}"
-mkdir -p ~/.nvm
+export NVM_DIR="$HOME/.nvm"
+mkdir -p "$NVM_DIR"
 if [ -f "$(brew --prefix nvm)/nvm.sh" ]; then
   \. "$(brew --prefix nvm)/nvm.sh"
   nvm install stable

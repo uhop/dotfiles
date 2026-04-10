@@ -17,8 +17,11 @@ shopt -s expand_aliases
 
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
-groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'
-hasSudo=$?
+if groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b' || sudo -n true 2>/dev/null; then
+  hasSudo=0
+else
+  hasSudo=1
+fi
 
 CYAN="$(tput setaf 6 2>/dev/null || true)"
 BRIGHT_WHITE="$(tput setaf 15 2>/dev/null || true)"

@@ -20,8 +20,11 @@ args::option "--bash-completion" "Show bash completion"
 args::parse "$@"
 set -- "${args_cleaned[@]}"
 
-groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'
-hasSudo=$?
+if groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b' || sudo -n true 2>/dev/null; then
+  hasSudo=0
+else
+  hasSudo=1
+fi
 
 WARN="${BOLD}${BRIGHT_WHITE}${BG_BLUE}"
 PROMPT="${BOLD}${FG_CYAN}"
@@ -41,6 +44,12 @@ if [ "$hasSudo" -eq 0 ]; then
   echoRun --bold sudo apt autoclean $ASSUME_YES
 fi
 maintenance::check_apt_since "$apt_snapshot"
+{{- else if or (eq .osIdLike "linux-rhel") (eq .osIdLike "linux-fedora") -}}
+if [ "$hasSudo" -eq 0 ]; then
+  ansi::out "${WARN}dnf may require sudo: expect asking for the sudo password.${RESET_ALL}"
+  echoRun --bold sudo dnf autoremove $ASSUME_YES
+  echoRun --bold sudo dnf clean all
+fi
 {{- end }}
 
 if command -v flatpak &> /dev/null; then

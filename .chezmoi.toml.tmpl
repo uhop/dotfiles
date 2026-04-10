@@ -4,7 +4,7 @@
 {{- end -}}
 {{- $osIdLike := $osId -}}
 {{- if hasKey .chezmoi.osRelease "idLike" -}}
-{{-   $osIdLike = printf "%s-%s" .chezmoi.os .chezmoi.osRelease.idLike -}}
+{{-   $osIdLike = printf "%s-%s" .chezmoi.os (splitList " " .chezmoi.osRelease.idLike | first) -}}
 {{- end -}}
 {{- $wsl := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 {{- $codespaces := env "CODESPACES" | not | not -}}
