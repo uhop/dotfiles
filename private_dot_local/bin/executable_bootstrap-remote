@@ -101,7 +101,8 @@ run_remote_sudo() {
   local cmd="$1" explanation="${2:-}"
   [ -n "$explanation" ] && describe "$explanation"
   if [ "$APPLY" -eq 1 ]; then
-    echoRun "ssh" "-t" "$HOST" "sudo $cmd"
+    ansi::out "${FG_CYAN}ssh -t $HOST \"sudo $cmd\"${RESET_ALL}"
+    ssh -t "$HOST" "sudo $cmd"
   else
     ansi::out "${INFO}[dry-run] ssh -t $HOST \"sudo $cmd\"${RESET_ALL}"
   fi
