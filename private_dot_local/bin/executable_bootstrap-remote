@@ -91,7 +91,8 @@ run_cmd() {
 run_remote() {
   local cmd="$1"
   if [ "$APPLY" -eq 1 ]; then
-    echoRun "ssh" "$HOST" "$cmd"
+    ansi::out "${FG_CYAN}ssh $HOST \"$cmd\"${RESET_ALL}"
+    ssh "$HOST" "$cmd"
   else
     ansi::out "${INFO}[dry-run] ssh $HOST \"$cmd\"${RESET_ALL}"
   fi

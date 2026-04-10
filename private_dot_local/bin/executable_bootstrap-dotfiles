@@ -206,7 +206,7 @@ step "Applying dotfiles"
 info "chezmoi will ask a few questions (name, email, GitHub username, GUI)."
 info "Accept the defaults or enter your own values."
 echo
-run chezmoi init --apply ${GITHUB_USER}
+run chezmoi init --apply --recurse-submodules=false ${GITHUB_USER}
 
 step "Done!"
 info "The dotfiles are installed. A reboot is recommended."
