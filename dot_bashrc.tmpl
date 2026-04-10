@@ -149,7 +149,7 @@ fi
 
 export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
 
-# Alias definitions.
+# Alias and function definitions.
 [ -s ~/.bash_aliases ] && \. ~/.bash_aliases || true
 
 # --- Interactive-only setup (completions, tool init, keybindings) ---
@@ -234,6 +234,13 @@ if [ "$__INTERACTIVE" == yes ]; then
   fi
 
   [ -s /etc/bash_completion ] && ! shopt -oq posix && \. /etc/bash_completion || true
+
+  if declare -F __git_complete &>/dev/null && declare -p __git_alias_completions &>/dev/null 2>&1; then
+    for __alias in "${!__git_alias_completions[@]}"; do
+      alias "$__alias" &>/dev/null && __git_complete "$__alias" "_git_${__git_alias_completions[$__alias]}"
+    done
+    unset __alias
+  fi
 
   if [ -z "$WINDSURF_CASCADE_TERMINAL" ]; then
     # [ "$SHLVL" == "1" ] && command -v fastfetch &> /dev/null && fastfetch || true

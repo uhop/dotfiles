@@ -119,28 +119,24 @@ __get_default_git_branch() {
   git remote show origin | sed -n '/HEAD branch/s/.*: //p'
 }
 
+declare -A __git_alias_completions=(
+  [gst]=status [gco]=checkout [gcob]=checkout [gcm]=commit
+  [gbr]=branch [grs]=restore [gpull]=pull [gpush]=push
+  [gsw]=switch [gme]=merge
+)
+
 alias gst='f() { echoRun "git status $@"; unset -f f; }; f'
-__git_complete gst _git_status
 alias gco='f() { echoRun "git checkout $@"; unset -f f; }; f'
-__git_complete gco _git_checkout
 alias gcob='f() { echoRun "git checkout -b $@"; unset -f f; }; f'
-__git_complete gcob _git_checkout
 alias gcm='f() { echoRun "git commit $@"; unset -f f; }; f'
-__git_complete gcm _git_commit
 alias gbr='f() { echoRun "git branch $@"; unset -f f; }; f'
-__git_complete gbr _git_branch
 alias grs='f() { echoRun "git restore $@"; unset -f f; }; f'
-__git_complete grs _git_restore
 alias gpull='f() { echoRun "git pull $@"; unset -f f; }; f'
-__git_complete gpull _git_pull
 alias gpush='f() { echoRun "git push $@"; unset -f f; }; f'
-__git_complete gpush _git_push
 
 alias gsw='f() { if [[ "$#" -eq 0 ]]; then echoRun "git switch $(__get_default_git_branch)"; else echoRun "git switch $@"; fi; unset -f f; }; f'
-__git_complete gsw _git_switch
 
 alias gme='f() { if [[ "$#" -eq 0 ]]; then echoRun "git merge $(__get_default_git_branch)"; else echoRun "git merge $@"; fi; unset -f f; }; f'
-__git_complete gme _git_merge
 
 alias gls='f() { echoRun "git ls $@"; unset -f f; }; f'
 alias gll='f() { echoRun "git ll $@"; unset -f f; }; f'
