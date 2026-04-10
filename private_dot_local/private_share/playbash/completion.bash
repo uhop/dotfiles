@@ -43,7 +43,7 @@ _playbash() {
         -n|--lines|-p|--parallel) return ;;
       esac
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --self -h --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --self -N --no-precheck -h --help" -- "$cur") )
         return
       fi
       # Count positional args (same logic as run/debug below).
@@ -106,7 +106,7 @@ _playbash() {
 
       # Option flag completion takes priority over positional shape.
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --self -h --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --self -N --no-precheck -h --help" -- "$cur") )
         return
       fi
 

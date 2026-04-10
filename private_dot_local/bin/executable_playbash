@@ -54,6 +54,7 @@ Options (must come before \`--\` when using exec):
                    pass 0 to disable the rectangle and stream output raw
   -p, --parallel N max concurrent hosts in fan-out (default 0 = unlimited)
   --self           allow running on the local host (default: refuse)
+  -N, --no-precheck  skip the ssh connectivity pre-flight check
 
 <targets> is one positional that may be a single host name, a comma-
 separated list, a group name, or the implicit "all" group — and any
@@ -153,6 +154,30 @@ function sshCapture(host, remote) {
     proc.on('error', reject);
     proc.on('close', code => resolve({code, stdout, stderr}));
   });
+}
+
+// Pre-flight connectivity check. Parallel `ssh -o ConnectTimeout=2 true`
+// for every target. Returns {online, offline} arrays of {name, address}.
+async function probeConnectivity(targets) {
+  const results = await Promise.all(targets.map(async ({name, address}) => {
+    try {
+      const proc = spawn('ssh', [
+        '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=2',
+        address, '--', 'true',
+      ], {stdio: ['ignore', 'ignore', 'ignore']});
+      const code = await new Promise(resolve => {
+        proc.on('error', () => resolve(255));
+        proc.on('close', resolve);
+      });
+      return {name, address, online: code === 0};
+    } catch {
+      return {name, address, online: false};
+    }
+  }));
+  return {
+    online: results.filter(r => r.online).map(({name, address}) => ({name, address})),
+    offline: results.filter(r => !r.online).map(({name, address}) => ({name, address})),
+  };
 }
 
 // --- Remote PTY wrapper ---
@@ -539,7 +564,7 @@ async function runLocally({playbook, command, hostName, rectHeight, verbose}) {
 
 // Run a list of targets in parallel through the StatusBoard, then print
 // per-host summaries (in input order) and the aggregated section.
-async function runFanout({playbook, command, targets, rectHeight, verbose, parallelLimit, inventory, push}) {
+async function runFanout({playbook, command, targets, rectHeight, verbose, parallelLimit, inventory, push, offlineNames}) {
   const logLabel = playbook || 'exec';
   const slots = targets.map(t => new HostSlot(t.name, t.address, rectHeight ?? 5));
   const board = new StatusBoard(slots, {playbook: logLabel, rectHeight: rectHeight ?? 5});
@@ -550,6 +575,12 @@ async function runFanout({playbook, command, targets, rectHeight, verbose, paral
   // already happened in the dispatcher; here we still re-check per-host
   // because the same fan-out can mix self and non-self when --self is on.
   const launchOne = async (slot) => {
+    if (offlineNames.has(slot.name)) {
+      board.hostFinished(slot.name, {
+        ok: false, statusWord: 'offline', events: [], logPath: '', elapsedMs: 0,
+      });
+      return;
+    }
     board.hostStarted(slot.name);
     const isSelf = await isSelfAddress(slot.address);
     let makeChild, getSidecarText;
@@ -664,8 +695,10 @@ async function runFanout({playbook, command, targets, rectHeight, verbose, paral
   // Per-host summary lines, input order.
   let okCount = 0;
   let failCount = 0;
+  let offlineCount = 0;
   for (const slot of slots) {
-    if (slot.state === 'ok') okCount++;
+    if (slot.statusWord === 'offline') offlineCount++;
+    else if (slot.state === 'ok') okCount++;
     else failCount++;
     const elapsed = (slot.elapsedMs / 1000).toFixed(1);
     process.stderr.write(buildStatusLine({
@@ -698,11 +731,15 @@ async function runFanout({playbook, command, targets, rectHeight, verbose, paral
   }
 
   // Footer line + cross-host aggregation.
-  const totalElapsed = ((Date.now() - slots[0].startedAt) / 1000).toFixed(1);
-  const summary = failCount === 0
-    ? `${okCount} ok`
-    : `${okCount} ok, ${COLOR.bold}${COLOR.red}${failCount} failed${COLOR.reset}`;
-  process.stderr.write(`\n${COLOR.dim}done in ${totalElapsed}s${COLOR.reset} · ${summary}\n`);
+  const ranSlots = slots.filter(s => s.statusWord !== 'offline');
+  const totalElapsed = ranSlots.length > 0
+    ? ((Date.now() - ranSlots[0].startedAt) / 1000).toFixed(1)
+    : '0.0';
+  let summaryParts = [];
+  if (okCount > 0) summaryParts.push(`${okCount} ok`);
+  if (failCount > 0) summaryParts.push(`${COLOR.bold}${COLOR.red}${failCount} failed${COLOR.reset}`);
+  if (offlineCount > 0) summaryParts.push(`${COLOR.dim}${offlineCount} offline${COLOR.reset}`);
+  process.stderr.write(`\n${COLOR.dim}done in ${totalElapsed}s${COLOR.reset} · ${summaryParts.join(', ')}\n`);
 
   renderAggregated(aggregateEvents(slots));
 
@@ -846,6 +883,7 @@ const {values, positionals} = parseArgs({
   options: {
     lines:             {type: 'string',  short: 'n'},
     self:              {type: 'boolean', default: false},
+    'no-precheck':     {type: 'boolean', short: 'N', default: false},
     parallel:          {type: 'string',  short: 'p', default: '0'},
     'bash-completion': {type: 'boolean', default: false},
   },
@@ -901,6 +939,10 @@ async function dispatch({job, targetArg, rectHeight, verbose, push}) {
     if (isSelf) {
       await runLocally({...job, hostName: only.name, rectHeight, verbose});
     } else {
+      if (!values['no-precheck']) {
+        const {offline} = await probeConnectivity([only]);
+        if (offline.length > 0) die(`${only.name} (${only.address}) is unreachable`);
+      }
       const managed = !push && inv.hosts.has(only.name);
       if (!push && job.playbook && !managed) {
         process.stderr.write(`${COLOR.dim}· ${only.name} not in inventory — pushing playbook${COLOR.reset}\n`);
@@ -923,8 +965,24 @@ async function dispatch({job, targetArg, rectHeight, verbose, push}) {
     );
   }
 
+  // Pre-flight connectivity check. Offline hosts get a distinct status
+  // in the board and are excluded from success/failure counts.
+  const offlineNames = new Set();
+  if (!values['no-precheck']) {
+    const {offline} = await probeConnectivity(targets);
+    for (const t of offline) offlineNames.add(t.name);
+    if (offlineNames.size > 0) {
+      process.stderr.write(
+        `${COLOR.dim}· offline: ${[...offlineNames].join(', ')}${COLOR.reset}\n`,
+      );
+    }
+    if (offlineNames.size === targets.length) {
+      die('all targets are unreachable');
+    }
+  }
+
   if (!push && job.playbook) {
-    const nonInv = targets.filter(t => !inv.hosts.has(t.name));
+    const nonInv = targets.filter(t => !inv.hosts.has(t.name) && !offlineNames.has(t.name));
     if (nonInv.length > 0) {
       process.stderr.write(
         `${COLOR.dim}· pushing playbook to ${nonInv.map(t => t.name).join(', ')} (not in inventory)${COLOR.reset}\n`,
@@ -936,7 +994,7 @@ async function dispatch({job, targetArg, rectHeight, verbose, push}) {
   if (!Number.isFinite(parallelLimit) || parallelLimit < 0) {
     die(`--parallel must be a non-negative integer (0 = unlimited)`);
   }
-  await runFanout({...job, targets, rectHeight, verbose, parallelLimit, inventory: inv, push});
+  await runFanout({...job, targets, rectHeight, verbose, parallelLimit, inventory: inv, push, offlineNames});
 }
 
 switch (command) {
