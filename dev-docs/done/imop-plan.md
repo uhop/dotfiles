@@ -1,6 +1,6 @@
 # imop Implementation Plan
 
-**Status: ✅ All three phases complete.** `imop` is fully implemented and documented in [Utilities](https://github.com/uhop/dotfiles/wiki/Utilities#imop).
+**Status: ✅ All phases complete.** `imop` is fully implemented and documented in [Utilities](https://github.com/uhop/dotfiles/wiki/Utilities#imop).
 
 Based on research and [`imop-ideas.md`](./done/imop-ideas.md).
 
@@ -132,10 +132,10 @@ With `--suffix TAG`: **multi-extension** — `image.jpg` → `image.jpg.TAG.webp
 4. ✅ Implement `--suffix` naming.
 5. ✅ Implement `--dry-run`.
 
-### Phase 3 — Polish
+### Phase 3 — Polish ✅
 
-1. ⬜ Progress reporting (file count, sizes before/after, percentage saved).
-2. ⬜ Parallel processing (background jobs with a concurrency limit).
+1. ✅ Progress reporting (file count shown upfront, `[N/M] filename` per file, total savings summary).
+2. ✅ Parallel processing (`-j, --jobs N`; 0 = nproc; background jobs with `wait -n` concurrency limit).
 3. ✅ Add to wiki documentation.
 
 ## Design decisions (resolved)
