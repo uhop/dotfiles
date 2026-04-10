@@ -37,10 +37,11 @@ import {
   renderAggregated,
   renderSummary,
 } from '../share/playbash/sidecar.js';
-import {ensureWrapper} from '../share/playbash/staging.js';
+import {STAGING_DIR, WRAPPER_MANAGED, ensureWrapper, stagePlaybookFiles} from '../share/playbash/staging.js';
 
 const USAGE = `usage:
   playbash run   <playbook> <targets> [-n LINES] [-p N] [--self]
+  playbash push  <playbook> <targets> [-n LINES] [-p N] [--self]
   playbash debug <playbook> <targets> [--self]
   playbash exec  <targets> [--] <command...> [options]
   playbash list
@@ -62,7 +63,15 @@ ssh, so any ~/.ssh/config alias works. A single resolved target uses
 the live rectangle; multiple targets switch to a status board with
 parallel runs and a focused-host live view.
 
-<playbook> resolves to ~/.local/bin/playbash-<playbook> on the target host.
+\`run\` treats hosts in the inventory as managed — playbooks are expected
+at ~/.local/bin/playbash-<playbook> on the target. Hosts not in the
+inventory (bare ssh aliases) are automatically pushed (see below).
+
+\`push\` always uploads the operator's local copy of the playbook and its
+helper library to the target, regardless of inventory membership. Useful
+for ad-hoc runs and debugging. Only self-contained playbooks work —
+orchestration playbooks that depend on other chezmoi-managed scripts
+(upd, cln, dcms, chezmoi) will not.
 
 \`exec\` runs an arbitrary command through the same wrapper / rectangle /
 fan-out pipeline as \`run\`, without a playbook. Use \`--\` before the
@@ -156,13 +165,14 @@ function sshCapture(host, remote) {
 // (host names are validated against [a-zA-Z0-9._-]), so plain string
 // interpolation is safe. `exec` so python becomes the direct child of
 // sshd's session shell — no intermediate bash -c layer to absorb signals.
-function buildRemoteCommand({reportPath, hostName, cols, rows, playbook, wrapperPath}) {
+function buildRemoteCommand({reportPath, hostName, cols, rows, playbookPath, wrapperPath, libs}) {
   return (
     `LC_ALL=C ` +
     `PLAYBASH_REPORT=${reportPath} ` +
     `PLAYBASH_HOST=${hostName} ` +
+    (libs ? `PLAYBASH_LIBS=${libs} ` : '') +
     `COLUMNS=${cols} LINES=${rows} ` +
-    `exec python3 -u ${wrapperPath} ~/.local/bin/playbash-${playbook}`
+    `exec python3 -u ${wrapperPath} ${playbookPath}`
   );
 }
 
@@ -449,8 +459,20 @@ function renderFailureTail(tail) {
   }
 }
 
-async function runRemote({playbook, command, hostName, address, rectHeight, verbose, inventory}) {
-  const wrapperPath = await ensureWrapper(address, hostName, inventory);
+async function runRemote({playbook, command, hostName, address, rectHeight, verbose, managed}) {
+  let wrapperPath, playbookPath, libs;
+  if (managed) {
+    wrapperPath = WRAPPER_MANAGED;
+    if (playbook) { playbookPath = `~/.local/bin/playbash-${playbook}`; libs = null; }
+  } else if (playbook) {
+    await stagePlaybookFiles(address, hostName, playbook);
+    wrapperPath = `${STAGING_DIR}/playbash-wrap.py`;
+    playbookPath = `${STAGING_DIR}/playbash-${playbook}`;
+    libs = STAGING_DIR;
+  } else {
+    wrapperPath = await ensureWrapper(address, hostName);
+    libs = null;
+  }
   const logLabel = playbook || 'exec';
   const reportPath = playbook ? `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl` : '';
   await runHostSingle({
@@ -458,7 +480,7 @@ async function runRemote({playbook, command, hostName, address, rectHeight, verb
     makeChild: ({cols, rows}) => {
       const wrapped = command
         ? buildExecCommand({cols, rows, command, wrapperPath})
-        : buildRemoteCommand({reportPath, hostName, cols, rows, playbook, wrapperPath});
+        : buildRemoteCommand({reportPath, hostName, cols, rows, playbookPath, wrapperPath, libs});
       return spawn('ssh', ['-o', 'BatchMode=yes', address, '--', wrapped], {
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true, // own process group so killChild can group-kill
@@ -515,7 +537,7 @@ async function runLocally({playbook, command, hostName, rectHeight, verbose}) {
 
 // Run a list of targets in parallel through the StatusBoard, then print
 // per-host summaries (in input order) and the aggregated section.
-async function runFanout({playbook, command, targets, rectHeight, verbose, parallelLimit, inventory}) {
+async function runFanout({playbook, command, targets, rectHeight, verbose, parallelLimit, inventory, push}) {
   const logLabel = playbook || 'exec';
   const slots = targets.map(t => new HostSlot(t.name, t.address, rectHeight || 5));
   const board = new StatusBoard(slots, {playbook: logLabel, rectHeight: rectHeight || 5});
@@ -568,12 +590,25 @@ async function runFanout({playbook, command, targets, rectHeight, verbose, paral
           }
         : async () => '';
     } else {
-      const wrapperPath = await ensureWrapper(slot.address, slot.name, inventory);
+      const managed = !push && inventory.hosts.has(slot.name);
+      let wrapperPath, playbookPath, libs;
+      if (managed) {
+        wrapperPath = WRAPPER_MANAGED;
+        if (playbook) { playbookPath = `~/.local/bin/playbash-${playbook}`; libs = null; }
+      } else if (playbook) {
+        await stagePlaybookFiles(slot.address, slot.name, playbook);
+        wrapperPath = `${STAGING_DIR}/playbash-wrap.py`;
+        playbookPath = `${STAGING_DIR}/playbash-${playbook}`;
+        libs = STAGING_DIR;
+      } else {
+        wrapperPath = await ensureWrapper(slot.address, slot.name);
+        libs = null;
+      }
       const reportPath = playbook ? `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl` : '';
       makeChild = ({cols, rows}) => {
         const wrapped = command
           ? buildExecCommand({cols, rows, command, wrapperPath})
-          : buildRemoteCommand({reportPath, hostName: slot.name, cols, rows, playbook, wrapperPath});
+          : buildRemoteCommand({reportPath, hostName: slot.name, cols, rows, playbookPath, wrapperPath, libs});
         return spawn('ssh', ['-o', 'BatchMode=yes', slot.address, '--', wrapped], {
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: true, // own process group so killChild can group-kill
@@ -795,10 +830,12 @@ const [command, ...rest] = positionals;
 //   - If length > 1: fan-out path (StatusBoard, parallel runs, aggregated
 //     summary). Self entries are silently dropped from the list unless
 //     --self is passed; a one-line dim notice is printed before launch.
-// Shared dispatcher for `run`, `debug`, and `exec`. The `job` object is
-// either {playbook: 'daily'} or {command: 'uptime && df -h'}. All target
-// resolution, self detection, filtering, and fan-out logic is shared.
-async function dispatch({job, targetArg, rectHeight, verbose}) {
+// Shared dispatcher for `run`, `push`, `debug`, and `exec`. The `job`
+// object is either {playbook: 'daily'} or {command: 'uptime && df -h'}.
+// `push` forces upload mode for all targets; `run`/`debug` use inventory
+// membership (hosts in the inventory are managed, bare ssh aliases get
+// the playbook pushed automatically with a notice).
+async function dispatch({job, targetArg, rectHeight, verbose, push}) {
   const inv = loadInventory();
   const resolved = resolveTargets(targetArg, inv);
   const {targets, skipped} = await filterSelf(resolved, values.self);
@@ -815,7 +852,11 @@ async function dispatch({job, targetArg, rectHeight, verbose}) {
     if (isSelf) {
       await runLocally({...job, hostName: only.name, rectHeight, verbose});
     } else {
-      await runRemote({...job, hostName: only.name, address: only.address, rectHeight, verbose, inventory: inv});
+      const managed = !push && inv.hosts.has(only.name);
+      if (!push && job.playbook && !managed) {
+        process.stderr.write(`${COLOR.dim}· ${only.name} not in inventory — pushing playbook${COLOR.reset}\n`);
+      }
+      await runRemote({...job, hostName: only.name, address: only.address, rectHeight, verbose, managed});
     }
     return;
   }
@@ -833,11 +874,20 @@ async function dispatch({job, targetArg, rectHeight, verbose}) {
     );
   }
 
+  if (!push && job.playbook) {
+    const nonInv = targets.filter(t => !inv.hosts.has(t.name));
+    if (nonInv.length > 0) {
+      process.stderr.write(
+        `${COLOR.dim}· pushing playbook to ${nonInv.map(t => t.name).join(', ')} (not in inventory)${COLOR.reset}\n`,
+      );
+    }
+  }
+
   const parallelLimit = parseInt(values.parallel, 10);
   if (!Number.isFinite(parallelLimit) || parallelLimit < 0) {
     die(`--parallel must be a non-negative integer (0 = unlimited)`);
   }
-  await runFanout({...job, targets, rectHeight, verbose, parallelLimit, inventory: inv});
+  await runFanout({...job, targets, rectHeight, verbose, parallelLimit, inventory: inv, push});
 }
 
 switch (command) {
@@ -861,22 +911,23 @@ switch (command) {
     cmdCompleteTargets();
     break;
   }
-  case 'run': {
-    if (rest.length !== 2) die(`run takes <playbook> <targets>\n${USAGE}`);
+  case 'run':
+  case 'push': {
+    if (rest.length !== 2) die(`${command} takes <playbook> <targets>\n${USAGE}`);
     const [playbook, targetArg] = rest;
     if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
     const rectHeight = parseInt(values.lines, 10);
     if (!Number.isFinite(rectHeight) || rectHeight < 0) {
       die(`--lines must be a non-negative integer (0 disables the rectangle)`);
     }
-    await dispatch({job: {playbook}, targetArg, rectHeight, verbose: false});
+    await dispatch({job: {playbook}, targetArg, rectHeight, verbose: false, push: command === 'push'});
     break;
   }
   case 'debug': {
     if (rest.length !== 2) die(`debug takes <playbook> <targets>\n${USAGE}`);
     const [playbook, targetArg] = rest;
     if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
-    await dispatch({job: {playbook}, targetArg, rectHeight: 0, verbose: true});
+    await dispatch({job: {playbook}, targetArg, rectHeight: 0, verbose: true, push: false});
     break;
   }
   case 'exec': {
@@ -888,7 +939,7 @@ switch (command) {
     if (!Number.isFinite(rectHeight) || rectHeight < 0) {
       die(`--lines must be a non-negative integer (0 disables the rectangle)`);
     }
-    await dispatch({job: {command}, targetArg, rectHeight, verbose: false});
+    await dispatch({job: {command}, targetArg, rectHeight, verbose: false, push: false});
     break;
   }
   default:

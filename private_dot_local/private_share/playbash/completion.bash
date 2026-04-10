@@ -5,14 +5,14 @@ _playbash() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-  local subcommands="run debug exec list hosts log"
+  local subcommands="run push debug exec list hosts log"
 
   # Find the first subcommand-shaped token. Anything before it is options.
   local subcommand=""
   local i
   for ((i = 1; i < COMP_CWORD; i++)); do
     case "${COMP_WORDS[i]}" in
-      run|debug|exec|list|hosts|log)
+      run|push|debug|exec|list|hosts|log)
         subcommand="${COMP_WORDS[i]}"
         break
         ;;
@@ -79,7 +79,7 @@ _playbash() {
       fi
       return
       ;;
-    run|debug)
+    run|push|debug)
       # Option values: -n/-p take a number, no completion to offer.
       case "$prev" in
         -n|--lines|-p|--parallel)
@@ -97,7 +97,7 @@ _playbash() {
           continue
         fi
         case "$w" in
-          run|debug) ;;
+          run|push|debug) ;;
           -n|--lines|-p|--parallel) skip_next=1 ;;
           -*) ;;
           *) ((pos++)) ;;

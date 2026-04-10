@@ -1,25 +1,34 @@
-// share/playbash/staging.js — wrapper staging for vanilla (non-chezmoi) hosts.
+// share/playbash/staging.js — file staging for vanilla (non-chezmoi) hosts.
 //
 // Ensures playbash-wrap.py exists on a remote host before a run and returns
 // its remote path. For chezmoi-managed hosts the wrapper is already deployed
 // at ~/.local/libs/playbash-wrap.py; for vanilla hosts it is pushed to
 // ~/.cache/playbash-staging/playbash-wrap.py via `cat | ssh`.
 //
-// Results are cached under ~/.cache/playbash/staging/<hostName>.json, keyed
-// by the local wrapper's SHA-256. A `chezmoi apply` that updates the wrapper
-// invalidates all caches and triggers re-probe / re-stage on next run.
+// For `run`/`debug` on vanilla hosts, also stages playbash.sh (helper
+// library) and the playbook script into the same staging dir, so the
+// playbook can source its helper via PLAYBASH_LIBS=<staging>.
 //
-// No user-visible CLI surface — this is substrate for milestones 15, 16, 17.
+// The caller decides managed vs. upload based on inventory membership:
+// hosts in the inventory are managed (wrapper + playbooks pre-deployed via
+// chezmoi); bare SSH aliases are vanilla and get everything staged.
+// Wrapper staging is cached under ~/.cache/playbash/staging/<hostName>.json,
+// keyed by the local wrapper's SHA-256. For playbook files, a remote SHA-256
+// probe (one ssh round trip) replaces local caching — the remote is the
+// source of truth, so deleted or corrupted files are re-uploaded on next run.
 
 import {createHash} from 'node:crypto';
-import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {spawn} from 'node:child_process';
 
 const WRAPPER_LOCAL   = join(homedir(), '.local', 'libs', 'playbash-wrap.py');
-const WRAPPER_MANAGED = '~/.local/libs/playbash-wrap.py';
-const WRAPPER_STAGED  = '~/.cache/playbash-staging/playbash-wrap.py';
+const HELPER_LOCAL    = join(homedir(), '.local', 'libs', 'playbash.sh');
+const PLAYBOOK_DIR   = join(homedir(), '.local', 'bin');
+export const WRAPPER_MANAGED = '~/.local/libs/playbash-wrap.py';
+export const STAGING_DIR = '~/.cache/playbash-staging';
+const WRAPPER_STAGED  = `${STAGING_DIR}/playbash-wrap.py`;
 const CACHE_DIR       = join(homedir(), '.cache', 'playbash', 'staging');
 
 // --- internal helpers ---
@@ -43,11 +52,15 @@ function sshRun(address, remoteCmd, input) {
   });
 }
 
+function fileSha(content) {
+  return createHash('sha256').update(content).digest('hex');
+}
+
 // SHA-256 of the local wrapper, memoized for the process lifetime.
 let _sha = null;
 function wrapperSha() {
   if (_sha) return _sha;
-  _sha = createHash('sha256').update(readFileSync(WRAPPER_LOCAL)).digest('hex');
+  _sha = fileSha(readFileSync(WRAPPER_LOCAL));
   return _sha;
 }
 
@@ -69,7 +82,7 @@ async function stageWrapper(address, hostName) {
   const content = readFileSync(WRAPPER_LOCAL);
   const r = await sshRun(
     address,
-    `mkdir -p ~/.cache/playbash-staging && cat > ${WRAPPER_STAGED} && chmod +x ${WRAPPER_STAGED}`,
+    `mkdir -p ${STAGING_DIR} && cat > ${WRAPPER_STAGED} && chmod +x ${WRAPPER_STAGED}`,
     content,
   );
   if (r.code !== 0) {
@@ -77,42 +90,89 @@ async function stageWrapper(address, hostName) {
   }
 }
 
+// Probe the remote staging dir for existing files and their SHA-256 hashes.
+// Returns a Map<filename, sha256hex>. Uses a Python one-liner (Python 3.3+
+// is already a hard requirement for the PTY wrapper).
+async function probeRemoteShas(address, remotePaths) {
+  const pyScript = [
+    'import hashlib,sys',
+    'for f in sys.argv[1:]:',
+    ' try:print(hashlib.sha256(open(f,"rb").read()).hexdigest(),f.rsplit("/",1)[-1])',
+    ' except:pass',
+  ].join('\n');
+  const r = await sshRun(address, `python3 -c '${pyScript}' ${remotePaths.join(' ')}`);
+  const shas = new Map();
+  if (r.code === 0) {
+    for (const line of r.stdout.split('\n')) {
+      if (!line.trim()) continue;
+      const [sha, name] = line.trim().split(/\s+/, 2);
+      if (sha && name) shas.set(name, sha);
+    }
+  }
+  return shas;
+}
+
+// Ensure the staging dir on the remote has up-to-date copies of the wrapper,
+// helper library, and playbook script. One SSH probe computes SHA-256 of
+// existing remote files; only files with a mismatched or missing hash are
+// re-uploaded (parallel `cat | ssh` calls, one per file). No local cache —
+// the remote is the source of truth.
+export async function stagePlaybookFiles(address, hostName, playbookName) {
+  const wrapperContent = readFileSync(WRAPPER_LOCAL);
+  const helperContent = readFileSync(HELPER_LOCAL);
+  const playbookLocalPath = join(PLAYBOOK_DIR, `playbash-${playbookName}`);
+  if (!existsSync(playbookLocalPath)) {
+    throw new Error(`playbook not found locally: ${playbookLocalPath}`);
+  }
+  const playbookContent = readFileSync(playbookLocalPath);
+
+  const files = [
+    {name: 'playbash-wrap.py', content: wrapperContent, sha: fileSha(wrapperContent), executable: true},
+    {name: 'playbash.sh', content: helperContent, sha: fileSha(helperContent), executable: false},
+    {name: `playbash-${playbookName}`, content: playbookContent, sha: fileSha(playbookContent), executable: true},
+  ];
+
+  // Probe: one SSH round trip to hash all staged files on the remote.
+  const remoteShas = await probeRemoteShas(
+    address,
+    files.map(f => `${STAGING_DIR}/${f.name}`),
+  );
+
+  // Upload only files whose remote SHA doesn't match the local copy.
+  const needed = files.filter(f => remoteShas.get(f.name) !== f.sha);
+  if (needed.length === 0) return;
+
+  const stageOne = ({name, content, executable}) => {
+    const cmd = executable
+      ? `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${name} && chmod +x ${STAGING_DIR}/${name}`
+      : `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${name}`;
+    return sshRun(address, cmd, content);
+  };
+
+  const results = await Promise.all(needed.map(stageOne));
+
+  for (let i = 0; i < results.length; i++) {
+    if (results[i].code !== 0) {
+      throw new Error(
+        `failed to stage ${needed[i].name} on ${hostName}: ${results[i].stderr.trim() || `exit ${results[i].code}`}`,
+      );
+    }
+  }
+}
+
 // --- public API ---
 
-// Ensure the Python PTY wrapper is present on `address` and return its
-// remote path. Uses a local file cache keyed by the wrapper's SHA-256 so
-// repeat runs against the same host are free (zero ssh calls).
-//
-// Detection strategy:
-//   - If the inventory entry has `managed: false`, the host is treated as
-//     vanilla — the wrapper is staged without probing.
-//   - Otherwise, the managed path is probed first. On probe failure the
-//     wrapper is staged automatically.
-//
-// `inventory` may be null/undefined (e.g. when the target was a bare
-// ssh-config alias with no inventory entry). In that case, probe is used.
-export async function ensureWrapper(address, hostName, inventory) {
+// Ensure the Python PTY wrapper is staged at STAGING_DIR on the remote.
+// Used by `exec` on non-inventory hosts (no playbook to stage, just the
+// wrapper). For playbook runs, stagePlaybookFiles() handles the wrapper
+// as part of its probe. Returns the remote wrapper path (always STAGED).
+// Cached by wrapper SHA-256 so repeat runs cost zero ssh calls.
+export async function ensureWrapper(address, hostName) {
   const sha = wrapperSha();
-
   const cached = loadCache(hostName);
-  if (cached && cached.wrapperSha === sha) return cached.remotePath;
-
-  // Check for explicit `managed: false` in the inventory entry.
-  const entry = inventory?.hosts?.get(hostName);
-  if (entry?.managed === false) {
-    await stageWrapper(address, hostName);
-    saveCache(hostName, {wrapperSha: sha, remotePath: WRAPPER_STAGED});
+  if (cached && cached.wrapperSha === sha && cached.remotePath === WRAPPER_STAGED) {
     return WRAPPER_STAGED;
   }
-
-  // Probe the chezmoi-managed path.
-  const probe = await sshRun(address, `test -f ${WRAPPER_MANAGED}`);
-  if (probe.code === 0) {
-    saveCache(hostName, {wrapperSha: sha, remotePath: WRAPPER_MANAGED});
-    return WRAPPER_MANAGED;
-  }
-
-  // Probe failed — stage the wrapper.
   await stageWrapper(address, hostName);
   saveCache(hostName, {wrapperSha: sha, remotePath: WRAPPER_STAGED});
   return WRAPPER_STAGED;
