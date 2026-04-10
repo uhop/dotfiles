@@ -1,40 +1,66 @@
 # Bootstrap automation plan
 
-How to set up a vanilla machine with this project. The SSH and hardening workflow is documented in [Workflows: remote](https://github.com/uhop/dotfiles/wiki/Workflows-remote). This document covers automation opportunities.
+How to set up a vanilla machine with this project. The user-facing documentation is in [Setting Up a New Machine](https://github.com/uhop/dotfiles/wiki/Setting-Up-a-New-Machine) on the wiki.
 
-## Current manual flow
+## Current flow
 
 1. SSH into vanilla machine with password.
-2. Copy public key (`ssh-copy-id`), then harden: disable password login and root login in `sshd_config`.
-3. Copy-paste prerequisite commands from README.md (`sudo apt install build-essential curl git git-gui gitk micro`, brew install, chezmoi init).
-4. Reboot.
+2. `ssh-copy-id user@host` — distribute public key.
+3. Harden: disable password login and root login in `sshd_config`, restart `sshd`.
+4. Install prerequisites, brew, chezmoi — copy-paste from README.
+5. Reboot.
 
-## Automation opportunities
+Steps 2-3 are documented in the wiki. Step 4 is the copy-paste bottleneck.
 
-### SSH hardening (step 2)
+## What to automate
 
-Could be a standalone script with dry-run mode that:
-- Copies the local SSH public key (`ssh-copy-id`)
-- Disables `PasswordAuthentication`, `PermitRootLogin` in `sshd_config`
-- Restarts `sshd`
-- Verifies key-based access from a second connection before committing
+### Step 4: a `bootstrap-remote` script
 
-Doing it wrong locks you out. A careful script is valuable but should be opt-in, not part of bootstrap.
+A utility in `~/.local/bin/` that runs from the **operator's machine** (not the target). Takes a hostname, assumes passwordless SSH is already working.
 
-### Prerequisites + chezmoi (step 3)
+```
+bootstrap-remote <host> [options]
+```
 
-Could be a single bootstrap script that:
-- Installs `build-essential`, `curl`, `git`, etc. via `apt`
-- Installs brew
-- Installs chezmoi and runs `chezmoi init --apply uhop`
+What it does:
+1. Detects the remote OS (`uname`, `/etc/os-release`).
+2. Installs prerequisites via ssh:
+   - **Debian/Ubuntu:** `sudo apt install -y build-essential curl git git-gui gitk micro`
+   - **macOS:** Xcode CLT (`xcode-select --install`) if needed
+3. Installs brew remotely (`curl -fsSL ... | bash`).
+4. Installs chezmoi and applies (`brew install chezmoi && chezmoi init --apply uhop`).
+5. Reports success or failure.
 
-This script must run with `sudo` access. It could be `scp`'d to the remote host and run via `ssht`. Playbash can't easily do this because the host has no tooling yet and may require interactive `sudo`.
+**Design constraints:**
+- Requires `sudo` on the remote host — the target still has password-based sudo at this point (no `doas` yet). The script must handle the sudo password prompt. Options: `ssh -t` for TTY forwarding (simplest), or document that the user should run `sudo -v` on the remote first.
+- Should be idempotent — re-running skips already-installed components.
+- A `--dry-run` flag shows what would be executed.
 
-### Proposed approach
+### Steps 2-3: SSH hardening (separate, opt-in)
 
-A `bootstrap-remote` script in `~/.local/bin/` that takes a hostname and:
-1. Copies itself + SSH public key to the remote host
-2. Runs the prerequisites remotely
-3. Does NOT harden SSH (separate concern, should be explicit)
+A `harden-ssh` script that:
+1. Verifies key-based access works (`ssh -o BatchMode=yes host true`).
+2. Backs up `sshd_config`.
+3. Sets `PasswordAuthentication no` and `PermitRootLogin no`.
+4. Restarts `sshd`.
+5. Opens a **second** connection to verify — if it fails, rolls back from the backup.
 
-See also `playbash bootstrap` in [playbash-roadmap.md](./playbash-roadmap.md) — a future playbash subcommand that would handle key distribution and connectivity verification.
+This is high-risk (lockout) so it should be a separate utility, never run automatically. The rollback-on-failure is the key safety feature.
+
+### What stays manual
+
+- **Step 1:** Initial SSH access with password — no way around this for a truly vanilla host.
+- **Step 2 (key distribution):** `ssh-copy-id` is one command and hard to improve on. Could be folded into `bootstrap-remote` as a `--copy-key` flag.
+- **Post-setup:** tmux plugin installation (<kbd>Prefix</kbd>+<kbd>I</kbd>), font installation, platform-specific tweaks — see wiki.
+
+## Relationship to playbash
+
+`playbash bootstrap` is a future playbash subcommand (see [playbash-roadmap.md](./playbash-roadmap.md) § Future) that would handle key distribution + connectivity verification as part of the playbash UX. It needs its own design because it's interactive — contrary to playbash's `BatchMode=yes` architecture.
+
+`bootstrap-remote` is the simpler, standalone alternative that doesn't depend on playbash and can run before playbash exists on the target.
+
+## Implementation order
+
+1. Write `bootstrap-remote` — covers the common case (Debian/Ubuntu target, SSH already working).
+2. Write `harden-ssh` — opt-in, with rollback safety.
+3. Revisit `playbash bootstrap` after both scripts exist — it may just wrap them.

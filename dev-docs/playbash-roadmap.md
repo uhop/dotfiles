@@ -53,7 +53,7 @@ Beyond v3. Real wants that need their own design conversations before coding.
 - **Custom playbook paths (slash convention).** Currently playbook names are bare identifiers resolved to `~/.local/bin/playbash-<name>`. A name containing `/` should be treated as a file path to a custom script — always pushed (upload mode), no `playbash-` prefix required. This enables ad-hoc playbooks outside the chezmoi tree: `playbash push ./setup-nginx.sh web1`. Bash completion can detect the `/` and switch to file completion. Needs design for how the script is named in logs/status (basename? full path?).
 - **Directory playbooks.** Some playbooks are better expressed as a directory (main script + helpers/configs). `push` should support uploading a directory tree to the staging dir. The entry point could be `<dir>/main.sh` or specified via convention. Pairs with `put` for recursive transfer.
 - **Settings distribution.** Use `put` to copy config files to remote hosts (e.g., `inventory.json` to other operator machines, app configs to servers). Files requiring `sudo` to install are deferred until `sudo` support lands.
-- **`playbash bootstrap <host>`.** Interactive setup helper for vanilla hosts: runs `ssh-copy-id` (or its equivalent) to push the operator's public key into `~/.ssh/authorized_keys` on the target, then verifies that subsequent non-interactive ssh works. Explicitly NOT in v3 because it's interactive — runs against the v3 runner's "no stdin to remote, no `/dev/tty`, `BatchMode=yes`" architecture and needs its own UX. Pairs with the "sudo support" item below as the second "interactive setup" thing that needs its own design conversation. Until this lands, the documented workflow for a new vanilla host is "run `ssh-copy-id host` once by hand, then use playbash."
+- **`playbash bootstrap <host>`.** Interactive setup helper for vanilla hosts. The standalone `bootstrap-remote` and `harden-ssh` scripts (see [bootstrap-plan.md](./bootstrap-plan.md)) handle the actual work; `playbash bootstrap` would wrap them with the playbash UX (status board, summary). Needs its own design because it's interactive — contrary to the v3 runner's `BatchMode=yes` architecture. Pairs with "sudo support" below.
 - **`sudo` support.** Currently scripts are assumed to never ask for a sudo password, and milestone 10's "needs sudo" detection lets the runner abort cleanly when a prompt appears. Actually *answering* the prompt is a different problem and the right shape is unclear. Constraints from the original analysis: running the whole playbook as `sudo` is not an option — non-`sudo` parts still execute, and any files they write end up owned by root, breaking subsequent non-`sudo` runs. Supplying the password as text is insecure. The operator already uses ssh certificates for login (password auth is off for ssh), so a certificate-based `sudo` would be ideal if it existed. Trade-offs around password handling, certificate-based sudo, sidecar-driven elevation, and detect-and-abort all need to be on the table together — worth a real design conversation before any code.
 - **`playbash doctor`.** Diagnostic subcommand that validates the environment before you hit a cryptic SSH error mid-run. Checks to consider:
   - **SSH config:** `~/.ssh/config` exists, `ControlMaster auto` is set (required for efficient fan-out), `ControlPersist` is set.
@@ -66,11 +66,16 @@ Beyond v3. Real wants that need their own design conversations before coding.
   Output could be a simple pass/warn/fail checklist per host, similar to `playbash hosts` but with health status.
 - **Inventory from SSH config.** The inventory file duplicates host names already defined in `~/.ssh/config.d/`. Playbash could optionally read SSH config `Host` entries as inventory, with a convention (e.g., a `# playbash` comment tag, or a `~/.ssh/config.d/playbash` file) to mark which hosts belong to the fleet. Reduces duplication and keeps host definitions in one place.
 
-## Wiki sync followup
+## Wiki sync
 
-Wiki audited at v2 closure. When v3 ships, re-audit the same four `external_wiki/` files — vanilla-host workflow + `playbash exec`/`put`/`get`/`bootstrap` will reshape the user-facing surface significantly:
+v3 wiki audit completed 2026-04-10. All four pages verified current:
 
-- `Playbash-Server-Management.md` — primary doc; will need the most edits.
-- `Utilities.md` — likely a one-line entry; spot-check.
-- `Home.md` — index page; check the playbash blurb / link.
-- `Application-Notes.md` — usage notes; spot-check anything that touches playbook authoring or `upd` flags.
+- ✅ `Playbash-Server-Management.md` — fully documents v3 commands (`exec`, `push`, `put`/`get`), vanilla-host auto-push, offline detection, custom playbook paths, log restructuring.
+- ✅ `Utilities.md` — `dcm`/`dcms` entries correct; playbash crossref present.
+- ✅ `Home.md` — index blurb lists all v3 commands.
+- ✅ `Application-Notes.md` — doas whitelist and `upd -r` entries match v2 milestone 12.
+
+Additional workflow pages added during the audit:
+- `Workflows-remote.md` — playbash quick reference, SSH requirements (multiplexing, passwordless access).
+- `Workflows-maintenance.md` — `dcm`/`dcms`, multi-host maintenance via playbash.
+- `Setting-Up-a-New-Machine.md` — SSH setup, hardening, dotfiles installation.
