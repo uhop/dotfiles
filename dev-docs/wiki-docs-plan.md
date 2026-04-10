@@ -62,7 +62,7 @@ Items previously listed as gaps but already covered:
 
 ## Related dev-docs
 
-- **[bashrc-optimization.md](./bashrc-optimization.md)** — plan to gate completions and tool inits behind `__INTERACTIVE` for faster non-interactive shells.
+- **[bashrc-optimization.md](./done/bashrc-optimization.md)** — plan to gate completions and tool inits behind `__INTERACTIVE` for faster non-interactive shells. ✅ Done.
 - **[bootstrap-plan.md](./bootstrap-plan.md)** — automation plan for setting up vanilla machines (SSH hardening, prerequisites, chezmoi init).
 - **[playbash-roadmap.md](./playbash-roadmap.md)** § Future — `playbash doctor`, `playbash bootstrap`, inventory-from-SSH-config, sudo support.
 

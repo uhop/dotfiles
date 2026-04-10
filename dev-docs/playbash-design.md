@@ -5,7 +5,7 @@ Technical rationale and protocol details for `playbash`, the multi-host bash pla
 Companion docs:
 
 - [`playbash-roadmap.md`](./playbash-roadmap.md) — milestone checklist and current status.
-- [`playbash-debugging.md`](./playbash-debugging.md) — full debugging trail for the milestone-11 Mac PTY bugs.
+- [`playbash-debugging.md`](./done/playbash-debugging.md) — full debugging trail for the milestone-11 Mac PTY bugs.
 
 ## Why not pyinfra
 
@@ -161,7 +161,7 @@ The original v2 plan called for a Linux-only precise path inspecting `/proc/$pid
 
 #### The Mac PTY bugs (resolved during milestone 11)
 
-Two subtle bugs in `playbash-wrap.py` had to be fixed before the kill path actually propagated end-to-end against Mac targets. The wrapper itself is platform-agnostic, but Mac/Darwin behaves differently from Linux in two ways that matter here. Full debugging trail in [playbash-debugging.md](./playbash-debugging.md).
+Two subtle bugs in `playbash-wrap.py` had to be fixed before the kill path actually propagated end-to-end against Mac targets. The wrapper itself is platform-agnostic, but Mac/Darwin behaves differently from Linux in two ways that matter here. Full debugging trail in [playbash-debugging.md](./done/playbash-debugging.md).
 
 1. **`select.poll()` on Darwin doesn't deliver `POLLHUP` on a closed pipe write end.** When the local ssh died (because the operator-side runner killed it after a regex match), the wrapper on the Mac target sat in `os.read(pty_master)` indefinitely if the playbook was silent — no notification that sshd had closed its stdout. Fixed by a 1-second `os.write(1, b"")` probe: a zero-byte write raises `EPIPE` reliably on Darwin within milliseconds of the read end closing, on every wake of `poll()`. Costs one syscall per second of idle time.
 
@@ -250,7 +250,7 @@ Across multiple hosts, the same aggregation runs at the cross-host level: "2 hos
 
 The summary uses minimal color: green ✓, bold-white-on-red ✗ block, magenta ⏵ for actions, orange ⚠ for warnings. Orange (instead of yellow) was chosen for dark/light terminal compatibility. `NO_COLOR` and `PLAYBASH_NO_COLOR` env overrides are honored.
 
-See [`tty-simulation.md`](./tty-simulation.md) for additional background on the `script(1)`/`tee` pattern.
+See [`tty-simulation.md`](./done/tty-simulation.md) for additional background on the `script(1)`/`tee` pattern.
 
 ### PTY allocation
 

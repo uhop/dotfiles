@@ -2,7 +2,7 @@
 
 **Status: ✅ All three phases complete.** `imop` is fully implemented and documented in [Utilities](https://github.com/uhop/dotfiles/wiki/Utilities#imop).
 
-Based on research and `imop-ideas.md`.
+Based on research and [`imop-ideas.md`](./done/imop-ideas.md).
 
 ## Tool selection
 
