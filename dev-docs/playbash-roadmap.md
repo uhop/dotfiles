@@ -8,11 +8,11 @@ Status checklist for `playbash`, the multi-host bash playbook runner that replac
 - **v2 (production polish + dogfooding)** — ✅ closed (no outstanding milestones; mission accomplished, ansible is gone)
 - **v3 (portability to vanilla hosts)** — ✅ closed (all milestones complete)
 
-`playbash` has fully replaced the previous ansible setup. Daily and weekly cron runs across the fleet go through `playbash run daily all` / `playbash run weekly all`. Mac targets are supported end-to-end via the cross-platform Python PTY wrapper (verified during the milestone-11 PTY work).
+`playbash` has fully replaced the previous ansible setup. Daily and weekly cron runs across the fleet go through `playbash run all daily` / `playbash run all weekly`. Mac targets are supported end-to-end via the cross-platform Python PTY wrapper (verified during the milestone-11 PTY work).
 
 ## Done — v1
 
-1. **Walking skeleton.** ✅ `playbash run echo localhost` against a hardcoded inline `echo` over ssh, then a real preinstalled `playbash-hello` script invoked via `ssh host -- ~/.local/bin/playbash-hello`. Per-run log file, status line, exit-code propagation.
+1. **Walking skeleton.** ✅ `playbash run localhost echo` against a hardcoded inline `echo` over ssh, then a real preinstalled `playbash-hello` script invoked via `ssh host -- ~/.local/bin/playbash-hello`. Per-run log file, status line, exit-code propagation.
 2. **Helpers + sidecar.** ✅ `playbash.sh` with `playbash_info`/`warn`/`error`/`action`/`reboot`/`step`. JSON-lines sidecar at a randomly-named `/tmp` path on the remote, fetched in one extra ssh round trip after the playbook exits. Per-host summary grouped by level. Pretty-print fallback to stderr when `$PLAYBASH_REPORT` is unset (manual debugging).
 3. **PTY rectangle renderer.** ✅ Last-N-lines live view with `-n LINES` (default 5, `-n 0` disables). Full uncut byte stream on disk.
 4. **Inventory + CLI polish.** ✅ Subcommand dispatcher (`run`, `debug`, `list`, `hosts`). JSON inventory at `~/.config/playbash/inventory.json` with string/object/array shorthand. `playbash list` globs `~/.local/bin/playbash-*`. `playbash hosts` aligned columns. Sub-milestone 4.5 added self detection by IP (`os.networkInterfaces()` + `dns.lookup`) and the `--self` flag for local execution as a child process.
@@ -55,6 +55,16 @@ Beyond v3. Real wants that need their own design conversations before coding.
 - **Settings distribution.** Use `put` to copy config files to remote hosts (e.g., `inventory.json` to other operator machines, app configs to servers). Files requiring `sudo` to install are deferred until `sudo` support lands.
 - **`playbash bootstrap <host>`.** Interactive setup helper for vanilla hosts: runs `ssh-copy-id` (or its equivalent) to push the operator's public key into `~/.ssh/authorized_keys` on the target, then verifies that subsequent non-interactive ssh works. Explicitly NOT in v3 because it's interactive — runs against the v3 runner's "no stdin to remote, no `/dev/tty`, `BatchMode=yes`" architecture and needs its own UX. Pairs with the "sudo support" item below as the second "interactive setup" thing that needs its own design conversation. Until this lands, the documented workflow for a new vanilla host is "run `ssh-copy-id host` once by hand, then use playbash."
 - **`sudo` support.** Currently scripts are assumed to never ask for a sudo password, and milestone 10's "needs sudo" detection lets the runner abort cleanly when a prompt appears. Actually *answering* the prompt is a different problem and the right shape is unclear. Constraints from the original analysis: running the whole playbook as `sudo` is not an option — non-`sudo` parts still execute, and any files they write end up owned by root, breaking subsequent non-`sudo` runs. Supplying the password as text is insecure. The operator already uses ssh certificates for login (password auth is off for ssh), so a certificate-based `sudo` would be ideal if it existed. Trade-offs around password handling, certificate-based sudo, sidecar-driven elevation, and detect-and-abort all need to be on the table together — worth a real design conversation before any code.
+- **`playbash doctor`.** Diagnostic subcommand that validates the environment before you hit a cryptic SSH error mid-run. Checks to consider:
+  - **SSH config:** `~/.ssh/config` exists, `ControlMaster auto` is set (required for efficient fan-out), `ControlPersist` is set.
+  - **SSH keys:** at least one private key exists and is loaded in the agent (or keychain on macOS).
+  - **Per-host connectivity:** for each inventory host, verify key-based `ssh -o BatchMode=yes host true` succeeds. Report which hosts fail and why (timeout, auth rejected, unknown host).
+  - **Inventory:** `~/.config/playbash/inventory.json` exists, is valid JSON, all host entries resolve (DNS/SSH config). Warn on hosts defined in inventory but missing from `~/.ssh/config` (no `HostName`, relying on DNS).
+  - **Playbooks:** glob `~/.local/bin/playbash-*`, verify each is executable. Warn on playbooks that source `playbash.sh` but the lib is missing.
+  - **PTY wrapper:** `~/.local/libs/playbash-wrap.py` exists and Python is available.
+  - **Remediation hints:** for each failure, suggest the fix (e.g., "run `ssh-copy-id host`", "add `ControlMaster auto` to `~/.ssh/config`", "run `chezmoi apply`").
+  Output could be a simple pass/warn/fail checklist per host, similar to `playbash hosts` but with health status.
+- **Inventory from SSH config.** The inventory file duplicates host names already defined in `~/.ssh/config.d/`. Playbash could optionally read SSH config `Host` entries as inventory, with a convention (e.g., a `# playbash` comment tag, or a `~/.ssh/config.d/playbash` file) to mark which hosts belong to the fleet. Reduces duplication and keeps host definitions in one place.
 
 ## Wiki sync followup
 

@@ -25,8 +25,8 @@ Companion docs:
 ## CLI surface
 
 ```
-playbash run   <playbook> <targets> [-n LINES] [-p N] [--self]
-playbash debug <playbook> <targets> [--self]
+playbash run   <targets> <playbook> [-n LINES] [-p N] [--self]
+playbash debug <targets> <playbook> [--self]
 playbash exec  <targets> [--] <command...> [options]
 playbash list
 playbash hosts
@@ -103,7 +103,7 @@ Both are speculative until real use surfaces them. The cost of adding a file lat
 ### Groups and fan-out
 
 - **Schema:** array values in `inventory.json`.
-- **CLI:** comma-separated targets, mixing host and group names: `playbash run upd db1,web,prod`. Resolution flattens to a unique ordered set of host names.
+- **CLI:** comma-separated targets, mixing host and group names: `playbash run db1,web,prod upd`. Resolution flattens to a unique ordered set of host names.
 - **Recursion:** groups are flat lists of *host* names. No groups-of-groups — keeps the mental model and dedup logic simple.
 - **`all`:** implicit group, equals every host entry. Not stored; computed.
 - **Self exclusion:** any list, however constructed (group, ad-hoc list, `all`), silently drops the self host by default with a one-line dim notice. `--self` flips this for the entire invocation. Explicitly naming self as a single argument still requires `--self`.

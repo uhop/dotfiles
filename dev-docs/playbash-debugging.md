@@ -130,11 +130,11 @@ isn't.
 
 - **End-to-end test against the real `playbash` runner.** The minimal
   harness proves the wrapper itself is correct on Mac. The real
-  `playbash run daily mini2` from the Linux operator is still pending
+  `playbash run mini2 daily` from the Linux operator is still pending
   validation. To smoke-test locally (Mac-only) without touching Linux,
   temporarily comment out the `runLocally()` / `runRemote()` branch in
   `dispatchRun()` so all runs go through `runRemote()`, then run
-  `playbash run fakesudo localhost` against this machine.
+  `playbash run localhost fakesudo` against this machine.
 
 - **Cleanup of `playbash`-related code per the "Clean up" section above.**
   Once Linux end-to-end is validated, prune any remaining failed-attempt
