@@ -50,20 +50,18 @@ Items previously listed as gaps but already covered:
 
 ## Bootstrap workflow
 
-[Setting Up a New Machine](Setting-Up-a-New-Machine) now covers SSH key setup, server hardening, dotfiles installation, and a post-setup verification checklist. Content was consolidated from README + Platform Notes.
+✅ [Setting Up a New Machine](Setting-Up-a-New-Machine) documents the full setup flow. `bootstrap-remote` and `bootstrap-dotfiles` automate it. See [bootstrap-plan.md](./done/bootstrap-plan.md) for design rationale.
 
 ### Remaining open questions
 
-1. **Remote bootstrap.** Can a new machine be set up remotely? See [bootstrap-plan.md](./bootstrap-plan.md) for automation ideas.
+1. **README vs wiki.** The README still duplicates Platform Notes for Ubuntu/macOS. Consider condensing to the quickstart + link to the wiki.
 
-2. **README vs wiki.** The README still duplicates Platform Notes for Ubuntu/macOS. Consider condensing to the quickstart + link to the wiki.
-
-3. **Partial bootstrap.** What if someone only wants the shell aliases, not the full tool suite? The current `run_onchange_before_` is all-or-nothing. May not be worth solving now.
+2. **Partial bootstrap.** What if someone only wants the shell aliases, not the full tool suite? The current `run_onchange_before_` is all-or-nothing. May not be worth solving now.
 
 ## Related dev-docs
 
 - **[bashrc-optimization.md](./done/bashrc-optimization.md)** — plan to gate completions and tool inits behind `__INTERACTIVE` for faster non-interactive shells. ✅ Done.
-- **[bootstrap-plan.md](./bootstrap-plan.md)** — automation plan for setting up vanilla machines (SSH hardening, prerequisites, chezmoi init).
+- **[bootstrap-plan.md](./done/bootstrap-plan.md)** — automation plan for setting up vanilla machines (SSH hardening, prerequisites, chezmoi init).
 - **[playbash-roadmap.md](./playbash-roadmap.md)** § Future — `playbash doctor`, `playbash bootstrap`, inventory-from-SSH-config, sudo support.
 
 ## Tool overlap analysis
@@ -124,7 +122,8 @@ Audit performed 2026-04-10. Findings addressed:
 5. ~~Fix dcm docs (no `--all`; scans child dirs) and playbash argument order.~~
 6. ~~Document SSH key setup, distribution, client config, and server hardening in Workflows: remote.~~
 7. ~~Create setup page; move one-time SSH/bootstrap content out of Workflows: remote.~~
-8. Add a "Searching" section to Workflows: general.
-9. Condense README platform sections to link to wiki.
+8. ~~Implement `bootstrap-remote` and `bootstrap-dotfiles`; update wiki and Utilities.~~
+9. Add a "Searching" section to Workflows: general.
+10. Condense README platform sections to link to wiki.
 10. Document tool overlap story in workflow pages (which tool for which job).
 11. Note Micro editor rationale in Application Notes.

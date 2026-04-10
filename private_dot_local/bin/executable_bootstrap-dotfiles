@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+. ~/.local/libs/bootstrap.sh
+
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0" "Prepare a remote host for dotfiles installation"
+
+args_program_header="${BOLD}bootstrap-dotfiles${RESET_BOLD} detects the remote OS, generates a self-contained
+install script, copies it to the remote host, and prints instructions
+for the user to run it interactively."
+
+args_program_usage="${BOLD}bootstrap-dotfiles${RESET_BOLD} <host> [options]"
+
+args::option "--github-user" "GitHub username for chezmoi (default: uhop)" "name"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
+INFO="$FG_CYAN"
+WARN="$BOLD$FG_YELLOW"
+OK="$BOLD$FG_GREEN"
+DIM="$FG_WHITE"
+
+GITHUB_USER="uhop"
+[[ -v args_options["--github-user"] ]] && GITHUB_USER="${args_options["--github-user"]}"
+
+HOST="${1:-}"
+if [ -z "$HOST" ]; then
+  ansi::err "${ERROR}No host specified${RESET_ALL}" || true
+  args::try_help
+  exit 1
+fi
+
+# --- Verify connectivity ---
+
+ansi::out "${INFO}Checking SSH access to $HOST...${RESET_ALL}"
+if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
+  ansi::err "${ERROR}Cannot reach $HOST via passwordless SSH.${RESET_ALL}"
+  ansi::err "Run ${BOLD}bootstrap-remote $HOST${RESET_ALL} first to set up SSH access."
+  exit 1
+fi
+ansi::out "${OK}SSH access OK${RESET_ALL}"
+
+# --- Detect remote OS ---
+
+ansi::out "${INFO}Detecting remote OS...${RESET_ALL}"
+REMOTE_OS=$(ssh "$HOST" "uname -s" 2>/dev/null)
+REMOTE_ID="unknown"
+if [ "$REMOTE_OS" = "Linux" ]; then
+  REMOTE_ID=$(ssh "$HOST" ". /etc/os-release 2>/dev/null && echo \$ID" 2>/dev/null || echo "linux")
+fi
+ansi::out "${OK}Remote: $REMOTE_OS ($REMOTE_ID)${RESET_ALL}"
+
+# --- Generate install script ---
+
+REMOTE_SCRIPT="/tmp/install-dotfiles.sh"
+
+generate_script() {
+  cat <<'SCRIPT_HEADER'
+#!/usr/bin/env bash
+set -euo pipefail
+
+BOLD="\033[1m"
+GREEN="\033[32m"
+CYAN="\033[36m"
+YELLOW="\033[33m"
+RED="\033[31m"
+RESET="\033[0m"
+
+step() {
+  echo -e "\n${GREEN}${BOLD}=== $1 ===${RESET}"
+}
+
+info() {
+  echo -e "${CYAN}$1${RESET}"
+}
+
+warn() {
+  echo -e "${YELLOW}$1${RESET}"
+}
+
+run() {
+  echo -e "${CYAN}$ $*${RESET}"
+  "$@"
+}
+
+ask_yn() {
+  local prompt="$1" default="${2:-y}"
+  local yn
+  if [ "$default" = "y" ]; then
+    read -rp "$(echo -e "${YELLOW}${prompt} [Y/n]: ${RESET}")" yn
+    yn="${yn:-y}"
+  else
+    read -rp "$(echo -e "${YELLOW}${prompt} [y/N]: ${RESET}")" yn
+    yn="${yn:-n}"
+  fi
+  [[ "$yn" =~ ^[Yy] ]]
+}
+SCRIPT_HEADER
+
+  # Platform-specific prerequisites
+  case "$REMOTE_OS" in
+    Linux)
+      case "$REMOTE_ID" in
+        ubuntu|debian|pop|linuxmint)
+          cat <<'SCRIPT_DEBIAN'
+
+step "Installing prerequisites"
+info "These packages are needed to build tools from source and run chezmoi."
+run sudo apt update
+run sudo apt install -y build-essential curl git git-gui gitk micro
+
+step "Installing Homebrew"
+info "Homebrew manages CLI tools across Linux and macOS."
+if command -v brew &>/dev/null; then
+  info "Homebrew is already installed, skipping."
+else
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+fi
+SCRIPT_DEBIAN
+          ;;
+        *)
+          cat <<SCRIPT_GENERIC_LINUX
+
+step "Installing prerequisites"
+warn "Unsupported Linux distribution: $REMOTE_ID"
+warn "Install these packages manually: build-essential curl git git-gui gitk micro"
+warn "Then install Homebrew: https://brew.sh/"
+info "Press Enter to continue after installing prerequisites, or Ctrl+C to abort."
+read -r
+
+if ! command -v brew &>/dev/null; then
+  warn "Homebrew not found. Install it first: https://brew.sh/"
+  exit 1
+fi
+SCRIPT_GENERIC_LINUX
+          ;;
+      esac
+      ;;
+    Darwin)
+      cat <<'SCRIPT_MACOS'
+
+step "Installing prerequisites"
+if ! xcode-select -p &>/dev/null; then
+  info "Installing Xcode Command Line Tools..."
+  run xcode-select --install
+  info "Wait for the installation to complete, then press Enter."
+  read -r
+else
+  info "Xcode CLT already installed."
+fi
+
+step "Installing Homebrew"
+if command -v brew &>/dev/null; then
+  info "Homebrew is already installed, skipping."
+else
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  if [ -s /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  elif [ -s /usr/local/bin/brew ]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+  fi
+fi
+
+step "Switching default shell to bash"
+info "macOS ships an old bash. Installing a modern version via brew."
+if ! brew list bash &>/dev/null; then
+  run brew install bash
+fi
+BREW_BASH="$(brew --prefix)/bin/bash"
+if ! grep -qF "$BREW_BASH" /private/etc/shells; then
+  info "Adding $BREW_BASH to /etc/shells"
+  echo "$BREW_BASH" | sudo tee -a /private/etc/shells
+fi
+if [ "$SHELL" != "$BREW_BASH" ]; then
+  run chsh -s "$BREW_BASH"
+fi
+SCRIPT_MACOS
+      ;;
+    *)
+      ansi::err "${ERROR}Unsupported OS: $REMOTE_OS${RESET_ALL}"
+      exit 1
+      ;;
+  esac
+
+  # Common: chezmoi install + apply
+  cat <<SCRIPT_CHEZMOI
+
+step "Installing chezmoi"
+if command -v chezmoi &>/dev/null; then
+  info "chezmoi is already installed, skipping."
+else
+  run brew install chezmoi
+fi
+
+step "Applying dotfiles"
+info "chezmoi will ask a few questions (name, email, GitHub username, GUI)."
+info "Accept the defaults or enter your own values."
+echo
+run chezmoi init --apply ${GITHUB_USER}
+
+step "Done!"
+info "The dotfiles are installed. A reboot is recommended."
+SCRIPT_CHEZMOI
+
+  cat <<'SCRIPT_REBOOT'
+echo
+if ask_yn "Reboot now?"; then
+  sudo reboot
+else
+  echo -e "${YELLOW}Remember to reboot before using the new environment.${RESET}"
+fi
+SCRIPT_REBOOT
+}
+
+# --- Upload and instruct ---
+
+ansi::out "${INFO}Generating install script...${RESET_ALL}"
+SCRIPT_CONTENT=$(generate_script)
+
+ansi::out "${INFO}Uploading to $HOST:$REMOTE_SCRIPT ...${RESET_ALL}"
+echo "$SCRIPT_CONTENT" | ssh "$HOST" "cat > $REMOTE_SCRIPT && chmod +x $REMOTE_SCRIPT"
+ansi::out "${OK}Uploaded${RESET_ALL}"
+
+echo
+ansi::out "${OK}=================================================${RESET_ALL}"
+ansi::out "${OK} Install script is ready on $HOST${RESET_ALL}"
+ansi::out "${OK}=================================================${RESET_ALL}"
+echo
+ansi::out "Open another terminal and run:"
+echo
+ansi::out "  ${BOLD}ssht $HOST${RESET_ALL}"
+ansi::out "  ${BOLD}$REMOTE_SCRIPT${RESET_ALL}"
+echo
+ansi::out "${DIM}The script will ask for sudo password and chezmoi configuration.${RESET_ALL}"
+ansi::out "${DIM}After it finishes, it will offer to reboot.${RESET_ALL}"

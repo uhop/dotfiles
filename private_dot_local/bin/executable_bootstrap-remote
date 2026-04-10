@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+. ~/.local/libs/bootstrap.sh
+
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0" "Set up SSH access to a remote host"
+
+args_program_header="${BOLD}bootstrap-remote${RESET_BOLD} copies your SSH public key to a remote host
+and optionally hardens its SSH daemon configuration.
+
+${BOLD}${FG_YELLOW}Dry-run is the default.${RESET_ALL} Review the output, then re-run with ${BOLD}--apply${RESET_BOLD}."
+
+args_program_usage="${BOLD}bootstrap-remote${RESET_BOLD} <host> [options]"
+
+args::option "--apply" "Execute commands (default: dry-run)"
+args::option "--skip-copy-key" "Skip SSH key distribution"
+args::option "--skip-harden" "Skip sshd_config hardening"
+args::option "-k, --key" "Public key to copy (default: auto-detect)" "path"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
+INFO="$FG_CYAN"
+WARN="$BOLD$FG_YELLOW"
+OK="$BOLD$FG_GREEN"
+DIM="$FG_WHITE"
+
+APPLY=0
+[[ -v args_options["--apply"] ]] && APPLY=1
+
+SKIP_COPY_KEY=0
+[[ -v args_options["--skip-copy-key"] ]] && SKIP_COPY_KEY=1
+
+SKIP_HARDEN=0
+[[ -v args_options["--skip-harden"] ]] && SKIP_HARDEN=1
+
+KEY_PATH=""
+[[ -v args_options["-k"] ]] && KEY_PATH="${args_options["-k"]}"
+
+HOST="${1:-}"
+if [ -z "$HOST" ]; then
+  ansi::err "${ERROR}No host specified${RESET_ALL}" || true
+  args::try_help
+  exit 1
+fi
+
+# --- Key detection ---
+
+find_public_key() {
+  if [ -n "$KEY_PATH" ]; then
+    if [ -f "$KEY_PATH" ]; then
+      echo "$KEY_PATH"
+    else
+      ansi::err "${ERROR}Key not found: $KEY_PATH${RESET_ALL}"
+      exit 1
+    fi
+    return
+  fi
+  for candidate in ~/.ssh/id_ed25519.pub ~/.ssh/id_rsa.pub ~/.ssh/id_ecdsa.pub; do
+    if [ -f "$candidate" ]; then
+      echo "$candidate"
+      return
+    fi
+  done
+  ansi::err "${ERROR}No SSH public key found. Generate one with: ssh-keygen -t ed25519${RESET_ALL}"
+  exit 1
+}
+
+# --- Execution helpers ---
+
+describe() {
+  ansi::out "${DIM}# $1${RESET_ALL}"
+}
+
+run_cmd() {
+  if [ "$APPLY" -eq 1 ]; then
+    echoRun "$@"
+  else
+    ansi::out "${INFO}[dry-run] $*${RESET_ALL}"
+  fi
+}
+
+run_remote() {
+  local cmd="$1"
+  if [ "$APPLY" -eq 1 ]; then
+    echoRun "ssh" "$HOST" "$cmd"
+  else
+    ansi::out "${INFO}[dry-run] ssh $HOST \"$cmd\"${RESET_ALL}"
+  fi
+}
+
+run_remote_sudo() {
+  local cmd="$1" explanation="${2:-}"
+  [ -n "$explanation" ] && describe "$explanation"
+  if [ "$APPLY" -eq 1 ]; then
+    echoRun "ssh" "-t" "$HOST" "sudo $cmd"
+  else
+    ansi::out "${INFO}[dry-run] ssh -t $HOST \"sudo $cmd\"${RESET_ALL}"
+  fi
+}
+
+# --- Phase 1: Copy key ---
+
+copy_key() {
+  local pub_key
+  pub_key="$(find_public_key)"
+  ansi::out "\n${OK}=== Step 1: Copy SSH public key ===${RESET_ALL}"
+  describe "Append $pub_key to authorized_keys on $HOST (requires password)"
+  run_cmd ssh-copy-id -i "$pub_key" "$HOST"
+
+  echo
+  describe "Verify key-based access works (no password prompt)"
+  if [ "$APPLY" -eq 1 ]; then
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
+      ansi::out "${OK}Key-based access verified${RESET_ALL}"
+    else
+      ansi::err "${ERROR}Key-based access failed. Fix before proceeding.${RESET_ALL}"
+      exit 1
+    fi
+  else
+    ansi::out "${INFO}[dry-run] ssh -o BatchMode=yes $HOST true${RESET_ALL}"
+  fi
+}
+
+# --- Phase 2: Harden ---
+
+harden_ssh() {
+  ansi::out "\n${OK}=== Step 2: Harden SSH configuration ===${RESET_ALL}"
+
+  describe "Verify key access works before making changes"
+  if [ "$APPLY" -eq 1 ]; then
+    if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
+      ansi::err "${ERROR}Key-based access failed. Cannot safely harden SSH.${RESET_ALL}"
+      ansi::err "Run with --skip-harden, or fix key access first."
+      exit 1
+    fi
+    ansi::out "${OK}Key access confirmed${RESET_ALL}"
+  else
+    ansi::out "${INFO}[dry-run] ssh -o BatchMode=yes $HOST true${RESET_ALL}"
+  fi
+
+  echo
+  run_remote_sudo "cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak" \
+    "Back up current sshd_config"
+
+  echo
+  run_remote_sudo "sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config" \
+    "Disable password authentication"
+
+  run_remote_sudo "sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config" \
+    "Disable root login"
+
+  echo
+  describe "Detect init system and restart SSH daemon"
+  if [ "$APPLY" -eq 1 ]; then
+    local init_system
+    init_system=$(ssh "$HOST" "ps -p 1 -o comm= 2>/dev/null || echo unknown")
+    case "$init_system" in
+      systemd)
+        echoRun ssh -t "$HOST" "sudo systemctl restart sshd"
+        ;;
+      launchd)
+        echoRun ssh -t "$HOST" "sudo launchctl stop com.openssh.sshd"
+        describe "macOS restarts sshd automatically"
+        ;;
+      *)
+        echoRun ssh -t "$HOST" "sudo systemctl restart sshd"
+        ;;
+    esac
+  else
+    ansi::out "${INFO}[dry-run] ssh -t $HOST \"sudo systemctl restart sshd\"${RESET_ALL}"
+    ansi::out "${DIM}# (or launchctl on macOS)${RESET_ALL}"
+  fi
+
+  echo
+  describe "Verify access still works after hardening"
+  if [ "$APPLY" -eq 1 ]; then
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
+      ansi::out "${OK}Access verified after hardening${RESET_ALL}"
+      run_remote_sudo "rm -f /etc/ssh/sshd_config.bak" \
+        "Remove backup (hardening succeeded)"
+    else
+      ansi::err "${ERROR}Access FAILED after hardening! Rolling back...${RESET_ALL}"
+      # Rollback requires the EXISTING connection (ssh multiplexing keeps it alive)
+      ssh -t "$HOST" "sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config && sudo systemctl restart sshd" || true
+      if ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
+        ansi::err "${WARN}Rollback succeeded. SSH access restored.${RESET_ALL}"
+      else
+        ansi::err "${ERROR}Rollback may have failed. Use console access to check $HOST.${RESET_ALL}"
+      fi
+      exit 1
+    fi
+  else
+    ansi::out "${INFO}[dry-run] ssh -o BatchMode=yes $HOST true${RESET_ALL}"
+    ansi::out "${DIM}# If this fails, the backup at /etc/ssh/sshd_config.bak is restored automatically${RESET_ALL}"
+  fi
+}
+
+# --- Main ---
+
+if [ "$APPLY" -eq 0 ]; then
+  ansi::out "${WARN}=== DRY RUN === (re-run with --apply to execute)${RESET_ALL}"
+fi
+
+[ "$SKIP_COPY_KEY" -eq 0 ] && copy_key
+[ "$SKIP_HARDEN" -eq 0 ] && harden_ssh
+
+echo
+if [ "$APPLY" -eq 1 ]; then
+  ansi::out "${OK}Done. $HOST is ready for playbash and ssht.${RESET_ALL}"
+else
+  ansi::out "${WARN}=== DRY RUN complete. Review above, then run:${RESET_ALL}"
+  local_cmd="$script_name $HOST --apply"
+  [ "$SKIP_COPY_KEY" -eq 1 ] && local_cmd="$local_cmd --skip-copy-key"
+  [ "$SKIP_HARDEN" -eq 1 ] && local_cmd="$local_cmd --skip-harden"
+  ansi::out "${BOLD}  $local_cmd${RESET_ALL}"
+fi
