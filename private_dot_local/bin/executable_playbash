@@ -46,7 +46,7 @@ const USAGE = `usage:
   playbash exec  <targets> [--] <command...> [options]
   playbash list
   playbash hosts
-  playbash log   [path]
+  playbash log   [host] [command]
   playbash --bash-completion        # print bash completion script
 
 Options (must come before \`--\` when using exec):
@@ -87,8 +87,10 @@ the playbook runs locally as a child process (no ssh) using the same
 sidecar/summary pipeline.
 
 \`playbash log\` prints a per-run log file with terminal-hostile escape
-sequences stripped — safe to view in any terminal. With no path, picks
-the most recent log under ~/.cache/playbash/runs/.`;
+sequences stripped — safe to view in any terminal. With no args, picks
+the most recent log across all hosts. With a host name, picks the most
+recent log for that host. With host + command, narrows further. A path
+containing / is read directly (backward compat).`;
 
 const PLAYBOOK_DIR = join(homedir(), '.local', 'bin');
 const PLAYBOOK_PREFIX = 'playbash-';
@@ -247,10 +249,10 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
   const cols = process.stdout.columns || 80;
   const rows = process.stdout.rows || 24;
 
-  const logDir = join(homedir(), '.cache', 'playbash', 'runs');
+  const logDir = join(homedir(), '.cache', 'playbash', 'runs', hostName, playbook);
   mkdirSync(logDir, {recursive: true});
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const logPath = join(logDir, `${stamp}-${hostName}-${playbook}.log`);
+  const logPath = join(logDir, `${stamp}.log`);
   const log = createWriteStream(logPath);
 
   const start = Date.now();
@@ -539,8 +541,8 @@ async function runLocally({playbook, command, hostName, rectHeight, verbose}) {
 // per-host summaries (in input order) and the aggregated section.
 async function runFanout({playbook, command, targets, rectHeight, verbose, parallelLimit, inventory, push}) {
   const logLabel = playbook || 'exec';
-  const slots = targets.map(t => new HostSlot(t.name, t.address, rectHeight || 5));
-  const board = new StatusBoard(slots, {playbook: logLabel, rectHeight: rectHeight || 5});
+  const slots = targets.map(t => new HostSlot(t.name, t.address, rectHeight ?? 5));
+  const board = new StatusBoard(slots, {playbook: logLabel, rectHeight: rectHeight ?? 5});
   board.start();
 
   // Per-host launcher. Builds the right backend (remote ssh+script or
@@ -620,10 +622,15 @@ async function runFanout({playbook, command, targets, rectHeight, verbose, paral
     }
 
     try {
+      const capturedChunks = command ? [] : null;
       const summary = await runHost({
         playbook: logLabel, hostName: slot.name, makeChild, getSidecarText,
-        onChunk: chunk => board.hostChunk(slot.name, chunk),
+        onChunk: chunk => {
+          board.hostChunk(slot.name, chunk);
+          if (capturedChunks) capturedChunks.push(chunk);
+        },
       });
+      if (capturedChunks) summary.capturedOutput = capturedChunks.join('');
       board.hostFinished(slot.name, summary);
     } catch (err) {
       board.hostFinished(slot.name, {
@@ -664,16 +671,28 @@ async function runFanout({playbook, command, targets, rectHeight, verbose, paral
     process.stderr.write(buildStatusLine({
       ok: slot.state === 'ok',
       hostName: slot.name,
-      playbook,
+      playbook: logLabel,
       label: null,
       status: slot.statusWord,
       elapsed,
     }) + '\n');
-    renderSummary(slot.events, {verbose});
-    if (slot.state !== 'ok') {
-      renderFailureTail(slot.tail);
-      if (slot.logPath) {
+    if (command) {
+      // exec: show captured output per host
+      if (slot.capturedOutput && slot.capturedOutput.trim()) {
+        for (const line of slot.capturedOutput.trimEnd().split('\n')) {
+          process.stderr.write(`  ${line}\n`);
+        }
+      }
+      if (slot.state !== 'ok' && slot.logPath) {
         process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+      }
+    } else {
+      renderSummary(slot.events, {verbose});
+      if (slot.state !== 'ok') {
+        renderFailureTail(slot.tail);
+        if (slot.logPath) {
+          process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+        }
       }
     }
   }
@@ -692,20 +711,43 @@ async function runFanout({playbook, command, targets, rectHeight, verbose, paral
 
 // --- list / hosts / log ---
 
-function cmdLog(pathArg) {
-  const logDir = join(homedir(), '.cache', 'playbash', 'runs');
-  let target = pathArg;
-  if (!target) {
-    let entries;
-    try {
-      entries = readdirSync(logDir);
-    } catch (err) {
-      die(`no log directory at ${logDir}: ${err.message}`);
+function latestLogUnder(dir) {
+  let best = null;
+  let bestName = '';
+  let entries;
+  try { entries = readdirSync(dir, {withFileTypes: true}); } catch { return null; }
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      const deeper = latestLogUnder(join(dir, e.name));
+      if (deeper && deeper.name > bestName) { best = deeper.path; bestName = deeper.name; }
+    } else if (e.name.endsWith('.log') && e.name > bestName) {
+      bestName = e.name;
+      best = join(dir, e.name);
     }
-    const logs = entries.filter(f => f.endsWith('.log')).sort();
-    if (logs.length === 0) die(`no logs in ${logDir}`);
-    target = join(logDir, logs[logs.length - 1]);
   }
+  return best ? {path: best, name: bestName} : null;
+}
+
+function cmdLog(hostArg, commandArg) {
+  const baseDir = join(homedir(), '.cache', 'playbash', 'runs');
+  let target;
+
+  if (hostArg && (hostArg.includes('/') || hostArg.endsWith('.log'))) {
+    target = hostArg;
+  } else if (hostArg && commandArg) {
+    const found = latestLogUnder(join(baseDir, hostArg, commandArg));
+    if (!found) die(`no logs for ${hostArg}/${commandArg}`);
+    target = found.path;
+  } else if (hostArg) {
+    const found = latestLogUnder(join(baseDir, hostArg));
+    if (!found) die(`no logs for host ${hostArg}`);
+    target = found.path;
+  } else {
+    const found = latestLogUnder(baseDir);
+    if (!found) die(`no logs in ${baseDir}`);
+    target = found.path;
+  }
+
   let raw;
   try {
     raw = readFileSync(target);
@@ -802,13 +844,20 @@ function cmdBashCompletion() {
 
 const {values, positionals} = parseArgs({
   options: {
-    lines:             {type: 'string',  short: 'n', default: '5'},
+    lines:             {type: 'string',  short: 'n'},
     self:              {type: 'boolean', default: false},
     parallel:          {type: 'string',  short: 'p', default: '0'},
     'bash-completion': {type: 'boolean', default: false},
   },
   allowPositionals: true,
 });
+
+// null when the user didn't pass -n; a validated number otherwise.
+const linesFlag = values.lines != null ? (() => {
+  const n = parseInt(values.lines, 10);
+  if (!Number.isFinite(n) || n < 0) die(`--lines must be a non-negative integer (0 disables the rectangle)`);
+  return n;
+})() : null;
 
 if (values['bash-completion']) {
   cmdBashCompletion();
@@ -902,8 +951,8 @@ switch (command) {
     break;
   }
   case 'log': {
-    if (rest.length > 1) die(`log takes at most one argument (a path)`);
-    cmdLog(rest[0]);
+    if (rest.length > 2) die(`log takes at most two arguments: [host] [command]`);
+    cmdLog(rest[0], rest[1]);
     break;
   }
   case '__complete-targets': {
@@ -916,10 +965,7 @@ switch (command) {
     if (rest.length !== 2) die(`${command} takes <playbook> <targets>\n${USAGE}`);
     const [playbook, targetArg] = rest;
     if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
-    const rectHeight = parseInt(values.lines, 10);
-    if (!Number.isFinite(rectHeight) || rectHeight < 0) {
-      die(`--lines must be a non-negative integer (0 disables the rectangle)`);
-    }
+    const rectHeight = linesFlag ?? 5;
     await dispatch({job: {playbook}, targetArg, rectHeight, verbose: false, push: command === 'push'});
     break;
   }
@@ -935,10 +981,7 @@ switch (command) {
     const [targetArg, ...cmdParts] = rest;
     const command = cmdParts.join(' ');
     if (!command) die(`exec requires a command after the target\n${USAGE}`);
-    const rectHeight = parseInt(values.lines, 10);
-    if (!Number.isFinite(rectHeight) || rectHeight < 0) {
-      die(`--lines must be a non-negative integer (0 disables the rectangle)`);
-    }
+    const rectHeight = linesFlag ?? 0;
     await dispatch({job: {command}, targetArg, rectHeight, verbose: false, push: false});
     break;
   }

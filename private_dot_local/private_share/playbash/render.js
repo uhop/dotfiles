@@ -207,6 +207,7 @@ export class HostSlot {
     this.logPath = '';
     this.elapsedMs = 0;
     this.tail = [];           // last few non-blank output lines (failure context)
+    this.capturedOutput = ''; // full sanitized output (for exec post-run display)
   }
 
   feed(text) {
@@ -263,7 +264,7 @@ export class StatusBoard {
     // We reserve `slots.length + 1 (header) + 1 (blank) + rectHeight`
     // rows up front. Number stays fixed for the whole run; we just
     // re-render the same rows in place.
-    this.totalRows = 1 + 1 + slots.length + (this.rectHeight > 0 ? this.rectHeight : 0);
+    this.totalRows = 1 + 1 + slots.length + (this.rectHeight > 0 ? 1 + this.rectHeight : 0);
     this.elapsedTimer = null;
   }
 
@@ -314,6 +315,7 @@ export class StatusBoard {
     slot.logPath = summary.logPath;
     slot.elapsedMs = summary.elapsedMs;
     slot.tail = summary.tail || [];
+    slot.capturedOutput = summary.capturedOutput || '';
     // If focused host just finished, pass focus to whichever running
     // host has been most recently active.
     if (this.focusName === name) {
@@ -385,9 +387,10 @@ export class StatusBoard {
       const isFocus = slot.name === this.focusName;
       out += '\r\x1b[2K' + this.slotRow(slot, isFocus) + '\n';
     }
-    // Focused rectangle (rectHeight rows). The focused slot's ring
-    // buffer fills the area; non-focused or no-focus shows blanks.
+    // Separator + focused rectangle (1 + rectHeight rows). The focused
+    // slot's ring buffer fills the area; non-focused or no-focus shows blanks.
     if (this.rectHeight > 0) {
+      out += '\r\x1b[2K' + COLOR.dim + '─'.repeat(Math.min(process.stdout.columns || 80, 40)) + COLOR.reset + '\n';
       const focus = this.focusName ? this.byName.get(this.focusName) : null;
       const width = (process.stdout.columns || 80) - 2; // 2-space indent
       for (let i = 0; i < this.rectHeight; i++) {
