@@ -1,3 +1,5 @@
+# -*- mode: bash; -*-
+
 # use doas instead of sudo by default
 command -v doas &>/dev/null && [ -f /etc/doas.conf ] && alias sudo='doas' || true
 
