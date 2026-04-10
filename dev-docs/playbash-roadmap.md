@@ -6,7 +6,7 @@ Status checklist for `playbash`, the multi-host bash playbook runner that replac
 
 - **v1 (proof of concept)** — ✅ closed
 - **v2 (production polish + dogfooding)** — ✅ closed (no outstanding milestones; mission accomplished, ansible is gone)
-- **v3 (portability to vanilla hosts)** — in progress; milestones 13–16 + 19 done, upload mode for vanilla hosts operational
+- **v3 (portability to vanilla hosts)** — ✅ closed (all milestones complete)
 
 `playbash` has fully replaced the previous ansible setup. Daily and weekly cron runs across the fleet go through `playbash run daily all` / `playbash run weekly all`. Mac targets are supported end-to-end via the cross-platform Python PTY wrapper (verified during the milestone-11 PTY work).
 
@@ -40,55 +40,19 @@ Status checklist for `playbash`, the multi-host bash playbook runner that replac
 
 18. **Offline host detection.** ✅ Pre-flight `ssh -o ConnectTimeout=2 -o BatchMode=yes <host> true` probe, parallelized across the target list before any run/push/exec work. Uses the actual ssh path so jump hosts, port overrides, and key selection from `~/.ssh/config` apply for free. Single-host path: dies with "unreachable" message. Fan-out path: offline hosts get a distinct `offline` status in the post-run summary and are excluded from success/failure counts (`1 ok, 1 offline` instead of `1 ok, 1 failed`). `--no-precheck` flag to skip the probe. Bash completions updated with `--no-precheck`.
 
-20. *(DX polish: log paths, exec output, board separator)* — see **Done — v3 prep** above; pulled in as a quick-win DX batch.
+19. **Bash completions.** ✅ `playbash --bash-completion` prints a bash completion script to stdout, sourced from `~/.bashrc` via `eval`. Handles subcommands, playbook names (glob `~/.local/bin/playbash-*`), host + group names + `all`, and option flags. Comma-separated target completion with `nospace`. Inventory data via hidden `playbash __complete-targets` subcommand — single source of truth.
 
-## Done — v3 prep (out of order)
+17. **`playbash put` / `playbash get`.** ✅ User-facing file transfer with the playbash UX. `playbash put <targets> <local-path> [<remote-path>]` uploads a file or directory; default remote path = local path. `playbash get <targets> <remote-path> [<local-path>]` downloads; default local path = basename (single target) or `{host}-<basename>` (multiple). Paths support `{host}` template expansion per target. Directories transferred recursively via `tar c | ssh tar x` (put) and `ssh tar c | tar x` (get). Remote directory detection via `test -d`. Multi-host `get` requires `{host}` in the local path — dies with a clear error otherwise. `mkdir -p` on both sides for auto-directory creation. Same fan-out, parallel (`-p`), precheck (`-N`), and StatusBoard as other commands. Post-run summary shows `<source> → <dest>` per host. Bash completions: file completion for `put` pos 0/2, target completion for `put` pos 1 and `get` pos 0, file completion for `get` pos 2.
 
-19. **Bash completions.** ✅ Pulled in early as a DX win — independent of the portability work and trivially reversible. `playbash --bash-completion` prints a bash completion script to stdout (matches the convention used by the options.bash-based CLIs in this repo) and `dot_bashrc` sources it via `eval "$(playbash --bash-completion)"` next to the existing `zoxide init bash` line. The script handles: subcommands (`run`/`push`/`debug`/`exec`/`list`/`hosts`/`log`), playbook names (glob `~/.local/bin/playbash-*`, defensively skipping `.js` files), host + group names + the implicit `all`, and option flags (`-n`/`--lines`/`-p`/`--parallel`/`--self`). Targets are comma-separated and complete on the last token (`db1,we<tab>` → `db1,web1`) with `nospace` so the user can keep adding hosts. Inventory data comes from a hidden `playbash __complete-targets` subcommand so the bash side never parses `inventory.json` directly — single source of truth, live updates without re-sourcing the script. ~80ms per tab press for inventory completion (one node spawn); subcommand and playbook completion are bash-native and instant.
-
-20. **DX polish: log paths, exec output, board separator.** ✅ Three ergonomic improvements landed together:
-
-    **a) Log directory restructure.** Logs now live at `~/.cache/playbash/runs/<host>/<command>/<timestamp>.log` instead of the old flat `<timestamp>-<host>-<command>.log`. `playbash log` (no args) picks the latest across all hosts. `playbash log <host>` narrows to a host. `playbash log <host> <command>` narrows further. A path containing `/` is read directly (backward compat). The `latestLogUnder()` helper walks the directory tree recursively, picking the lexicographically latest `.log` filename (ISO timestamps sort correctly).
-
-    **b) Per-host output for `exec`.** In fan-out mode, `exec` now prints each host's captured sanitized output (indented) under its status line in the post-board summary. Output is captured via the `onChunk` callback (same data that feeds the StatusBoard ring buffer). `HostSlot` gains a `capturedOutput` field; `hostFinished` stores it from the summary. For `run`/`push`/`debug`, the existing sidecar summary is shown instead (unchanged). Also fixed a pre-existing bug where exec fan-out status lines showed "undefined" instead of "exec" (the `buildStatusLine` call was using the raw `playbook` variable instead of `logLabel`).
-
-    **c) Status board separator.** A dim `─` horizontal rule (40 chars or terminal width, whichever is smaller) now renders between the status board slot rows and the focused-host rectangle. `totalRows` increased by 1 to account for it. One row is cheap and the visual anchor prevents the scrolling rectangle from blurring into the status lines above.
-
-## Next — v3 priority order
-
-Goal: run playbash against any Linux/Mac host with `bash`, `ssh`, and `python3` (≥ 3.3) without requiring chezmoi or any pre-deployment. Heterogeneous fleets (mix of chezmoi-managed and vanilla hosts) are first-class.
-
-**ssh authentication requirement.** All ssh invocations from the runner are non-interactive: the spawn uses `stdio: ['ignore', 'pipe', 'pipe']` AND `detached: true` (which calls `setsid(2)`, leaving the child without a controlling terminal). ssh therefore has nowhere to prompt for a key passphrase or remote password. **Passwordless ssh is a hard requirement** (same as ansible / pyinfra / fabric): the operator must have either ssh-agent running with the key loaded, or public-key auth pre-configured per host. Every ssh spawn passes `-o BatchMode=yes` so any auth that would require interaction fails immediately with a clear error message. Bootstrapping a vanilla host's `~/.ssh/authorized_keys` is an interactive setup step done outside the runner (see [Future](#future)).
-
-20. **DX polish: log paths, exec output, board separator.** ✅ Three ergonomic improvements landed together:
-
-    **a) Log directory restructure.** Logs now live at `~/.cache/playbash/runs/<host>/<command>/<timestamp>.log` instead of the old flat `<timestamp>-<host>-<command>.log`. `playbash log` (no args) picks the latest across all hosts. `playbash log <host>` narrows to a host. `playbash log <host> <command>` narrows further. A path containing `/` is read directly (backward compat). The `latestLogUnder()` helper walks the directory tree recursively, picking the lexicographically latest `.log` filename (ISO timestamps sort correctly).
-
-    **b) Per-host output for `exec`.** In fan-out mode, `exec` now prints each host's captured sanitized output (indented) under its status line in the post-board summary. Output is captured via the `onChunk` callback (same data that feeds the StatusBoard ring buffer). `HostSlot` gains a `capturedOutput` field; `hostFinished` stores it from the summary. For `run`/`push`/`debug`, the existing sidecar summary is shown instead (unchanged). Also fixed a pre-existing bug where exec fan-out status lines showed "undefined" instead of "exec" (the `buildStatusLine` call was using the raw `playbook` variable instead of `logLabel`).
-
-    **c) Status board separator.** A dim `─` horizontal rule (40 chars or terminal width, whichever is smaller) now renders between the status board slot rows and the focused-host rectangle. `totalRows` increased by 1 to account for it. One row is cheap and the visual anchor prevents the scrolling rectangle from blurring into the status lines above.
-
-17. **`playbash put` / `playbash get`.** User-facing file staging primitives built on the same transfer machinery as milestone 14. `playbash put <local-path> <hosts>:<remote-path>` and `playbash get <hosts>:<remote-path> <local-path>`. Same fan-out, parallel, group expansion, and per-host status board as `run`. Useful for "ship this config file everywhere" or "fetch yesterday's log from every host" workflows. Implementation note: mostly a thin wrapper around `scp` (or `rsync` when available, falling back to `scp`) with the playbash UX on top.
-
-18. *(Offline host detection)* — moved to **Done — v3**.
-
-19. *(Bash completions)* — moved to **Done — v3 prep**.
-
-20. *(DX polish)* — moved to **Done — v3 prep**.
-
-### Open questions for v3
-
-Decide during implementation, not before.
-
-- ~~**Python version floor.**~~ *Resolved in milestone 14.* Wrapper uses portable `os.WIFEXITED`/`os.WEXITSTATUS`; works back to Python 3.3.
-- ~~**Transfer mechanism.**~~ *Resolved in milestone 14.* `cat | ssh` for the wrapper (~3KB). `sftp` or `rsync` for milestone 17 (`put`/`get`) where file sizes are user-controlled.
-- ~~**Inventory schema bump.**~~ *Resolved in milestones 14/16.* The `managed: false` marker was introduced in milestone 14 and removed in milestone 16 — inventory presence is now the only managed signal. No schema change needed.
-- **Staging cleanup lifecycle.** When does a stale staging dir on a remote get removed? Staging uses `~/.cache/playbash-staging/` (survives reboots, no tmpwatch concern). Three options: never (harmless — a few small files), explicit `playbash clean <host>`, or automatic on next contact when the local cache invalidates. *Current decision (milestone 16):* never — the staging dir holds the wrapper (~3KB), helper (~4KB), and any staged playbooks (~1KB each). Harmless to leave in place; revisit if milestones 17/18 stage larger files.
+20. **DX polish: log paths, exec output, board separator.** ✅ Logs restructured to `<host>/<command>/<timestamp>.log`; `playbash log [host] [command]` finds the latest. `exec` fan-out prints per-host captured output under each status line. Dim `─` separator between the StatusBoard and the focused-host rectangle.
 
 ## Future
 
-Beyond v3. These are real wants flagged by the user and worth their own design conversations before coding.
+Beyond v3. Real wants that need their own design conversations before coding.
 
+- **Custom playbook paths (slash convention).** Currently playbook names are bare identifiers resolved to `~/.local/bin/playbash-<name>`. A name containing `/` should be treated as a file path to a custom script — always pushed (upload mode), no `playbash-` prefix required. This enables ad-hoc playbooks outside the chezmoi tree: `playbash push ./setup-nginx.sh web1`. Bash completion can detect the `/` and switch to file completion. Needs design for how the script is named in logs/status (basename? full path?).
+- **Directory playbooks.** Some playbooks are better expressed as a directory (main script + helpers/configs). `push` should support uploading a directory tree to the staging dir. The entry point could be `<dir>/main.sh` or specified via convention. Pairs with `put` for recursive transfer.
+- **Settings distribution.** Use `put` to copy config files to remote hosts (e.g., `inventory.json` to other operator machines, app configs to servers). Files requiring `sudo` to install are deferred until `sudo` support lands.
 - **`playbash bootstrap <host>`.** Interactive setup helper for vanilla hosts: runs `ssh-copy-id` (or its equivalent) to push the operator's public key into `~/.ssh/authorized_keys` on the target, then verifies that subsequent non-interactive ssh works. Explicitly NOT in v3 because it's interactive — runs against the v3 runner's "no stdin to remote, no `/dev/tty`, `BatchMode=yes`" architecture and needs its own UX. Pairs with the "sudo support" item below as the second "interactive setup" thing that needs its own design conversation. Until this lands, the documented workflow for a new vanilla host is "run `ssh-copy-id host` once by hand, then use playbash."
 - **`sudo` support.** Currently scripts are assumed to never ask for a sudo password, and milestone 10's "needs sudo" detection lets the runner abort cleanly when a prompt appears. Actually *answering* the prompt is a different problem and the right shape is unclear. Constraints from the original analysis: running the whole playbook as `sudo` is not an option — non-`sudo` parts still execute, and any files they write end up owned by root, breaking subsequent non-`sudo` runs. Supplying the password as text is insecure. The operator already uses ssh certificates for login (password auth is off for ssh), so a certificate-based `sudo` would be ideal if it existed. Trade-offs around password handling, certificate-based sudo, sidecar-driven elevation, and detect-and-abort all need to be on the table together — worth a real design conversation before any code.
 

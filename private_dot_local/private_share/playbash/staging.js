@@ -31,11 +31,12 @@ export const STAGING_DIR = '~/.cache/playbash-staging';
 const WRAPPER_STAGED  = `${STAGING_DIR}/playbash-wrap.py`;
 const CACHE_DIR       = join(homedir(), '.cache', 'playbash', 'staging');
 
-// --- internal helpers ---
+// --- ssh helpers ---
 
 // Run a command on a remote host via ssh with BatchMode=yes.
 // Returns {code, stdout, stderr}. If `input` is provided it is piped to stdin.
-function sshRun(address, remoteCmd, input) {
+// Exported for use by put/get transfer commands.
+export function sshRun(address, remoteCmd, input) {
   return new Promise((resolve, reject) => {
     const proc = spawn('ssh', ['-o', 'BatchMode=yes', address, '--', remoteCmd], {
       stdio: [input != null ? 'pipe' : 'ignore', 'pipe', 'pipe'],

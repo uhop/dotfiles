@@ -5,14 +5,14 @@ _playbash() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-  local subcommands="run push debug exec list hosts log"
+  local subcommands="run push debug exec put get list hosts log"
 
   # Find the first subcommand-shaped token. Anything before it is options.
   local subcommand=""
   local i
   for ((i = 1; i < COMP_CWORD; i++)); do
     case "${COMP_WORDS[i]}" in
-      run|push|debug|exec|list|hosts|log)
+      run|push|debug|exec|put|get|list|hosts|log)
         subcommand="${COMP_WORDS[i]}"
         break
         ;;
@@ -35,6 +35,56 @@ _playbash() {
       ;;
     log)
       COMPREPLY=( $(compgen -f -- "$cur") )
+      return
+      ;;
+    put)
+      # put <targets> <local-path> [<remote-path>]
+      case "$prev" in -p|--parallel) return ;; esac
+      if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "-p --parallel --self -N --no-precheck -h --help" -- "$cur") )
+        return
+      fi
+      local pos=0 skip_next=0
+      for ((i = 1; i < COMP_CWORD; i++)); do
+        local w="${COMP_WORDS[i]}"
+        if [[ "$skip_next" == "1" ]]; then skip_next=0; continue; fi
+        case "$w" in put) ;; -p|--parallel) skip_next=1 ;; -*) ;; *) ((pos++)) ;; esac
+      done
+      if [[ $pos -eq 0 ]]; then
+        local prefix last
+        if [[ "$cur" == *,* ]]; then prefix="${cur%,*},"; last="${cur##*,}"; else prefix=""; last="$cur"; fi
+        local targets; targets=$(playbash __complete-targets 2>/dev/null)
+        local m; COMPREPLY=()
+        while IFS= read -r m; do [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" ); done < <(compgen -W "$targets" -- "$last")
+        compopt -o nospace 2>/dev/null
+      elif [[ $pos -eq 1 || $pos -eq 2 ]]; then
+        COMPREPLY=( $(compgen -f -- "$cur") )
+      fi
+      return
+      ;;
+    get)
+      # get <targets> <remote-path> [<local-path>]
+      case "$prev" in -p|--parallel) return ;; esac
+      if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "-p --parallel --self -N --no-precheck -h --help" -- "$cur") )
+        return
+      fi
+      local pos=0 skip_next=0
+      for ((i = 1; i < COMP_CWORD; i++)); do
+        local w="${COMP_WORDS[i]}"
+        if [[ "$skip_next" == "1" ]]; then skip_next=0; continue; fi
+        case "$w" in get) ;; -p|--parallel) skip_next=1 ;; -*) ;; *) ((pos++)) ;; esac
+      done
+      if [[ $pos -eq 0 ]]; then
+        local prefix last
+        if [[ "$cur" == *,* ]]; then prefix="${cur%,*},"; last="${cur##*,}"; else prefix=""; last="$cur"; fi
+        local targets; targets=$(playbash __complete-targets 2>/dev/null)
+        local m; COMPREPLY=()
+        while IFS= read -r m; do [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" ); done < <(compgen -W "$targets" -- "$last")
+        compopt -o nospace 2>/dev/null
+      elif [[ $pos -eq 2 ]]; then
+        COMPREPLY=( $(compgen -f -- "$cur") )
+      fi
       return
       ;;
     exec)
