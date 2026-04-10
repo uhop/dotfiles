@@ -129,7 +129,32 @@ _playbash() {
       fi
       return
       ;;
-    run|push|debug)
+    push)
+      # push <targets> <script-path> — targets at pos 0, file at pos 1.
+      case "$prev" in -n|--lines|-p|--parallel) return ;; esac
+      if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --self -N --no-precheck -h --help" -- "$cur") )
+        return
+      fi
+      local pos=0 skip_next=0
+      for ((i = 1; i < COMP_CWORD; i++)); do
+        local w="${COMP_WORDS[i]}"
+        if [[ "$skip_next" == "1" ]]; then skip_next=0; continue; fi
+        case "$w" in push) ;; -n|--lines|-p|--parallel) skip_next=1 ;; -*) ;; *) ((pos++)) ;; esac
+      done
+      if [[ $pos -eq 0 ]]; then
+        local prefix last
+        if [[ "$cur" == *,* ]]; then prefix="${cur%,*},"; last="${cur##*,}"; else prefix=""; last="$cur"; fi
+        local targets; targets=$(playbash __complete-targets 2>/dev/null)
+        local m; COMPREPLY=()
+        while IFS= read -r m; do [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" ); done < <(compgen -W "$targets" -- "$last")
+        compopt -o nospace 2>/dev/null
+      elif [[ $pos -eq 1 ]]; then
+        COMPREPLY=( $(compgen -f -- "$cur") )
+      fi
+      return
+      ;;
+    run|debug)
       # Option values: -n/-p take a number, no completion to offer.
       case "$prev" in
         -n|--lines|-p|--parallel)
@@ -147,7 +172,7 @@ _playbash() {
           continue
         fi
         case "$w" in
-          run|push|debug) ;;
+          run|debug) ;;
           -n|--lines|-p|--parallel) skip_next=1 ;;
           -*) ;;
           *) ((pos++)) ;;
@@ -161,19 +186,6 @@ _playbash() {
       fi
 
       if [[ $pos -eq 0 ]]; then
-        # Playbook name — glob ~/.local/bin/playbash-* and strip the prefix.
-        local playbooks=()
-        local p
-        for p in "$HOME"/.local/bin/playbash-*; do
-          [[ -e "$p" ]] || continue
-          [[ "$p" == *.js ]] && continue
-          playbooks+=( "${p##*/playbash-}" )
-        done
-        COMPREPLY=( $(compgen -W "${playbooks[*]}" -- "$cur") )
-        return
-      fi
-
-      if [[ $pos -eq 1 ]]; then
         # Targets — comma-separated host/group/all. Split on the last comma.
         local prefix last
         if [[ "$cur" == *,* ]]; then
@@ -190,9 +202,25 @@ _playbash() {
         while IFS= read -r m; do
           [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" )
         done < <(compgen -W "$targets" -- "$last")
-        # nospace so the user can keep typing ',nexthost'. Trailing space
-        # is added manually with a space keypress when the list is done.
         compopt -o nospace 2>/dev/null
+        return
+      fi
+
+      if [[ $pos -eq 1 ]]; then
+        # Path containing / → file completion (custom script).
+        if [[ "$cur" == */* ]]; then
+          COMPREPLY=( $(compgen -f -- "$cur") )
+          return
+        fi
+        # Playbook name — glob ~/.local/bin/playbash-* and strip the prefix.
+        local playbooks=()
+        local p
+        for p in "$HOME"/.local/bin/playbash-*; do
+          [[ -e "$p" ]] || continue
+          [[ "$p" == *.js ]] && continue
+          playbooks+=( "${p##*/playbash-}" )
+        done
+        COMPREPLY=( $(compgen -W "${playbooks[*]}" -- "$cur") )
         return
       fi
       ;;

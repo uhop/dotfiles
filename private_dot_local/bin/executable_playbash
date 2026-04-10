@@ -40,9 +40,9 @@ import {
 import {STAGING_DIR, WRAPPER_MANAGED, ensureWrapper, sshRun, stagePlaybookFiles} from '../share/playbash/staging.js';
 
 const USAGE = `usage:
-  playbash run   <playbook> <targets> [-n LINES] [-p N] [--self]
-  playbash push  <playbook> <targets> [-n LINES] [-p N] [--self]
-  playbash debug <playbook> <targets> [--self]
+  playbash run   <targets> <playbook> [-n LINES] [-p N] [--self]
+  playbash push  <targets> <script-path> [-n LINES] [-p N] [--self]
+  playbash debug <targets> <playbook> [--self]
   playbash exec  <targets> [--] <command...> [options]
   playbash put   <targets> <local-path> [<remote-path>] [-p N] [-N]
   playbash get   <targets> <remote-path> [<local-path>] [-p N] [-N]
@@ -70,11 +70,11 @@ parallel runs and a focused-host live view.
 at ~/.local/bin/playbash-<playbook> on the target. Hosts not in the
 inventory (bare ssh aliases) are automatically pushed (see below).
 
-\`push\` always uploads the operator's local copy of the playbook and its
-helper library to the target, regardless of inventory membership. Useful
-for ad-hoc runs and debugging. Only self-contained playbooks work —
-orchestration playbooks that depend on other chezmoi-managed scripts
-(upd, cln, dcms, chezmoi) will not.
+\`push\` uploads a local script and its helper library to the target and
+runs it — like \`put\` but with execution. Takes <targets> <script-path>
+(targets first, mirroring \`put\` and \`exec\`). \`run\` with a file path
+(containing /) automatically uses push mode. Only self-contained scripts
+work — scripts that depend on chezmoi-managed tools will not.
 
 \`exec\` runs an arbitrary command through the same wrapper / rectangle /
 fan-out pipeline as \`run\`, without a playbook. Use \`--\` before the
@@ -636,15 +636,17 @@ async function transferFanout({mode, targets, parallelLimit, offlineNames, trans
   process.exit(failCount > 0 ? 1 : 0);
 }
 
-async function runRemote({playbook, command, hostName, address, rectHeight, verbose, managed}) {
+async function runRemote({playbook, command, customPath, hostName, address, rectHeight, verbose, managed}) {
   let wrapperPath, playbookPath, libs;
   if (managed) {
     wrapperPath = WRAPPER_MANAGED;
     if (playbook) { playbookPath = `~/.local/bin/playbash-${playbook}`; libs = null; }
   } else if (playbook) {
-    await stagePlaybookFiles(address, hostName, playbook);
+    const resolvedPath = customPath ? expandTemplate(customPath, {host: hostName}) : null;
+    if (resolvedPath && !existsSync(resolvedPath)) die(`script not found: ${resolvedPath}`);
+    const remoteName = await stagePlaybookFiles(address, hostName, playbook, resolvedPath);
     wrapperPath = `${STAGING_DIR}/playbash-wrap.py`;
-    playbookPath = `${STAGING_DIR}/playbash-${playbook}`;
+    playbookPath = `${STAGING_DIR}/${remoteName}`;
     libs = STAGING_DIR;
   } else {
     wrapperPath = await ensureWrapper(address, hostName);
@@ -714,7 +716,7 @@ async function runLocally({playbook, command, hostName, rectHeight, verbose}) {
 
 // Run a list of targets in parallel through the StatusBoard, then print
 // per-host summaries (in input order) and the aggregated section.
-async function runFanout({playbook, command, targets, rectHeight, verbose, parallelLimit, inventory, push, offlineNames}) {
+async function runFanout({playbook, command, customPath, targets, rectHeight, verbose, parallelLimit, inventory, push, offlineNames}) {
   const logLabel = playbook || 'exec';
   const slots = targets.map(t => new HostSlot(t.name, t.address, rectHeight ?? 5));
   const board = new StatusBoard(slots, {playbook: logLabel, rectHeight: rectHeight ?? 5});
@@ -779,9 +781,16 @@ async function runFanout({playbook, command, targets, rectHeight, verbose, paral
         wrapperPath = WRAPPER_MANAGED;
         if (playbook) { playbookPath = `~/.local/bin/playbash-${playbook}`; libs = null; }
       } else if (playbook) {
-        await stagePlaybookFiles(slot.address, slot.name, playbook);
+        const resolvedPath = customPath ? expandTemplate(customPath, {host: slot.name}) : null;
+        if (resolvedPath && !existsSync(resolvedPath)) {
+          board.hostFinished(slot.name, {
+            ok: true, statusWord: 'skipped', events: [], logPath: '', elapsedMs: 0,
+          });
+          return;
+        }
+        const remoteName = await stagePlaybookFiles(slot.address, slot.name, playbook, resolvedPath);
         wrapperPath = `${STAGING_DIR}/playbash-wrap.py`;
-        playbookPath = `${STAGING_DIR}/playbash-${playbook}`;
+        playbookPath = `${STAGING_DIR}/${remoteName}`;
         libs = STAGING_DIR;
       } else {
         wrapperPath = await ensureWrapper(slot.address, slot.name);
@@ -846,8 +855,10 @@ async function runFanout({playbook, command, targets, rectHeight, verbose, paral
   let okCount = 0;
   let failCount = 0;
   let offlineCount = 0;
+  let skippedCount = 0;
   for (const slot of slots) {
     if (slot.statusWord === 'offline') offlineCount++;
+    else if (slot.statusWord === 'skipped') skippedCount++;
     else if (slot.state === 'ok') okCount++;
     else failCount++;
     const elapsed = (slot.elapsedMs / 1000).toFixed(1);
@@ -881,13 +892,14 @@ async function runFanout({playbook, command, targets, rectHeight, verbose, paral
   }
 
   // Footer line + cross-host aggregation.
-  const ranSlots = slots.filter(s => s.statusWord !== 'offline');
+  const ranSlots = slots.filter(s => s.statusWord !== 'offline' && s.statusWord !== 'skipped');
   const totalElapsed = ranSlots.length > 0
     ? ((Date.now() - ranSlots[0].startedAt) / 1000).toFixed(1)
     : '0.0';
   let summaryParts = [];
   if (okCount > 0) summaryParts.push(`${okCount} ok`);
   if (failCount > 0) summaryParts.push(`${COLOR.bold}${COLOR.red}${failCount} failed${COLOR.reset}`);
+  if (skippedCount > 0) summaryParts.push(`${COLOR.dim}${skippedCount} skipped${COLOR.reset}`);
   if (offlineCount > 0) summaryParts.push(`${COLOR.dim}${offlineCount} offline${COLOR.reset}`);
   process.stderr.write(`\n${COLOR.dim}done in ${totalElapsed}s${COLOR.reset} · ${summaryParts.join(', ')}\n`);
 
@@ -1169,19 +1181,30 @@ switch (command) {
     break;
   }
   case 'run':
-  case 'push': {
-    if (rest.length !== 2) die(`${command} takes <playbook> <targets>\n${USAGE}`);
-    const [playbook, targetArg] = rest;
-    if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
-    const rectHeight = linesFlag ?? 5;
-    await dispatch({job: {playbook}, targetArg, rectHeight, verbose: false, push: command === 'push'});
+  case 'debug': {
+    if (rest.length !== 2) die(`${command} takes <targets> <playbook>\n${USAGE}`);
+    const [targetArg, playbookArg] = rest;
+    const isCustomPath = playbookArg.includes('/');
+    if (isCustomPath) {
+      if (!existsSync(playbookArg)) die(`script not found: ${playbookArg}`);
+      process.stderr.write(`${COLOR.dim}· ${playbookArg} is a file path — using push mode${COLOR.reset}\n`);
+    } else {
+      if (!/^[a-zA-Z0-9._-]+$/.test(playbookArg)) die(`invalid playbook name "${playbookArg}"`);
+    }
+    const playbook = isCustomPath ? basename(playbookArg) : playbookArg;
+    const customPath = isCustomPath ? playbookArg : null;
+    const rectHeight = command === 'debug' ? 0 : (linesFlag ?? 5);
+    const verbose = command === 'debug';
+    await dispatch({job: {playbook, customPath}, targetArg, rectHeight, verbose, push: isCustomPath});
     break;
   }
-  case 'debug': {
-    if (rest.length !== 2) die(`debug takes <playbook> <targets>\n${USAGE}`);
-    const [playbook, targetArg] = rest;
-    if (!/^[a-zA-Z0-9._-]+$/.test(playbook)) die(`invalid playbook name "${playbook}"`);
-    await dispatch({job: {playbook}, targetArg, rectHeight: 0, verbose: true, push: false});
+  case 'push': {
+    if (rest.length !== 2) die(`push takes <targets> <script-path>\n${USAGE}`);
+    const [targetArg, scriptPath] = rest;
+    if (!scriptPath.includes('{host}') && !existsSync(scriptPath)) die(`script not found: ${scriptPath}`);
+    const playbook = basename(scriptPath);
+    const rectHeight = linesFlag ?? 5;
+    await dispatch({job: {playbook, customPath: scriptPath}, targetArg, rectHeight, verbose: false, push: true});
     break;
   }
   case 'exec': {

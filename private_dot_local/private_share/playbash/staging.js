@@ -20,7 +20,7 @@
 import {createHash} from 'node:crypto';
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {join} from 'node:path';
+import {basename as pathBasename, join} from 'node:path';
 import {spawn} from 'node:child_process';
 
 const WRAPPER_LOCAL   = join(homedir(), '.local', 'libs', 'playbash-wrap.py');
@@ -118,19 +118,24 @@ async function probeRemoteShas(address, remotePaths) {
 // existing remote files; only files with a mismatched or missing hash are
 // re-uploaded (parallel `cat | ssh` calls, one per file). No local cache —
 // the remote is the source of truth.
-export async function stagePlaybookFiles(address, hostName, playbookName) {
+//
+// `customLocalPath` overrides the default playbook location for custom
+// scripts (paths containing /). Returns the remote filename used in the
+// staging dir so the caller can construct the full remote path.
+export async function stagePlaybookFiles(address, hostName, playbookName, customLocalPath) {
   const wrapperContent = readFileSync(WRAPPER_LOCAL);
   const helperContent = readFileSync(HELPER_LOCAL);
-  const playbookLocalPath = join(PLAYBOOK_DIR, `playbash-${playbookName}`);
+  const playbookLocalPath = customLocalPath || join(PLAYBOOK_DIR, `playbash-${playbookName}`);
   if (!existsSync(playbookLocalPath)) {
     throw new Error(`playbook not found locally: ${playbookLocalPath}`);
   }
   const playbookContent = readFileSync(playbookLocalPath);
+  const remoteName = customLocalPath ? pathBasename(customLocalPath) : `playbash-${playbookName}`;
 
   const files = [
     {name: 'playbash-wrap.py', content: wrapperContent, sha: fileSha(wrapperContent), executable: true},
     {name: 'playbash.sh', content: helperContent, sha: fileSha(helperContent), executable: false},
-    {name: `playbash-${playbookName}`, content: playbookContent, sha: fileSha(playbookContent), executable: true},
+    {name: remoteName, content: playbookContent, sha: fileSha(playbookContent), executable: true},
   ];
 
   // Probe: one SSH round trip to hash all staged files on the remote.
@@ -141,7 +146,7 @@ export async function stagePlaybookFiles(address, hostName, playbookName) {
 
   // Upload only files whose remote SHA doesn't match the local copy.
   const needed = files.filter(f => remoteShas.get(f.name) !== f.sha);
-  if (needed.length === 0) return;
+  if (needed.length === 0) return remoteName;
 
   const stageOne = ({name, content, executable}) => {
     const cmd = executable
@@ -159,6 +164,7 @@ export async function stagePlaybookFiles(address, hostName, playbookName) {
       );
     }
   }
+  return remoteName;
 }
 
 // --- public API ---
