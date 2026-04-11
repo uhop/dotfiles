@@ -153,7 +153,7 @@ set -- "${args_cleaned[@]}"
 The library is cloned as a sparse worktree to `~/.local/share/libs/scripts`:
 
 ```bash
-git clone --filter=blob:none --sparse git@github.com:uhop/options.bash scripts
+git clone --filter=blob:none --sparse https://github.com/uhop/options.bash scripts
 git sparse-checkout set --no-cone '/*.sh' '/README.md'
 ```
 
