@@ -504,6 +504,24 @@ function expandTemplate(template, vars) {
   return template.replace(/\{(\w+)\}/g, (m, key) => vars[key] ?? m);
 }
 
+// Bash expands `~` and `~user` on the command line BEFORE playbash sees the
+// argument, so `playbash put all foo ~/.config/bar` arrives as
+// `... /home/eugene/.config/bar`. That literal absolute path then fails on
+// any host where the operator's local home prefix doesn't exist (macOS uses
+// /Users/<name>; mini2 in our fleet was the trigger). Detect the operator's
+// local home prefix and rewrite to a literal `~`, so the remote shell
+// expands it per-target. The remote path resolution belongs on the remote.
+//
+// Only intended for the user-supplied remote path argument of put/get.
+// Local paths and chezmoi-managed remote paths (which already use literal
+// `~/...`) are unaffected.
+function normalizeRemotePath(path) {
+  const home = homedir();
+  if (path === home) return '~';
+  if (path.startsWith(home + '/')) return '~' + path.slice(home.length);
+  return path;
+}
+
 // Validate a custom playbook path (slash convention). Returns 'file' or
 // 'dir' on success, throws Error with a clear message on failure. The
 // caller decides whether to die() or mark a single host as failed —
@@ -1087,7 +1105,10 @@ async function runTransferSingle(target, mode, transferFn) {
 }
 
 async function cmdPut(targetArg, localPathTemplate, remotePathArg) {
-  const remoteTemplate = remotePathArg || localPathTemplate;
+  // Normalize the operator-side home prefix so the remote shell does the
+  // home resolution per-target (see normalizeRemotePath). Local path is
+  // operator-side and is left untouched.
+  const remoteTemplate = normalizeRemotePath(remotePathArg || localPathTemplate);
   const hasLocalTemplate = localPathTemplate.includes('{host}');
   if (!hasLocalTemplate && !existsSync(localPathTemplate)) die(`local path not found: ${localPathTemplate}`);
   const {targets, offlineNames, parallelLimit} = await resolveAndValidate(targetArg);
@@ -1117,7 +1138,10 @@ async function cmdPut(targetArg, localPathTemplate, remotePathArg) {
   }
 }
 
-async function cmdGet(targetArg, remoteTemplate, localPathArg) {
+async function cmdGet(targetArg, remoteTemplateArg, localPathArg) {
+  // Normalize the operator-side home prefix so the remote shell does the
+  // home resolution per-target (see normalizeRemotePath).
+  const remoteTemplate = normalizeRemotePath(remoteTemplateArg);
   const {targets, offlineNames, parallelLimit} = await resolveAndValidate(targetArg);
   const remoteBase = basename(remoteTemplate);
   const defaultLocal = targets.length === 1 ? remoteBase : `{host}-${remoteBase}`;
