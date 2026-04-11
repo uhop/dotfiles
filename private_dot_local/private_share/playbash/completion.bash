@@ -35,6 +35,7 @@ _playbash() {
       ;;
     log)
       COMPREPLY=( $(compgen -f -- "$cur") )
+      compopt -o filenames 2>/dev/null
       return
       ;;
     put)
@@ -58,7 +59,10 @@ _playbash() {
         while IFS= read -r m; do [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" ); done < <(compgen -W "$targets" -- "$last")
         compopt -o nospace 2>/dev/null
       elif [[ $pos -eq 1 || $pos -eq 2 ]]; then
+        # -o filenames so directory matches get a trailing / (no space) and
+        # the user can keep tab-completing into the tree.
         COMPREPLY=( $(compgen -f -- "$cur") )
+        compopt -o filenames 2>/dev/null
       fi
       return
       ;;
@@ -82,8 +86,15 @@ _playbash() {
         local m; COMPREPLY=()
         while IFS= read -r m; do [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" ); done < <(compgen -W "$targets" -- "$last")
         compopt -o nospace 2>/dev/null
-      elif [[ $pos -eq 2 ]]; then
+      elif [[ $pos -eq 1 || $pos -eq 2 ]]; then
+        # pos 1 is the remote path, pos 2 is the local destination. We
+        # complete both with the local filesystem: ssh-side completion
+        # would need a round trip, and most fleets share enough path
+        # structure (~/.config/, /etc/, /var/log/, ...) that the local
+        # FS is a useful proxy. Same convention as `put`.
+        # -o filenames so directories get a trailing / and tab continues.
         COMPREPLY=( $(compgen -f -- "$cur") )
+        compopt -o filenames 2>/dev/null
       fi
       return
       ;;
@@ -150,7 +161,9 @@ _playbash() {
         while IFS= read -r m; do [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" ); done < <(compgen -W "$targets" -- "$last")
         compopt -o nospace 2>/dev/null
       elif [[ $pos -eq 1 ]]; then
+        # -o filenames so directory playbooks (mydir/) keep tab-completing.
         COMPREPLY=( $(compgen -f -- "$cur") )
+        compopt -o filenames 2>/dev/null
       fi
       return
       ;;
@@ -207,9 +220,11 @@ _playbash() {
       fi
 
       if [[ $pos -eq 1 ]]; then
-        # Path containing / → file completion (custom script).
+        # Path containing / → file completion (custom script or directory
+        # playbook). -o filenames so directories keep tab-completing.
         if [[ "$cur" == */* ]]; then
           COMPREPLY=( $(compgen -f -- "$cur") )
+          compopt -o filenames 2>/dev/null
           return
         fi
         # Playbook name — glob ~/.local/bin/playbash-* and strip the prefix.
