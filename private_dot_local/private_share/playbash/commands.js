@@ -13,14 +13,10 @@ import {homedir} from 'node:os';
 import {join} from 'node:path';
 
 import {COLOR, sanitizeForRect} from './render.js';
+import {die} from './errors.js';
 import {isSelfAddress, loadInventory} from './inventory.js';
 import {parseHostNames} from './ssh-config.js';
 import {LOG_DIR, PLAYBOOK_DIR, PLAYBOOK_PREFIX} from './paths.js';
-
-function die(msg, code = 2) {
-  process.stderr.write(`playbash: ${msg}\n`);
-  process.exit(code);
-}
 
 // --- log ---
 

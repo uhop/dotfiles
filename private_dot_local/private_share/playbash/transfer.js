@@ -15,13 +15,9 @@ import {basename, dirname} from 'node:path';
 import {spawn} from 'node:child_process';
 
 import {COLOR, buildStatusLine} from './render.js';
+import {die} from './errors.js';
 import {expandTemplate, runFanout} from './runner.js';
 import {sshRun} from './staging.js';
-
-function die(msg, code = 2) {
-  process.stderr.write(`playbash: ${msg}\n`);
-  process.exit(code);
-}
 
 // Bash expands `~` and `~user` on the command line BEFORE playbash sees the
 // argument, so `playbash put all foo ~/.config/bar` arrives as

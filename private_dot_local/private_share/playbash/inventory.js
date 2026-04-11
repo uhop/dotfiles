@@ -10,12 +10,9 @@ import {homedir, networkInterfaces} from 'node:os';
 import {join} from 'node:path';
 import {lookup as dnsLookup} from 'node:dns/promises';
 
-export const INVENTORY_PATH = join(homedir(), '.config', 'playbash', 'inventory.json');
+import {die} from './errors.js';
 
-function die(msg, code = 2) {
-  process.stderr.write(`playbash: ${msg}\n`);
-  process.exit(code);
-}
+export const INVENTORY_PATH = join(homedir(), '.config', 'playbash', 'inventory.json');
 
 // --- Inventory ---
 

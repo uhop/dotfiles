@@ -28,6 +28,7 @@ import {
   cmdLog
 } from '../share/playbash/commands.js';
 import {cmdGet, cmdPut} from '../share/playbash/transfer.js';
+import {die} from '../share/playbash/errors.js';
 import {COLOR} from '../share/playbash/render.js';
 import {
   filterSelf,
@@ -119,11 +120,6 @@ environment (~/.ssh/config, keys, agent, inventory, local playbooks,
 helper library, PTY wrapper, python3) and per-host connectivity for
 every inventory host. Output is a green/orange/red checklist with
 remediation hints under failures. Exits 1 if any check fails.`;
-
-function die(msg, code = 2) {
-  process.stderr.write(`playbash: ${msg}\n`);
-  process.exit(code);
-}
 
 // Runner machinery (signal handlers, child registry, runHost,
 // runHostSingle, runRemote, runLocally, runFanout, probeConnectivity,

@@ -50,16 +50,7 @@ import {
   stagePlaybookFiles,
 } from './staging.js';
 import {LOG_DIR, PLAYBOOK_DIR, PLAYBOOK_PREFIX} from './paths.js';
-
-// --- die ---
-//
-// Local die() so the runner module doesn't need to import the entry
-// point's helper. Same shape: stderr + exit. Used for unrecoverable
-// validation failures inside single-host paths.
-function die(msg, code = 2) {
-  process.stderr.write(`playbash: ${msg}\n`);
-  process.exit(code);
-}
+import {die} from './errors.js';
 
 // --- global child registry + cleanup on signals ---
 //
