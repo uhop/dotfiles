@@ -1,9 +1,10 @@
 # Playbash polish plan — 2026-04-11 audit
 
-A targeted plan for the issues surfaced by a post-refactor audit of `playbash`. Two phases:
+A targeted plan for the issues surfaced by a post-refactor audit of `playbash`. Three phases:
 
-- **Phase 1 — polish** (ships as `3.0.6`): fix two small sharp edges in `errors.js` and `libs/playbash.sh`.
-- **Phase 2 — shell quoting** (ships as `3.1.0`): introduce a `shellQuote()` helper and apply it to every site where operator-supplied paths are interpolated into shell command lines. This fixes three real bugs where paths containing spaces, quotes, or shell metacharacters misbehave on the remote side.
+- **Phase 1 — polish** (ships as `3.0.6`): fix two small sharp edges in `errors.js` and `libs/playbash.sh`. ✅ shipped, commit `2083fcc`.
+- **Phase 2 — shell quoting** (ships as `3.1.0`): introduce a `shellQuote()` helper and apply it to every site where operator-supplied paths are interpolated into shell command lines. This fixes three real bugs where paths containing spaces, quotes, or shell metacharacters misbehave on the remote side. ✅ shipped, commit `a2807c0`.
+- **Phase 3 — UX polish** (ships as `3.1.1`): small user-visible improvements surfaced by a second-pass UX audit. 9 items bundled as one commit. ⏳ pending implementation.
 
 Each phase ships as its own commit per the versioning policy in [`playbash-design.md § Versioning`](./playbash-design.md#versioning).
 
@@ -222,22 +223,135 @@ Final plan:
   - Cleanup after test.
 - Bump `VERSION` → `3.1.0`.
 
+### Phase 3 — UX polish (ships as `3.1.1`)
+
+After Phases 1 and 2 shipped, a second-pass audit (Option C) was run focused on **user-visible text quality**, not correctness. Two parallel Explore agents (UX polish + CLI surface) plus direct verification against actual code and runtime behavior (some claims about rectangle rendering required a TTY-preserving `script -qc` test to verify).
+
+The verdict: **the user-facing surface is in reasonable shape**. Five U2 items (worth fixing — real UX paper cuts) and four U3 items (nice-to-haves, fixable for very little effort). Three agent claims were invalidated on verification — documented below so future audits don't re-report them.
+
+Naming convention: `U-n` = UX-audit finding. Distinct from `A-n` (audit bugs, fixed in Phase 2) and `P-n` (polish, fixed in Phase 1).
+
+#### Findings
+
+**U-1 — `debug` silently ignores `-n`**
+- Location: `private_dot_local/bin/executable_playbash:362` — `const rectHeight = command === 'debug' ? 0 : (linesFlag ?? 5);`
+- Impact: A user typing `playbash debug nuke daily -n 20` expects 20 lines of live output; they get the same silent rect-disabled behavior as `playbash debug nuke daily`. The flag is parsed (it's a top-level option) but discarded for the `debug` case.
+- Fix: reject `-n` loudly in the `debug` branch so the user knows their input was ignored. Concrete: `if (command === 'debug' && linesFlag != null) die('debug does not accept -n — use "run <targets> <playbook> -n N" for a rectangle');`. The whole point of `debug` is "the no-rectangle variant of `run`"; the flag is meaningless there.
+- Priority: **U2**
+
+**U-2 — `put`/`get` accept `--self` but USAGE doesn't document it**
+- Location: `private_dot_local/bin/executable_playbash:50-51` USAGE shows `playbash put <targets> <local-path> [<remote-path>] [-p N] [-N]` and `playbash get <targets> <remote-path> [<local-path>] [-p N] [-N]` — no `[--self]`.
+- Impact: The handlers at lines 413/420 call `resolveAndValidate(rest[0])` which reads `values.self` globally. `completion.bash:45,73` also offer `--self`. Three sources of truth disagree: USAGE (no), completion (yes), handler (yes). A user who doesn't tab-complete never discovers it.
+- Fix: add `[--self]` to both USAGE lines so they match the other fan-out-capable subcommands.
+- Priority: **U2**
+
+**U-3 — `exec` USAGE line says `[options]` instead of enumerating them**
+- Location: `private_dot_local/bin/executable_playbash:49` — `playbash exec <targets> [--] <command...> [options]`
+- Impact: Every other fan-out-capable subcommand lists its options explicitly: `run` shows `[-n LINES] [-p N] [--self]`, `push` the same. `exec` is the only one that's vague. Worse, the `[options]` placeholder tells the user that options exist but not which ones — they must tab-complete or read the code.
+- Fix: replace with `[-n LINES] [-p N] [--self] [-N]` to match the other subcommands.
+- Priority: **U2**
+
+**U-4 — Transfer failures in fan-out drop most of the error message**
+- Location: `private_dot_local/private_share/playbash/runner.js` — the `transfer` branch of `launchOne`'s catch (around line 965). It sets `statusWord: truncateStatus(err.message)` → max 60 chars. No `slot.tail`, no `slot.logPath`, so `renderFanoutSummary`'s `showCapturedOutput` branch has nothing to render for a failed transfer beyond the 60-char status word.
+- Impact: For a put/get failure — say, "permission denied" followed by a long path with the real cause — the user sees the first 60 chars and loses the rest. Transfers never write a log file (there's nothing to log; they're one-shot), so `playbash log` doesn't help either.
+- Fix: capture the full `err.message` (and/or `err.stderr` from `sshRun` if present) into a new `slot.transferError` field; in `renderFanoutSummary`, after the status line, render it wrapped under the failed host's block in the `showCapturedOutput === true` branch. One minor rendering tweak — ~10 lines of change.
+- Priority: **U2**
+
+**U-5 — `-n` default description doesn't mention per-subcommand differences**
+- Location: `private_dot_local/bin/executable_playbash:60` USAGE says `-n, --lines N   height of the live output rectangle (default 5)`.
+- Impact: Reality is more nuanced: `run`/`push` default to 5; `debug` ignores `-n` (forced to 0, see U-1); `exec` defaults to 0 but honors `-n` when passed. A user reading the help text thinks `playbash exec host cmd` will show a 5-line rectangle by default. It won't.
+- Fix (lands alongside U-1): update the line to `-n, --lines N   height of the live output rectangle for run/push (default 5). exec defaults to 0; pass -n N to enable.`. The fix for U-1 means debug is no longer a special case — it rejects `-n` loudly, so doesn't need to be mentioned in this doc line.
+- Priority: **U2**
+
+**U-6 — `list`/`hosts`/`doctor` don't tab-complete `-h`/`--help`**
+- Location: `private_dot_local/private_share/playbash/completion.bash:33-35` early-returns for these three subcommands with no flag completion offered.
+- Impact: Tab-completing `playbash list -<Tab>` yields nothing even though `playbash list -h` works at runtime. Minor discoverability issue.
+- Fix: replace the `return` with a short branch that offers `-h --help` when `$cur` starts with `-`. One-line change per the pattern used elsewhere in the file (e.g., line 24-28 for the top-level).
+- Priority: **U3**
+
+**U-7 — `empty target list` error has no hint about valid inputs**
+- Location: `private_dot_local/private_share/playbash/inventory.js:78` — `die('empty target list')` when the user passes `""` or `,,,` or similar.
+- Impact: The user sees a terse error with no remediation hint. Narrow case (the error path only fires on empty or comma-only input), but the fix is trivial.
+- Fix: `die('empty target list (pass a host name, group name, or "all")')`.
+- Priority: **U3**
+
+**U-8 — `list` with zero playbooks could hint at `playbash doctor`**
+- Location: `private_dot_local/private_share/playbash/commands.js` — around line 97, in `cmdList`: `no playbooks found in ${PLAYBOOK_DIR} (looking for ${PLAYBOOK_PREFIX}*)`.
+- Impact: A user on a fresh install sees this and has no next step. `playbash doctor` is the right tool to diagnose missing playbooks (doctor verifies the environment including the playbook dir).
+- Fix: append `— run 'playbash doctor' to diagnose.` to the message.
+- Priority: **U3**
+
+**U-9 — `parseSidecar` malformed-line warning doesn't identify the host**
+- Location: `private_dot_local/private_share/playbash/sidecar.js:16` — `process.stderr.write('playbash: ignoring malformed sidecar line: ${line}\n')`.
+- Impact: When fan-out runs across 20 hosts and one has a corrupt sidecar, the warning surfaces during rendering without telling the user which host produced it. Hard to diagnose blind.
+- Fix: thread `hostName` through `parseSidecar(text, hostName)` and include it in the warning. One function-signature change and call-site updates in the two places `parseSidecar` is called (search `parseSidecar(` in `runner.js`). Low blast radius.
+- Priority: **U3**
+
+#### Items considered and deliberately skipped
+
+- **Log-directory-aware completion for `playbash log`** — agent 2 suggested replacing the generic `compgen -f` in `completion.bash` for the `log` subcommand with a walker that reads `~/.cache/playbash/runs/<host>/<command>/` and offers host names at pos 0 and command names at pos 1. Real UX win but ~15 lines of custom bash logic. Deferred as a separate focused change if it ever feels annoying enough in real use. Not in Phase 3's 9-item scope.
+- **Doctor check name casing** — agent 1 flagged `ssh config` vs `ControlMaster` vs `ssh-agent` as inconsistent. On verification, the mix is intentional: `ssh config` / `ssh-agent` / `private key` / `playbooks` / `playbash.sh` / `python3` are *descriptions*, and `ControlMaster` / `ControlPersist` / `ControlPath` are *literal config-option names*. The styles are different because they refer to different kinds of things. **Verified clean.**
+- **Subcommand naming (run/push/debug/exec)** — any rename is a breaking change; not worth it.
+- **Exit code semantics** — agent 2 claimed inconsistency but on verification `runFanout` exits `failCount > 0 ? 1 : 0`, `runTransferSingle` exits 1 on catch, `die` exits 2. All three are consistent with Unix conventions. **Verified clean.**
+- **`put`/`get` argument order** — agent 2 flagged as potentially inconsistent with Unix conventions, then self-corrected in the same finding. `put local remote` and `get remote local` match `scp` direction conventions. **Verified clean.**
+
+#### Agent claims invalidated on verification (do not re-report)
+
+These are false alarms that the audit agents reported but I verified don't hold up. Listed here so future audits don't re-burn cycles.
+
+- **"`exec` silently ignores `-n`"** — WRONG. Verified via `script -qc "playbash exec nuke -n 3 '...'" /dev/null` which preserved the TTY; the raw output contains ANSI cursor-up (`[3A`) and erase-line (`[2K`) sequences; the 3-line rectangle renders correctly. Line 400 (`const rectHeight = linesFlag ?? 0`) correctly honors the flag. The agent was probably confused by redirection (`2>&1 | head`) breaking the TTY, which correctly disables the rectangle per `Rectangle.active = process.stdout.isTTY && height > 0`. The real issue (U-5) is that USAGE doesn't document the different defaults, not that exec ignores `-n`.
+- **"`err.message.slice(0, 60)` still present in some call site"** — WRONG. Grep confirms zero occurrences across the playbash tree. All three were refactored to `truncateStatus()` in the 3.0.5 polish (see Phase 1 of this plan).
+- **"Exit codes inconsistent: multi-host fan-out exits 0 even on failure"** — WRONG. `runFanout` ends with `if (!cleaningUp) process.exit(failCount > 0 ? 1 : 0);` (runner.js, last line). `runTransferSingle` has `process.exit(1)` in its catch handler. `die()` exits 2. All three are consistent: 0 = all ok, 1 = some failed, 2 = user error.
+- **"`Rectangle.active` uses stdout while `StatusBoard.active` uses stderr — inconsistent"** — Initially suspicious, but correct on reflection: Rectangle tees chunks to stdout (so stdout redirection correctly disables it and falls through to raw stream output); StatusBoard paints its display to stderr. Intentional split, not a bug.
+
+#### Plan — one bundled commit as `3.1.1`
+
+Ship the 9 items above as one commit. Small blast radius, ~50-80 lines of source total, all one logical unit ("UX polish from second-pass audit"). Patch bump since nothing changes the subcommand *surface area* (no new commands, no new flags, just better errors/hints/docs + one bug fix for U-1 and a small feature for U-4).
+
+**Implementation order** (fixed to avoid cross-file churn):
+
+1. **U-1 + U-5** (`executable_playbash`, two changes in the same file): reject `-n` in debug, update USAGE line 60 description.
+2. **U-2 + U-3** (`executable_playbash`, USAGE text only, three changes): add `[--self]` to put/get USAGE, replace `[options]` with explicit flags for exec USAGE.
+3. **U-4** (`runner.js` + `render.js` maybe): capture full transfer error message on `slot`, render it in `renderFanoutSummary`'s transfer branch. This is the largest single change in Phase 3 — probably 15-25 lines.
+4. **U-6** (`completion.bash`): replace the `list|hosts|doctor) return` branch with a flag-completion fall-through.
+5. **U-7** (`inventory.js`): one-line error message edit.
+6. **U-8** (`commands.js`): one-line error message edit.
+7. **U-9** (`sidecar.js` + `runner.js`): thread hostName through parseSidecar.
+8. Bump `VERSION` → `3.1.1` in `executable_playbash`.
+
+**Verification:**
+- `node --check` on every modified file.
+- `chezmoi apply`.
+- `playbash --version` → `3.1.1`.
+- **U-1** regression: `playbash debug nuke daily -n 5` should fail loudly with the new error message (not silently run). `playbash debug nuke daily` should still work as before.
+- **U-2/U-3** regression: `playbash --help | grep -- --self` should now include put/get lines; `playbash --help | grep exec` should show the enumerated options.
+- **U-4** positive test: force a put failure (e.g., `playbash put nuke /tmp/nonexistent '~/x.sh'`) in fan-out mode (`playbash put nuke,uhop /tmp/nonexistent '~/x.sh'`) and verify the full error is visible under the failed host, not just a 60-char prefix.
+- **U-6** regression: `eval "$(playbash --bash-completion)"; playbash list -<Tab>` should offer `-h --help`.
+- **U-7** regression: `playbash run '' daily 2>&1` should show the new hint.
+- **U-8** regression: temporarily rename `~/.local/bin/playbash-*` and run `playbash list`; expect the hint about `playbash doctor`.
+- **U-9** regression: manufacture a corrupt sidecar (requires a playbook that writes `notjson\n` to `$PLAYBASH_REPORT`) or temporarily patch the file post-run; verify the warning includes the host name.
+- Full regression sweep: `playbash list`, `playbash hosts`, `playbash exec nuke 'echo hi'`, `playbash run nuke hello`, `playbash doctor` — all should behave identically.
+
 ## Risks
 
 - **Phase 2 changes the wire format** — the exact bytes sent over ssh are different (`/tmp/foo` → `'/tmp/foo'`). For any path that previously worked, the quoted form MUST still work. POSIX shell quotes are universal, so this should be safe. The tilde-aware helper adds the only sharp edge: a path like `~/foo bar` must stay expandable. Verified via positive test.
 - **Phase 1 `libs/playbash.sh` edit touches a file deployed via chezmoi.** The file lives at `~/.local/libs/playbash.sh` on every managed host. Rolling out the fix requires `chezmoi update` on each host. Since the P-1 change is a comment-only edit, there's no actual behavior change — the fix is purely documentary. No rollout urgency.
 - **Phase 1 `errors.js` edit** is local to the operator. No rollout needed.
-- **No breaking change** for scripts parsing playbash output — the two phases preserve stderr/stdout contracts.
+- **Phase 3 U-1 is a small breaking change** for users who pass `-n` to `debug` and expect it to be silently accepted. Previously the flag was accepted and ignored; after U-1 it dies with an error. Unlikely to affect anyone in practice — passing `-n` to `debug` never did anything useful — but technically behavior-changing. This is why U-1 is a bundled fix alongside the USAGE cleanup (U-5), so the user sees the rejection message and the clarified doc line in the same release.
+- **Phase 3 U-4** changes the post-failure output for fan-out transfers, adding more text per failed host. Scripts parsing fan-out output for transfers are unlikely (transfers are usually interactive) but the line count per failed host grows from 1 to up to ~5. If anyone parses this, mention it in the release note.
+- **No breaking change otherwise** — all three phases preserve exit codes, stdout/stderr discipline, and all successful-path output.
 
 ## Status
 
-(filled in as phases ship)
-
 | Phase | Status | Version | Commit | Notes |
 |---|---|---|---|---|
-| 1 — polish | ✅ | `3.0.6` | (pending commit) | P-1: `errors.js` coerces non-string `msg` via `String(msg)`. P-2: `libs/playbash.sh` documents the `--data` contract (pre-formed JSON, caller's responsibility). Verified: `die(new Error('test'))` now prints `playbash: Error: test` instead of `[object Object]`; all regression smoke tests pass. |
-| 2 — shell quoting | ✅ | `3.1.0` | (pending commit) | A-1 + A-2 + A-3 via `shellQuote` / `shellQuotePath`. New module `share/playbash/shell-escape.js` (43 lines) with two exports. **8 call sites fixed** — the plan listed 7; an 8th surfaced when the positive test exposed `buildRemoteCommand` in `runner.js` also interpolating `playbookPath` raw. Full test matrix verified on `nuke`: plain-path put/get roundtrip byte-identical; put+get+push all work with `/tmp/space test.sh`; fan-out exec, managed `run`, doctor, list, hosts all pass regression. |
+| 1 — polish | ✅ | `3.0.6` | `2083fcc` | P-1: `errors.js` coerces non-string `msg` via `String(msg)`. P-2: `libs/playbash.sh` documents the `--data` contract (pre-formed JSON, caller's responsibility). Verified: `die(new Error('test'))` now prints `playbash: Error: test` instead of `[object Object]`; all regression smoke tests pass. |
+| 2 — shell quoting | ✅ | `3.1.0` | `a2807c0` | A-1 + A-2 + A-3 via `shellQuote` / `shellQuotePath`. New module `share/playbash/shell-escape.js` (43 lines) with two exports. **8 call sites fixed** — the plan listed 7; an 8th surfaced when the positive test exposed `buildRemoteCommand` in `runner.js` also interpolating `playbookPath` raw. Full test matrix verified on `nuke`: plain-path put/get roundtrip byte-identical; put+get+push all work with `/tmp/space test.sh`; fan-out exec, managed `run`, doctor, list, hosts all pass regression. |
+| 3 — UX polish | ⏳ | `3.1.1` (target) | — | 9 items from the UX audit — U-1 through U-9 above. Bundled as one commit. Plan and verification checklist in the Phase 3 section. **Ready to implement** — start from a clean tree, follow the Implementation order in the Phase 3 plan. Deliberately skipped items and invalidated agent claims are documented inline so future audits don't re-litigate them. |
 
-## Follow-up (Option C)
+## Audit history
 
-After both phases ship, run a **second-pass audit** focused on UX polish — consistent error messages, hint quality, help text, subcommand surface inconsistencies. Different scope from this audit (which focused on correctness). Will generate a separate plan doc or append to this one as `playbash-polish-plan.md § UX`.
+- **Phase 1/2 audit (correctness + shell quoting)** — four parallel Explore agents + direct verification, 2026-04-11. Produced the A-1..A-3 and P-1..P-2 findings.
+- **Phase 3 audit (UX polish, Option C)** — two parallel Explore agents + direct verification (including a TTY-preserving `script -qc` test to verify rectangle rendering), 2026-04-11. Produced U-1..U-9 findings plus the list of invalidated claims documented in the Phase 3 plan.
+
+Both audits had a substantial false-positive rate from the agents (~47% in the first audit, similar in the second — the rectangle-rendering claim was the most significant). The verified-safe and invalidated-claims lists throughout this doc are there to keep future audits from wasting cycles on the same false trails.
