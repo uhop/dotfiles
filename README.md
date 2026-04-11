@@ -35,7 +35,7 @@ And update your GitHub user name in `.chezmoi.toml.tmpl` and at the bottom of `.
 
 Three layers of maintenance scripts:
 
-1. **`upd`** &mdash; updates `apt`, `snap`, `flatpak`, `brew`, `bun`. Detects `docker-ce`/AppArmor upgrades and surfaces reboot recommendations; `upd -r` recovers from a `docker-ce` upgrade by restarting `containerd` + `docker` instead of asking for a full reboot.
+1. **`upd`** &mdash; updates `apt`/`dnf`, `snap`, `flatpak`, `brew`, `bun`. Detects `docker-ce`/AppArmor upgrades and surfaces reboot recommendations; `upd -r` recovers from a `docker-ce` upgrade by restarting `containerd` + `docker` instead of asking for a full reboot.
 2. **`cln`** &mdash; cleanups for the same package managers, plus old `node` versions. `upd -c` runs `cln` after `upd`.
 3. **`playbash`** &mdash; multi-host playbook runner. Subcommands: `run`, `push`, `debug`, `exec`, `put`, `get`. Runs bash playbooks and ad-hoc scripts across an inventory of hosts in parallel, with a per-host live view, aggregated summary, offline detection, and file transfer. Replaces the older Ansible-based stack. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management).
 
@@ -141,6 +141,36 @@ These instructions assume a newly installed OS. Otherwise, adjust accordingly.
   chezmoi init --apply uhop
   ```
   - The initial script installs various utilities using `apt`. Thus it requires a `sudo` password. Don't be alarmed.
+    Inspect `run_onchange_before_install-packages.sh.tmpl` for more details.
+- Reboot.
+
+## Red Hat-like (Fedora, RHEL, CentOS, Rocky, Alma)
+
+These instructions assume a newly installed OS. Otherwise, adjust accordingly.
+
+- Install your private ssh keys suitable to access github, if you use them. Otherwise github-based installations will fail.
+- Install prerequisites:
+  ```bash
+  sudo dnf install gcc gcc-c++ make curl git git-gui gitk micro unzip
+  ```
+- Install `brew`:
+  ```bash
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  ```
+  - The exact installation instructions can change from time to time. Check https://brew.sh/ if you encounter any problems.
+- Restart the session or initialize `brew`:
+  ```bash
+  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+  ```
+- Install `chezmoi`:
+  ```bash
+  brew install chezmoi
+  ```
+- Initialize dotfiles:
+  ```bash
+  chezmoi init --apply uhop
+  ```
+  - The initial script installs various utilities using `dnf` and enables EPEL (on non-Fedora distros). Thus it requires a `sudo` password. Don't be alarmed.
     Inspect `run_onchange_before_install-packages.sh.tmpl` for more details.
 - Reboot.
 

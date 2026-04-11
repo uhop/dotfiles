@@ -1,19 +1,21 @@
 # dotfiles
 
-> Personal dotfiles managed by chezmoi. Bash-based CLI utilities use options.bash for option parsing and rich terminal output. Targets Ubuntu (Debian) and macOS.
+> Personal dotfiles managed by chezmoi. Bash-based CLI utilities use options.bash for option parsing and rich terminal output. Targets Ubuntu (Debian), Red Hat-like distros (Fedora, RHEL, CentOS, Rocky, Alma), and macOS.
 
 ## Chezmoi config
 
 Template data from `.chezmoi.toml.tmpl`:
-- `osId` — exact OS (e.g., `linux-ubuntu`, `darwin`)
-- `osIdLike` — OS family (e.g., `linux-debian`, `darwin`)
+- `osId` — exact OS (e.g., `linux-ubuntu`, `linux-fedora`, `darwin`)
+- `osIdLike` — OS family (e.g., `linux-debian`, `linux-rhel`, `darwin`)
+- `osFamily` — `linux` or `darwin`
+- `pkgManager` — `apt`, `dnf`, or `brew-only` (derived from `osIdLike`)
 - `wsl` — bool, running under WSL
 - `codespaces` — bool, running in GitHub Codespaces
 - `hasGui` — bool, machine has GUI
 
-## Bootstrap: main.sh
+## Bootstrap: bootstrap.sh
 
-`~/.local/libs/main.sh` auto-updates options.bash and sources core modules:
+`~/.local/libs/bootstrap.sh` auto-updates options.bash and sources core modules:
 
 ```bash
 . ~/.local/share/libs/scripts/ansi.sh
@@ -27,13 +29,13 @@ Aliases `doas` as `sudo` when available.
 
 ## CLI utilities (options.bash-based)
 
-All source `~/.local/libs/main.sh`. Pattern:
+All source `~/.local/libs/bootstrap.sh`. Pattern:
 
 ```bash
 #!/usr/bin/env bash
 set -euCo pipefail
 shopt -s expand_aliases
-. ~/.local/libs/main.sh
+. ~/.local/libs/bootstrap.sh
 args::program "$script_name" "1.0" "Description"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
@@ -95,7 +97,7 @@ Options:
 - `-r, --restart-services` — after a `docker-ce`/`containerd`/`docker-buildx-plugin`/`docker-compose-plugin` upgrade, run `sudo systemctl restart containerd && sudo systemctl restart docker` to recover without a full reboot (falls back to a reboot recommendation if either restart fails). Doas whitelist entries for these commands ship in `run_onchange_before_install-packages.sh.tmpl`.
 - `-v, --version`, `-h, --help`
 
-Updates: `apt` (Debian), `snap` (Debian), `flatpak`, `softwareupdate` (macOS), `mas` (macOS), `brew`, `tmux` plugins, `bun`.
+Updates: `apt` (Debian), `dnf` (Red Hat-like), `snap` (Debian), `flatpak`, `softwareupdate` (macOS), `mas` (macOS), `brew`, `tmux` plugins, `bun`.
 
 Sources `~/.local/libs/maintenance.sh` for `report_*` helpers and apt-history scanning. After the apt step, `maintenance::check_apt_since` diffs `/var/log/apt/history.log` since the pre-step snapshot and reacts: docker-related upgrades → restart-or-reboot, AppArmor upgrades → eager `aa-remove-unknown` + recovery marker file at `~/.cache/playbash/needs-aa-cleanup`, `/run/reboot-required` → `report_reboot` with the package list as the reason. All events flow into `$PLAYBASH_REPORT` when running under `playbash`.
 
@@ -107,7 +109,7 @@ Options:
 - `-y, --yes` — assume yes to all prompts
 - `-v, --version`, `-h, --help`
 
-Cleans: `apt autoremove/autoclean` (Debian), `flatpak uninstall --unused`, `brew autoremove/cleanup`, `docker system prune`, node version management.
+Cleans: `apt autoremove/autoclean` (Debian), `dnf autoremove` + `dnf clean all` (Red Hat-like), `flatpak uninstall --unused`, `brew autoremove/cleanup`, `docker system prune`, node version management.
 
 ### jot
 

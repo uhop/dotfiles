@@ -1,6 +1,6 @@
 # Architecture
 
-Personal dotfiles managed by [chezmoi](https://www.chezmoi.io/). Bash-based CLI utilities depend on [options.bash](https://github.com/uhop/options.bash) for option parsing and terminal output. Targets Ubuntu (Debian) and macOS.
+Personal dotfiles managed by [chezmoi](https://www.chezmoi.io/). Bash-based CLI utilities depend on [options.bash](https://github.com/uhop/options.bash) for option parsing and terminal output. Targets Ubuntu (Debian), Red Hat-like distros (Fedora, RHEL, CentOS, Rocky, Alma), and macOS.
 
 ## Project layout
 
@@ -83,12 +83,12 @@ options.bash (external)
 bootstrap.sh                  ← auto-updates options.bash, sources ansi.sh + args.sh + args-help.sh + args-version.sh
     ↑
 executable_arx                ← archive viewer/extractor
-executable_cln.tmpl           ← system cleanup (apt, brew, flatpak, docker, node) → maintenance.sh
+executable_cln.tmpl           ← system cleanup (apt/dnf, brew, flatpak, docker, node) → maintenance.sh
 executable_goup               ← run command in current + parent dirs
 executable_jot                ← encrypted S3 notes (age, brotli, gzip, etc.)
 executable_mount-raid.tmpl    ← NFS mount
 executable_ollama-sync        ← ollama model updater
-executable_upd.tmpl           ← system updater (apt, snap, flatpak, brew, bun, tmux) → maintenance.sh
+executable_upd.tmpl           ← system updater (apt/dnf, snap, flatpak, brew, bun, tmux) → maintenance.sh
 ```
 
 ```
@@ -123,7 +123,8 @@ dot_bash_aliases              ← aliases, functions (loaded by .bashrc)
 ```
 run_onchange_before_install-packages.sh.tmpl
     ↓
-├── apt install ...           ← system packages (Debian only)
+├── apt install ...           ← system packages (Debian)
+├── dnf install ...           ← system packages (Red Hat-like)
 ├── brew bundle ...           ← Homebrew packages
 ├── options.bash clone        ← sparse worktree into ~/.local/share/libs/scripts
 ├── nvm install stable        ← Node.js
@@ -150,8 +151,10 @@ Defined in `.chezmoi.toml.tmpl`:
 
 | Variable | Type | Example | Purpose |
 |---|---|---|---|
-| `osId` | string | `linux-ubuntu`, `darwin` | Exact OS identifier |
-| `osIdLike` | string | `linux-debian`, `darwin` | OS family for conditionals |
+| `osId` | string | `linux-ubuntu`, `linux-fedora`, `darwin` | Exact OS identifier |
+| `osIdLike` | string | `linux-debian`, `linux-rhel`, `darwin` | OS family for conditionals |
+| `osFamily` | string | `linux`, `darwin` | Broad OS family |
+| `pkgManager` | string | `apt`, `dnf`, `brew-only` | System package manager (derived from `osIdLike`) |
 | `wsl` | bool | `false` | Running under WSL |
 | `codespaces` | bool | `false` | Running in GitHub Codespaces |
 | `hasGui` | bool | `true` | Machine has a GUI |
@@ -184,11 +187,13 @@ Defined in `.chezmoi.toml.tmpl`:
 Templates use Go conditionals:
 
 ```
-{{ if eq .osIdLike "linux-debian" }}
+{{ if eq .pkgManager "apt" }}
   # Debian/Ubuntu-specific code
-{{ else if eq .osIdLike "darwin" }}
+{{ else if eq .pkgManager "dnf" }}
+  # Red Hat-like (Fedora, RHEL, CentOS, etc.) code
+{{ else if eq .osFamily "darwin" }}
   # macOS-specific code
 {{ end }}
 ```
 
-GUI-dependent code uses `{{ if .hasGui }}`.
+GUI-dependent code uses `{{ if .hasGui }}`. Use `osIdLike` for finer-grained OS checks when needed.

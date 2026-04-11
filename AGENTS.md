@@ -1,6 +1,6 @@
 # AGENTS.md — dotfiles
 
-> Personal dotfiles managed by [chezmoi](https://www.chezmoi.io/). Bash-based CLI utilities use the [options.bash](https://github.com/uhop/options.bash) library for option parsing and rich terminal output. Targets Ubuntu (Debian) and macOS.
+> Personal dotfiles managed by [chezmoi](https://www.chezmoi.io/). Bash-based CLI utilities use the [options.bash](https://github.com/uhop/options.bash) library for option parsing and rich terminal output. Targets Ubuntu (Debian), Red Hat-like distros (Fedora, RHEL, CentOS, Rocky, Alma), and macOS.
 
 For project structure and module layout see [ARCHITECTURE.md](./ARCHITECTURE.md).
 For a compact reference of all utilities see [llms.txt](./llms.txt).
@@ -14,7 +14,7 @@ brew install chezmoi
 chezmoi init --apply uhop
 ```
 
-On first run, `run_onchange_before_install-packages.sh.tmpl` installs system packages via `apt`/`brew`, clones `options.bash` as a sparse worktree into `~/.local/share/libs/scripts`, installs `nvm`, `bun`, `tmux` plugins, and configures `doas`.
+On first run, `run_onchange_before_install-packages.sh.tmpl` installs system packages via `apt`/`dnf`/`brew`, clones `options.bash` as a sparse worktree into `~/.local/share/libs/scripts`, installs `nvm`, `bun`, `tmux` plugins, and configures `doas`.
 
 ## Project structure
 
@@ -42,7 +42,7 @@ dotfiles/                              # chezmoi source directory
 ├── private_dot_local/
 │   ├── bin/                           # → ~/.local/bin/ (CLI utilities)
 │   │   ├── executable_arx             # Archive viewer/extractor
-│   │   ├── executable_cln.tmpl        # Cleanup script (apt, brew, flatpak, docker, node)
+│   │   ├── executable_cln.tmpl        # Cleanup script (apt/dnf, brew, flatpak, docker, node)
 │   │   ├── executable_dcm             # Single docker compose runner with retry-on-apparmor
 │   │   ├── executable_dcms            # All docker-compose stacks under ~/servers/
 │   │   ├── executable_goup            # Run command in current + parent directories
@@ -51,7 +51,7 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── executable_jot             # Encrypted S3 notes editor
 │   │   ├── executable_mount-raid.tmpl # NFS mount helper
 │   │   ├── executable_ollama-sync     # Update all ollama models
-│   │   ├── executable_upd.tmpl        # System updater (apt, snap, flatpak, brew, bun)
+│   │   ├── executable_upd.tmpl        # System updater (apt/dnf, snap, flatpak, brew, bun)
 │   │   ├── executable_update-dependencies   # Update project dependencies
 │   │   ├── executable_git-*           # Git helper scripts
 │   │   ├── executable_playbash        # Multi-host playbook runner (Node)
@@ -85,8 +85,10 @@ Chezmoi uses special prefixes in source file names:
 - **`run_once_after_`** → script runs once after apply
 
 Template data is defined in `.chezmoi.toml.tmpl`:
-- `osId` — e.g., `linux-ubuntu`, `darwin`
-- `osIdLike` — e.g., `linux-debian`, `darwin`
+- `osId` — e.g., `linux-ubuntu`, `linux-fedora`, `darwin`
+- `osIdLike` — e.g., `linux-debian`, `linux-rhel`, `linux-fedora`, `darwin`
+- `osFamily` — `linux` or `darwin`
+- `pkgManager` — `apt`, `dnf`, or `brew-only` (derived from `osIdLike`)
 - `wsl` — true if running under WSL
 - `codespaces` — true if running in GitHub Codespaces
 - `hasGui` — whether the machine has a GUI
@@ -99,7 +101,7 @@ Template data is defined in `.chezmoi.toml.tmpl`:
 - **Do not modify or delete test scripts** without understanding what they verify.
 - All CLI utilities that use `options.bash` source it via `. ~/.local/libs/bootstrap.sh`.
 - **`args_cleaned` is an array.** Use `set -- "${args_cleaned[@]}"` (not `eval set -- "${args_cleaned}"`).
-- Templates (`.tmpl` files) use Go template syntax with chezmoi data. Guard platform-specific blocks with `{{ if eq .osIdLike "linux-debian" }}` or `{{ if eq .osIdLike "darwin" }}`.
+- Templates (`.tmpl` files) use Go template syntax with chezmoi data. Guard package-manager blocks with `{{ if eq .pkgManager "apt" }}` / `{{ if eq .pkgManager "dnf" }}`; use `{{ if eq .osFamily "linux" }}` / `{{ if eq .osFamily "darwin" }}` for OS-level conditionals.
 - Files listed in `.chezmoiignore` are not deployed to target machines.
 - `doas` is aliased to `sudo` when available (in `dot_bash_aliases` and `bootstrap.sh`).
 
