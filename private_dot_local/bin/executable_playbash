@@ -1373,7 +1373,8 @@ const {values, positionals} = parseArgs({
     self: {type: 'boolean', default: false},
     'no-precheck': {type: 'boolean', short: 'N', default: false},
     parallel: {type: 'string', short: 'p', default: '0'},
-    'bash-completion': {type: 'boolean', default: false}
+    'bash-completion': {type: 'boolean', default: false},
+    help: {type: 'boolean', short: 'h', default: false}
   },
   allowPositionals: true
 });
@@ -1393,6 +1394,11 @@ const linesFlag =
 
 if (values['bash-completion']) {
   cmdBashCompletion();
+  process.exit(0);
+}
+
+if (values.help) {
+  process.stdout.write(USAGE + '\n');
   process.exit(0);
 }
 
