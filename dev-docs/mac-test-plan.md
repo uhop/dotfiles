@@ -152,7 +152,7 @@ sudo cp /opt/homebrew/etc/doas.conf.example /etc/doas.conf
 ```
 
 The `run_onchange_after_install-doas.sh.tmpl` script will then manage `/etc/doas.conf`
-on subsequent `chezmoi apply` runs. The sudoers script will skip itself if doas is active.
+on subsequent `chezmoi apply` runs. Both sudoers and doas rules coexist safely.
 
 ## 12. Bash shell version
 
