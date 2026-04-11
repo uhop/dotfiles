@@ -13,8 +13,6 @@
 #
 # Skip conditions:
 #   - User has no sudo access
-#   - doas is installed and active (the sudo→doas alias means sudoers rules
-#     are bypassed anyway; cleaner to leave the file alone)
 #
 # Validation: writes to a tmp file, runs `visudo -cf` to validate syntax.
 # Refuses to install if validation fails.
@@ -27,12 +25,6 @@
 
 # Skip if user has no sudo access — nothing to grant.
 [ "$hasSudo" -eq 0 ] || exit 0
-
-# Skip if doas is active — doas handles passwordless rules separately,
-# and the sudo→doas alias means our sudoers rules would be unused.
-if command -v doas &>/dev/null && [ -f /etc/doas.conf ]; then
-  exit 0
-fi
 
 SUDOERS_PATH=/etc/sudoers.d/chezmoi
 
@@ -90,8 +82,11 @@ if [ -z "$(printf '%s\n' "$managed_rules" | grep -v '^[[:space:]]*#' | grep -v '
   exit 0
 fi
 
+echo "${WARN}Writing ${SUDOERS_PATH} requires sudo: expect asking for the sudo password (cached if already entered).${RESET}"
+
 # Compare with current file (if any) to avoid pointless writes.
 if [ -f "$SUDOERS_PATH" ]; then
+  echo "${PROMPT}Reading ${SUDOERS_PATH} to check if update is needed...${RESET}"
   current=$(sudo cat "$SUDOERS_PATH" 2>/dev/null || echo "")
   if [ "$current" = "$managed_rules" ]; then
     exit 0  # already in sync
@@ -112,7 +107,6 @@ if ! sudo visudo -cf "$tmp" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "${WARN}Writing ${SUDOERS_PATH} requires sudo: expect asking for the sudo password (cached if already entered).${RESET}"
 echo "${PROMPT}Installing ${SUDOERS_PATH}...${RESET}"
 {{ if eq .osFamily "darwin" -}}
 sudo install -m 0440 -o root -g wheel "$tmp" "$SUDOERS_PATH"
