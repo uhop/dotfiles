@@ -78,6 +78,13 @@ _playbash_pretty() {
 }
 
 # Internal: emit one event. Args: level, msg, then optional --target X --data JSON --kind K.
+#
+# Contract: --target and --kind are plain strings (escaped as JSON strings on
+# emission). --data is a pre-formed JSON value — a number, a JSON object, a
+# JSON array, etc. — and is inserted verbatim into the sidecar line. Callers
+# passing --data are responsible for producing valid JSON; the helper does
+# NOT escape it. No built-in playbash_* function exposes --data today, so
+# this is a latent extension point for custom emitters.
 _playbash_emit() {
   local level=$1 msg=$2
   shift 2

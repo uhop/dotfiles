@@ -1,5 +1,7 @@
 # Playbash refactor plan — P0-1 + P0-2
 
+> **Status: closed 2026-04-11.** All five phases shipped, every follow-up (P0-3, P1-1 through P1-6, `die()` consolidation, 3.0.5 audit polish) completed. Moved to `dev-docs/done/` as a historical record. Any further work is tracked in [`../playbash-polish-plan.md`](../playbash-polish-plan.md) — a post-refactor audit turned up three shell-quoting bugs and two small polish items. Do not add new follow-ups here.
+
 A focused plan to split `private_dot_local/bin/executable_playbash` (currently 1798 lines) into the entry point + three modules, then dedupe the ~150 lines of overlap between `runRemote` and `runFanout`. Based on the code review captured in conversation 2026-04-11.
 
 ## Background
