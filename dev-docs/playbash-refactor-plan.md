@@ -184,12 +184,13 @@ After `die()` consolidation into `errors.js` (follow-up, –13 lines): **3416 li
 After `--version` flag (commit c7e1756, ≈+10 lines in executable_playbash): **~3426 lines**.
 After P1-4 subprocess hoist (runner.js −19, doctor.js −30, subprocess.js +44): **3422 lines**.
 After P1-6 renderFanoutSummary extraction (runner.js +18): **3440 lines**.
+After P0-3 customPathKind short-circuit (executable_playbash +2, runner.js +4): **3446 lines**.
 
 Per-file breakdown (current):
 
 ```
-   423  bin/executable_playbash       (was 1798, –1375, –76%)
-  1068  share/playbash/runner.js      (new; 948 post-Phase-5, +130 kill-bug, –9 errors.js, –19 subprocess.js, +18 renderFanoutSummary)
+   425  bin/executable_playbash       (was 1798, –1373, –76%)
+  1072  share/playbash/runner.js      (new; 948 post-Phase-5, +130 kill-bug, –9 errors.js, –19 subprocess.js, +18 renderFanoutSummary, +4 customPathKind)
    202  share/playbash/commands.js    (new)
    224  share/playbash/transfer.js    (new)
     30  share/playbash/paths.js       (new)
@@ -201,7 +202,7 @@ Per-file breakdown (current):
    263  share/playbash/staging.js     (unchanged)
    395  share/playbash/doctor.js      (–30 after subprocess.js)
     81  share/playbash/ssh-config.js  (unchanged)
-  3440  total
+  3446  total
 ```
 
 The success criterion was "executable_playbash ≈ 250 lines, runner.js 650–800 post-dedup." Actual at end of Phase 5: 416 / 948. Current: 412 / 1069 — runner.js is larger than the post-Phase-5 snapshot because of the orphan-remote-wrapper cleanup infrastructure added later (`REMOTE_KILLABLE` registry, `killRemoteWrapper`, `trackRemoteWrapper`, `recordRemoteWrapperPid`, plus the extended signal handler in `cleanupAndExit`). That's a correctness fix, not refactor regression. The runner is bigger than estimated because `runFanout` is still a sizeable function on its own — the dedup inside `launchOne` was real but the surrounding fan-out loop, per-host summary printing, and aggregation footer are still all there. The entry point is bigger than estimated because the dispatcher (`dispatch`, `resolveAndValidate`, the `switch` statement, USAGE) is more verbose than I had in my head. Both are well within "single screen of one responsibility" so the goal is met in spirit.
@@ -218,7 +219,7 @@ The success criterion was "executable_playbash ≈ 250 lines, runner.js 650–80
 
 These were explicitly out of scope; ship as separate small changes when convenient:
 
-- **P0-3** — redundant validation in `runRemote`/`runFanout` for non-templated paths. After the dedup, `validateCustomPlaybookPath` runs both in dispatch (early die) and inside `prepareRemoteJob` (per-host). Could short-circuit when `customPath` is non-templated.
+- ~~**P0-3** — redundant validation in `runRemote`/`runFanout` for non-templated paths. After the dedup, `validateCustomPlaybookPath` runs both in dispatch (early die) and inside `prepareRemoteJob` (per-host). Could short-circuit when `customPath` is non-templated.~~ **Done** — dispatcher captures `kind` once (the `run`/`debug` case already did; the `push` case now captures instead of discarding) and forwards it via the job as `customPathKind`. `runRemote`, `runFanout`, and `prepareRemoteJob` destructure it; `prepareRemoteJob` uses `kind = customPathKind ?? validateCustomPlaybookPath(resolvedPath)` so non-templated paths trust the dispatcher's classification and templated paths (where `customPathKind` is null) still validate per host with the expanded path. Net +6 lines in source (not a LOC win — the forward-plumbing costs slightly more than the eliminated redundant call), but eliminates N-1 fs validations per fan-out on N hosts, and the validation is now authoritative in one place per invocation. Bumped `VERSION` to `3.0.3`.
 - **P1-1** — `dispatch()` uses `resolved.length === 1` instead of `targets.length === 1` to pick single-host vs fan-out. Two-host call where one is self drops to fan-out with one effective host.
 - **P1-2** — `cmdHosts` early-returns on missing inventory and never shows the ssh-only section.
 - **P1-3** — `sshRun` subprocesses (in `staging.js`) are not registered with `ACTIVE_CHILDREN` for SIGINT cleanup. Now that `registerChild` is exported from `runner.js`, `staging.js` could import and use it.

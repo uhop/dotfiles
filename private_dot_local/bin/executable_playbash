@@ -40,7 +40,7 @@ import {runDoctor} from '../share/playbash/doctor.js';
 
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
-const VERSION = '3.0.2';
+const VERSION = '3.0.3';
 
 const USAGE = `usage:
   playbash run    <targets> <playbook> [-n LINES] [-p N] [--self]
@@ -328,19 +328,20 @@ switch (command) {
       die(`${command} takes <targets> <playbook>\n${USAGE}`);
     const [targetArg, playbookArg] = rest;
     const isCustomPath = playbookArg.includes('/');
+    // Captured here once and passed via the job as `customPathKind`;
+    // `prepareRemoteJob` trusts it when set and skips its own validation,
+    // so non-templated paths don't re-stat per host. Stays null for
+    // templated paths — those defer validation to per-host expansion.
+    let customPathKind = null;
     if (isCustomPath) {
-      // Templated paths (containing {host}) defer validation to per-host
-      // expansion in runRemote/runFanout. Non-templated paths are validated
-      // up front so the user gets an error before any ssh work starts.
       if (!playbookArg.includes('{host}')) {
-        let kind;
         try {
-          kind = validateCustomPlaybookPath(playbookArg);
+          customPathKind = validateCustomPlaybookPath(playbookArg);
         } catch (err) {
           die(err.message);
         }
         process.stderr.write(
-          kind === 'dir'
+          customPathKind === 'dir'
             ? `${COLOR.dim}· ${playbookArg} is a directory playbook — using push mode${COLOR.reset}\n`
             : `${COLOR.dim}· ${playbookArg} is a file path — using push mode${COLOR.reset}\n`
         );
@@ -360,7 +361,7 @@ switch (command) {
     const rectHeight = command === 'debug' ? 0 : (linesFlag ?? 5);
     const verbose = command === 'debug';
     await dispatch({
-      job: {playbook, customPath},
+      job: {playbook, customPath, customPathKind},
       targetArg,
       rectHeight,
       verbose,
@@ -371,9 +372,10 @@ switch (command) {
   case 'push': {
     if (rest.length !== 2) die(`push takes <targets> <script-path>\n${USAGE}`);
     const [targetArg, scriptPath] = rest;
+    let customPathKind = null;
     if (!scriptPath.includes('{host}')) {
       try {
-        validateCustomPlaybookPath(scriptPath);
+        customPathKind = validateCustomPlaybookPath(scriptPath);
       } catch (err) {
         die(err.message);
       }
@@ -381,7 +383,7 @@ switch (command) {
     const playbook = basename(scriptPath.replace(/\/+$/, ''));
     const rectHeight = linesFlag ?? 5;
     await dispatch({
-      job: {playbook, customPath: scriptPath},
+      job: {playbook, customPath: scriptPath, customPathKind},
       targetArg,
       rectHeight,
       verbose: false,

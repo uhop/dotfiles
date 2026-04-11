@@ -691,7 +691,7 @@ function makeReportPath(baseDir) {
 //   playbook=null  → exec mode: stage the wrapper alone via ensureWrapper
 //   playbook=set   → playbook mode: stage wrapper + helper + playbook (or
 //                    directory tree) via stagePlaybook*
-async function prepareRemoteJob({playbook, customPath, hostName, address, managed}) {
+async function prepareRemoteJob({playbook, customPath, customPathKind, hostName, address, managed}) {
   if (managed) {
     return {
       wrapperPath: WRAPPER_MANAGED,
@@ -708,7 +708,9 @@ async function prepareRemoteJob({playbook, customPath, hostName, address, manage
   }
   const resolvedPath = customPath ? expandTemplate(customPath, {host: hostName}) : null;
   let kind = 'file';
-  if (resolvedPath) kind = validateCustomPlaybookPath(resolvedPath); // throws
+  // Trust the dispatcher's pre-computed kind for non-templated paths; only
+  // templated paths (customPathKind === null) need per-host validation here.
+  if (resolvedPath) kind = customPathKind ?? validateCustomPlaybookPath(resolvedPath); // throws
   const remoteName = kind === 'dir'
     ? await stagePlaybookDir(address, hostName, resolvedPath)
     : await stagePlaybookFiles(address, hostName, playbook, resolvedPath);
@@ -784,6 +786,7 @@ export async function runRemote({
   playbook,
   command,
   customPath,
+  customPathKind,
   hostName,
   address,
   rectHeight,
@@ -792,7 +795,7 @@ export async function runRemote({
 }) {
   let job;
   try {
-    job = await prepareRemoteJob({playbook, customPath, hostName, address, managed});
+    job = await prepareRemoteJob({playbook, customPath, customPathKind, hostName, address, managed});
   } catch (err) {
     die(err.message);
   }
@@ -922,6 +925,7 @@ export async function runFanout({
   playbook,
   command,
   customPath,
+  customPathKind,
   targets,
   rectHeight,
   verbose,
@@ -995,7 +999,7 @@ export async function runFanout({
       let job;
       try {
         job = await prepareRemoteJob({
-          playbook, customPath, hostName: slot.name, address: slot.address, managed
+          playbook, customPath, customPathKind, hostName: slot.name, address: slot.address, managed
         });
       } catch (err) {
         board.hostFinished(slot.name, {
