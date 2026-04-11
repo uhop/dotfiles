@@ -185,13 +185,14 @@ After `--version` flag (commit c7e1756, ≈+10 lines in executable_playbash): **
 After P1-4 subprocess hoist (runner.js −19, doctor.js −30, subprocess.js +44): **3422 lines**.
 After P1-6 renderFanoutSummary extraction (runner.js +18): **3440 lines**.
 After P0-3 customPathKind short-circuit (executable_playbash +2, runner.js +4): **3446 lines**.
+After P1-1/P1-2/P1-3 bug fixes (executable_playbash +1, commands.js +6, staging.js +8): **3461 lines**.
 
 Per-file breakdown (current):
 
 ```
-   425  bin/executable_playbash       (was 1798, –1373, –76%)
+   426  bin/executable_playbash       (was 1798, –1372, –76%)
   1072  share/playbash/runner.js      (new; 948 post-Phase-5, +130 kill-bug, –9 errors.js, –19 subprocess.js, +18 renderFanoutSummary, +4 customPathKind)
-   202  share/playbash/commands.js    (new)
+   208  share/playbash/commands.js    (new; +6 P1-2)
    224  share/playbash/transfer.js    (new)
     30  share/playbash/paths.js       (new)
     11  share/playbash/errors.js      (new; shared die() helper)
@@ -199,10 +200,10 @@ Per-file breakdown (current):
    424  share/playbash/render.js      (unchanged)
    166  share/playbash/inventory.js   (–3 after errors.js)
    109  share/playbash/sidecar.js     (unchanged)
-   263  share/playbash/staging.js     (unchanged)
+   271  share/playbash/staging.js     (+8 P1-3: registerChild)
    395  share/playbash/doctor.js      (–30 after subprocess.js)
     81  share/playbash/ssh-config.js  (unchanged)
-  3446  total
+  3461  total
 ```
 
 The success criterion was "executable_playbash ≈ 250 lines, runner.js 650–800 post-dedup." Actual at end of Phase 5: 416 / 948. Current: 412 / 1069 — runner.js is larger than the post-Phase-5 snapshot because of the orphan-remote-wrapper cleanup infrastructure added later (`REMOTE_KILLABLE` registry, `killRemoteWrapper`, `trackRemoteWrapper`, `recordRemoteWrapperPid`, plus the extended signal handler in `cleanupAndExit`). That's a correctness fix, not refactor regression. The runner is bigger than estimated because `runFanout` is still a sizeable function on its own — the dedup inside `launchOne` was real but the surrounding fan-out loop, per-host summary printing, and aggregation footer are still all there. The entry point is bigger than estimated because the dispatcher (`dispatch`, `resolveAndValidate`, the `switch` statement, USAGE) is more verbose than I had in my head. Both are well within "single screen of one responsibility" so the goal is met in spirit.
@@ -220,9 +221,9 @@ The success criterion was "executable_playbash ≈ 250 lines, runner.js 650–80
 These were explicitly out of scope; ship as separate small changes when convenient:
 
 - ~~**P0-3** — redundant validation in `runRemote`/`runFanout` for non-templated paths. After the dedup, `validateCustomPlaybookPath` runs both in dispatch (early die) and inside `prepareRemoteJob` (per-host). Could short-circuit when `customPath` is non-templated.~~ **Done** — dispatcher captures `kind` once (the `run`/`debug` case already did; the `push` case now captures instead of discarding) and forwards it via the job as `customPathKind`. `runRemote`, `runFanout`, and `prepareRemoteJob` destructure it; `prepareRemoteJob` uses `kind = customPathKind ?? validateCustomPlaybookPath(resolvedPath)` so non-templated paths trust the dispatcher's classification and templated paths (where `customPathKind` is null) still validate per host with the expanded path. Net +6 lines in source (not a LOC win — the forward-plumbing costs slightly more than the eliminated redundant call), but eliminates N-1 fs validations per fan-out on N hosts, and the validation is now authoritative in one place per invocation. Bumped `VERSION` to `3.0.3`.
-- **P1-1** — `dispatch()` uses `resolved.length === 1` instead of `targets.length === 1` to pick single-host vs fan-out. Two-host call where one is self drops to fan-out with one effective host.
-- **P1-2** — `cmdHosts` early-returns on missing inventory and never shows the ssh-only section.
-- **P1-3** — `sshRun` subprocesses (in `staging.js`) are not registered with `ACTIVE_CHILDREN` for SIGINT cleanup. Now that `registerChild` is exported from `runner.js`, `staging.js` could import and use it.
+- ~~**P1-1** — `dispatch()` uses `resolved.length === 1` instead of `targets.length === 1` to pick single-host vs fan-out. Two-host call where one is self drops to fan-out with one effective host.~~ **Fixed** — now uses `targets.length === 1`; `resolved` dropped from the destructuring. The self-filtered single-host case now uses the single-host pipeline (live rectangle) instead of the status board. The `isSelf && !values.self` sub-branch was dead code (filterSelf plus `resolveAndValidate`'s "all targets resolved to self" error already handled that case upstream) and was removed. Verified with `playbash exec think,nuke 'echo hi'`: before the fix the output showed the `running exec on 1 hosts` header and `done in Xs · 1 ok` footer (status-board signature); after the fix only the live stream and a single status line appear.
+- ~~**P1-2** — `cmdHosts` early-returns on missing inventory and never shows the ssh-only section.~~ **Fixed** — `cmdHosts` no longer short-circuits. "no inventory" / "inventory is empty" notices still go to stderr, but the ssh-config Host alias section is now always attempted afterwards. Separator-newline logic was corrected so the ssh-only section doesn't emit a leading blank line when there's nothing above it. Verified by temporarily renaming `~/.config/playbash/inventory.json`: `playbash hosts` now prints `no inventory at ...` to stderr AND the `ssh aliases (not in inventory):` section to stdout listing all 6 ssh-config Hosts.
+- ~~**P1-3** — `sshRun` subprocesses (in `staging.js`) are not registered with `ACTIVE_CHILDREN` for SIGINT cleanup. Now that `registerChild` is exported from `runner.js`, `staging.js` could import and use it.~~ **Fixed** — `staging.js` now imports `registerChild` from `runner.js` and calls it on every `sshRun` spawn. Creates a cyclic import (runner.js → staging.js → runner.js), which is safe in ESM because `registerChild` is only accessed at call time, never at module-load time; verified by `import('./staging.js')` resolving cleanly with all expected exports. The non-detached ssh children fall through `killAllChildren`'s process-group-kill fallback to `child.kill()`, which is the correct behavior for short-lived ssh clients. Verified by a `playbash push nuke /tmp/test.sh` round trip — sshRun is called multiple times (SHA probe + upload + cleanup) and each call registers its child.
 - ~~**P1-4** — hoist `doctor.js`'s `run()` helper to a shared `subprocess.js`.~~ **Done** — `share/playbash/subprocess.js` exports the single `run(cmd, args, {timeoutMs})` primitive; `doctor.js` imports it (was a 28-line private helper), and `runner.js`'s `probeConnectivity` drops its hand-rolled `spawn` + `new Promise` + error-handling in favor of the same helper. Net delta: runner.js −19, doctor.js −30, subprocess.js +44 = ~−5 lines — small raw-LOC win, but the real payoff is one place for "run a short-lived subprocess and capture its output". Bumped `VERSION` to `3.0.1`.
 - ~~**P1-6** — split `runFanout` further (the fan-out loop, per-host summary printing, and aggregation footer could become `runConcurrent`, `renderFanoutSummary`).~~ **Partially done** — `renderFanoutSummary` extracted. `runFanout` shrank from 211 → 147 lines (−30%); `renderFanoutSummary` is a 75-line self-contained helper that takes `(slots, {logLabel, verbose, showCapturedOutput})` and returns `{failCount}`. The `runConcurrent` extraction was **intentionally dropped** — grep confirmed zero other callers in the codebase, making it a premature one-caller hoist with no consolidation payoff. Net runner.js delta: +18 lines (cognitive win, not LOC win — the split boundary has its own header comment cost). Bumped `VERSION` to `3.0.2`.
 - ~~**`die()` consolidation** — move to a shared `errors.js` so the four copies become one.~~ **Done** — `share/playbash/errors.js` exports the sole copy; `executable_playbash`, `runner.js`, `transfer.js`, `commands.js`, and `inventory.js` all import it. Net –13 lines.

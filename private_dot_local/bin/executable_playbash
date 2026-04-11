@@ -40,7 +40,7 @@ import {runDoctor} from '../share/playbash/doctor.js';
 
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
-const VERSION = '3.0.3';
+const VERSION = '3.0.4';
 
 const USAGE = `usage:
   playbash run    <targets> <playbook> [-n LINES] [-p N] [--self]
@@ -234,23 +234,24 @@ async function resolveAndValidate(targetArg) {
 async function dispatch({job, targetArg, rectHeight, verbose, push}) {
   const {
     inventory: inv,
-    resolved,
     targets,
     offlineNames,
     parallelLimit
   } = await resolveAndValidate(targetArg);
 
-  if (resolved.length === 1) {
-    const only = resolved[0];
+  // Pick single-host vs fan-out based on the *post-self-filter* target
+  // count. A two-host call where one target is self and --self was not
+  // passed has resolved.length === 2 but targets.length === 1; it should
+  // use the single-host pipeline (live rectangle) on the one real host,
+  // not the status board.
+  if (targets.length === 1) {
+    const only = targets[0];
+    // With targets.length === 1, either the target is non-self (filterSelf
+    // left it alone) or --self was passed and the target happens to be self.
+    // The `isSelf && !values.self` case is unreachable: filterSelf would
+    // have moved it to `skipped`, and resolveAndValidate would have died
+    // with "all targets resolved to self" before dispatch runs.
     const isSelf = await isSelfAddress(only.address);
-    if (isSelf && !values.self) {
-      const hint = job.playbook
-        ? `pass --self to run locally, or invoke the bare script directly: playbash-${job.playbook}`
-        : `pass --self to run locally`;
-      die(
-        `"${only.name}" (${only.address}) resolves to a local interface; refusing to run on self.\n${hint}`
-      );
-    }
     if (isSelf) {
       await runLocally({...job, hostName: only.name, rectHeight, verbose});
     } else {

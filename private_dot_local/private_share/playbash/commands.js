@@ -105,16 +105,19 @@ export function cmdList() {
 
 export async function cmdHosts() {
   const inv = loadInventory();
+  const hostNames = inv.present ? [...inv.hosts.keys()].sort() : [];
+  const groupNames = inv.present ? [...inv.groups.keys()].sort() : [];
+
+  // Inventory-level notices go to stderr so they don't pollute the host
+  // list on stdout, but we continue to the ssh-only section regardless —
+  // a user without an inventory may still have working ssh aliases and
+  // deserves to see them here.
   if (!inv.present) {
     process.stderr.write(`no inventory at ${inv.path}\n`);
-    return;
-  }
-  const hostNames = [...inv.hosts.keys()].sort();
-  const groupNames = [...inv.groups.keys()].sort();
-  if (hostNames.length === 0 && groupNames.length === 0) {
+  } else if (hostNames.length === 0 && groupNames.length === 0) {
     process.stderr.write(`inventory at ${inv.path} is empty\n`);
-    return;
   }
+
   if (hostNames.length > 0) {
     // Resolve each host to find which entries are self.
     const selfFlags = await Promise.all(
@@ -146,13 +149,16 @@ export async function cmdHosts() {
   // These work as bare aliases at runtime (the dispatcher passes
   // unknown names verbatim to ssh) but are not part of `all` and don't
   // belong to any group. Surfacing them here makes them discoverable
-  // alongside the canonical fleet.
+  // alongside the canonical fleet. Shown regardless of inventory state —
+  // a missing or empty inventory doesn't imply a missing ssh config.
   const inventoryNames = new Set(hostNames);
   const sshOnly = [...parseHostNames()]
     .filter(n => !inventoryNames.has(n))
     .sort();
   if (sshOnly.length > 0) {
-    process.stdout.write(`\n${COLOR.dim}ssh aliases (not in inventory):${COLOR.reset}\n`);
+    const printedAbove = hostNames.length > 0 || groupNames.length > 0;
+    const prefix = printedAbove ? '\n' : '';
+    process.stdout.write(`${prefix}${COLOR.dim}ssh aliases (not in inventory):${COLOR.reset}\n`);
     for (const name of sshOnly) process.stdout.write(`  ${name}\n`);
   }
 }

@@ -27,6 +27,8 @@ import {homedir} from 'node:os';
 import {basename as pathBasename, join} from 'node:path';
 import {spawn} from 'node:child_process';
 
+import {registerChild} from './runner.js';
+
 const WRAPPER_LOCAL   = join(homedir(), '.local', 'libs', 'playbash-wrap.py');
 const HELPER_LOCAL    = join(homedir(), '.local', 'libs', 'playbash.sh');
 const PLAYBOOK_DIR   = join(homedir(), '.local', 'bin');
@@ -52,6 +54,12 @@ export function sshRun(address, remoteCmd, {input, raw} = {}) {
     const proc = spawn('ssh', ['-o', 'BatchMode=yes', address, '--', remoteCmd], {
       stdio: [input != null ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
+    // Register with the runner's child registry so a SIGINT during
+    // staging work kills in-flight ssh children instead of leaving them
+    // orphaned. The children are not detached, so killAllChildren's
+    // process-group kill falls through to the per-child `child.kill()`
+    // fallback — which is what we want for short-lived non-PTY ssh.
+    registerChild(proc);
     const chunks = [];
     let stderr = '';
     proc.stdout.on('data', c => chunks.push(c));
