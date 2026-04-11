@@ -14,7 +14,7 @@ brew install chezmoi
 chezmoi init --apply uhop
 ```
 
-On first run, `run_onchange_before_install-packages.sh.tmpl` installs system packages via `apt`/`dnf`/`brew`, clones `options.bash` as a sparse worktree into `~/.local/share/libs/scripts`, installs `nvm`, `bun`, `tmux` plugins, and configures `doas`.
+On first run, `run_onchange_before_install-packages.sh.tmpl` installs system packages via `apt`/`dnf`/`brew`. Subsequent run scripts clone `options.bash` as a sparse worktree into `~/.local/share/libs/scripts`, install `nvm`, `bun`, `tmux` plugins, and write `/etc/sudoers.d/chezmoi` with NOPASSWD rules for maintenance commands. `doas` is opt-in: install `opendoas` manually and `run_onchange_after_install-doas.sh.tmpl` will manage `/etc/doas.conf` (the sudoers script then skips itself).
 
 ## Project structure
 

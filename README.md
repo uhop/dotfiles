@@ -101,7 +101,7 @@ The following tools are installed and aliased:
 - `uv` &mdash; fast Python package manager.
 - `gcp` &mdash; advanced file copy utility.
 - `tree` &mdash; show file directories as trees.
-- `doas` &mdash; a (better) alternative to `sudo`.
+- `doas` &mdash; a (better) alternative to `sudo` (opt-in: install `opendoas` manually if you want it; otherwise passwordless maintenance commands are granted via `/etc/sudoers.d/chezmoi`).
 - `etckeeper` &mdash; `git`-backed storage for `/etc` files (Linux only).
 - `mas` &mdash; Mac App Store CLI (not pre-installed).
 - `sshfs` &mdash; `sftp`-based user-level file system.

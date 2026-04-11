@@ -94,7 +94,7 @@ System updater. Template: `executable_upd.tmpl`.
 Options:
 - `-c, --clean` — run `cln` after updating
 - `-y, --yes` — assume yes to all prompts
-- `-r, --restart-services` — after a `docker-ce`/`containerd`/`docker-buildx-plugin`/`docker-compose-plugin` upgrade, run `sudo systemctl restart containerd && sudo systemctl restart docker` to recover without a full reboot (falls back to a reboot recommendation if either restart fails). Doas whitelist entries for these commands ship in `run_onchange_before_install-packages.sh.tmpl`.
+- `-r, --restart-services` — after a `docker-ce`/`containerd`/`docker-buildx-plugin`/`docker-compose-plugin` upgrade, run `sudo systemctl restart containerd && sudo systemctl restart docker` to recover without a full reboot (falls back to a reboot recommendation if either restart fails). NOPASSWD whitelist entries for these commands ship in `run_onchange_after_install-sudoers.sh.tmpl` (and `run_onchange_after_install-doas.sh.tmpl` if doas is installed).
 - `-v, --version`, `-h, --help`
 
 Updates: `apt` (Debian), `dnf` (Red Hat-like), `snap` (Debian), `flatpak`, `softwareupdate` (macOS), `mas` (macOS), `brew`, `tmux` plugins, `bun`.

@@ -130,8 +130,9 @@ run_onchange_before_install-packages.sh.tmpl
 ├── nvm install stable        ← Node.js
 ├── bun install               ← Bun runtime
 ├── tmux plugin manager       ← TPM + plugins
-├── doas config               ← /etc/doas.conf (if not present)
-└── etckeeper init            ← /etc git tracking
+├── sudoers.d/chezmoi         ← NOPASSWD rules per platform (apt/dnf/softwareupdate)
+├── doas config               ← /etc/doas.conf (only if doas is installed)
+└── etckeeper init            ← /etc git tracking (Linux only)
 ```
 
 ## Chezmoi file naming
