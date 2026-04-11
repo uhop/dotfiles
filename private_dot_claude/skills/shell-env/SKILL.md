@@ -35,8 +35,8 @@ These aliases replace built-in commands with enhanced versions:
 | `cat` | `bat` (or `batcat`) | Syntax highlighting, paging |
 | `cd` | `z` (zoxide) | Smart directory jumping (tracks frequency and recency) |
 | `grep` | `grep --color=auto` | Also `egrep`, `fgrep`, `diff` |
-| `top` | `sudo htop` | |
-| `du` | `ncdu` | Excludes `.git`, `node_modules` |
+| `top` | `htop` | |
+| `du` | `ncdu` (no args) / real `du` (with args) | Excludes `.git`, `node_modules` |
 | `ping` | `sudo prettyping` | |
 | `help` | `tldr` | |
 | `sudo` | `doas` (if available) | |
