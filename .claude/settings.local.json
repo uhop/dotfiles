@@ -27,7 +27,8 @@
       "Bash(chezmoi verify:*)",
       "Bash(chezmoi diff:*)",
       "Bash(echo \"exit: $?\")",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(node --check:*)"
     ]
   }
 }
