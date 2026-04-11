@@ -133,7 +133,7 @@ SCRIPT_DEBIAN
 
 step "Installing prerequisites"
 info "These packages are needed to build tools from source and run chezmoi."
-run sudo dnf install -y gcc gcc-c++ make curl git git-gui gitk micro unzip
+run sudo dnf install -y gcc gcc-c++ make curl git git-gui gitk unzip
 run sudo dnf install -y procps-ng util-linux
 
 step "Installing Homebrew"
