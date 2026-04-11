@@ -22,7 +22,7 @@ _playbash() {
   # No subcommand yet → complete on the subcommand list (or top-level options).
   if [[ -z "$subcommand" ]]; then
     if [[ "$cur" == -* ]]; then
-      COMPREPLY=( $(compgen -W "--bash-completion -h --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--bash-completion -v --version -h --help" -- "$cur") )
     else
       COMPREPLY=( $(compgen -W "$subcommands" -- "$cur") )
     fi

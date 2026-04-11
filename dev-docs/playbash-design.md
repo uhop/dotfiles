@@ -390,3 +390,19 @@ Two sections:
 The renderer aligns the env section with two padded columns (`name` and `message`) and the host section with three (`name`, `address`, item label), reusing `COLOR` from `render.js` for the `✓ / ⚠ / ✗` glyphs and dim hint arrows. Single-item hosts inline; multi-item hosts stack their items under the host row. The summary line `N ok · N warn · N fail` is computed across the union of env and host items. Exit code is 1 if any `fail` is present (warns are non-fatal), 0 otherwise.
 
 The whole module is one-shot: no shared state with the runner, no caching, no opt-in flags. ~310 lines, no third-party deps. Adding new checks is a matter of pushing one more `result(...)` into `checks` (env) or `out.items` (host).
+
+## Versioning
+
+`playbash --version` (short: `-v`) prints `playbash <semver>` and exits 0. The version lives as a single `VERSION` constant near the top of `bin/executable_playbash`, just above `USAGE`. One place to bump, one place to grep for.
+
+**Scheme:** loose semver — `MAJOR.MINOR.PATCH`.
+
+- **MAJOR** tracks the roadmap's `vN` milestones in [`playbash-roadmap.md`](./playbash-roadmap.md). `1.x.x` = v1 (proof of concept), `2.x.x` = v2 (production polish), `3.x.x` = v3 (portability to vanilla hosts). A major bump means a meaningfully different product (new transport model, new deployment story, etc.) and gets its own roadmap section.
+- **MINOR** bumps on any user-visible feature addition or behavior change: a new subcommand, a new flag, a new sidecar event kind, a change in exit-code semantics, a change in default output that scripts might be parsing. v3 follow-ups (milestones 18–24) are minor bumps within `3.x.x`.
+- **PATCH** bumps on bug fixes and pure internal refactors with zero user-visible behavior change.
+
+**Bump policy:** every commit that changes playbash's behavior, CLI surface, or output should update `VERSION` in the same commit. Refactors that don't touch behavior (file splits, `die()` consolidation, etc.) also get a patch bump so `--version` reflects the actually-running code and bisection has a usable anchor. The version is the single source of truth for "what's installed" — the wiki and release notes trail it, not the other way around.
+
+**Current:** `3.0.0` — snapshot at the end of the v3 roadmap close. Subsequent v3 follow-ups (cleanup-on-signal, ssh-config completion enrichment, doctor, directory playbooks, `die()` consolidation, `--version` itself) will start bumping from this baseline.
+
+**Not tracked in `--version`:** the staging cache format, the sidecar protocol version, the PTY wrapper's own version. Those are separate concerns with their own evolution — the sidecar is a newline-delimited JSON stream where consumers ignore unknown event fields; the wrapper announces its protocol via the `__playbash_wrap_pid` preamble (absence = older wrapper, runner falls back gracefully). Bundling all of that into the CLI version would conflate independent compat stories.

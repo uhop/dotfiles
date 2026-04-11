@@ -38,6 +38,10 @@ import {
 } from '../share/playbash/inventory.js';
 import {runDoctor} from '../share/playbash/doctor.js';
 
+// Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
+// for the versioning policy and bump rules.
+const VERSION = '3.0.0';
+
 const USAGE = `usage:
   playbash run    <targets> <playbook> [-n LINES] [-p N] [--self]
   playbash push   <targets> <script-path> [-n LINES] [-p N] [--self]
@@ -49,6 +53,7 @@ const USAGE = `usage:
   playbash hosts
   playbash log    [host] [command]
   playbash doctor
+  playbash -v, --version            # print version and exit
   playbash --bash-completion        # print bash completion script
 
 Options (must come before \`--\` when using exec):
@@ -135,6 +140,7 @@ const {values, positionals} = parseArgs({
     'no-precheck': {type: 'boolean', short: 'N', default: false},
     parallel: {type: 'string', short: 'p', default: '0'},
     'bash-completion': {type: 'boolean', default: false},
+    version: {type: 'boolean', short: 'v', default: false},
     help: {type: 'boolean', short: 'h', default: false}
   },
   allowPositionals: true
@@ -155,6 +161,11 @@ const linesFlag =
 
 if (values['bash-completion']) {
   cmdBashCompletion();
+  process.exit(0);
+}
+
+if (values.version) {
+  process.stdout.write(`playbash ${VERSION}\n`);
   process.exit(0);
 }
 
