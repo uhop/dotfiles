@@ -80,7 +80,7 @@ install_doas() {
   fi
   echo "${WARN}Writing ${DOAS_PATH} requires sudo: expect asking for the sudo password (cached if already entered).${RESET}"
   echo "${PROMPT}Installing new ${DOAS_PATH}...${RESET}"
-{{ if eq .osIdLike "darwin" -}}
+{{ if eq .osFamily "darwin" -}}
   sudo install -m 0400 -o root "$tmp" "$DOAS_PATH"
 {{- else -}}
   sudo install -m 0400 -o root -g root "$tmp" "$DOAS_PATH"

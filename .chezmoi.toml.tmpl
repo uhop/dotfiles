@@ -6,7 +6,16 @@
 {{- if hasKey .chezmoi.osRelease "idLike" -}}
 {{-   $osIdLike = printf "%s-%s" .chezmoi.os (splitList " " .chezmoi.osRelease.idLike | first) -}}
 {{- end -}}
-{{- $wsl := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{- $osFamily := .chezmoi.os -}}
+{{- $pkgManager := "brew-only" -}}
+{{- if eq $osFamily "linux" -}}
+{{-   if or (eq $osIdLike "linux-debian") (contains "debian" ($osIdLike)) -}}
+{{-     $pkgManager = "apt" -}}
+{{-   else if or (eq $osIdLike "linux-rhel") (eq $osIdLike "linux-fedora") -}}
+{{-     $pkgManager = "dnf" -}}
+{{-   end -}}
+{{- end -}}
+{{- $wsl := and (eq $osFamily "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 {{- $codespaces := env "CODESPACES" | not | not -}}
 {{- $hasGui := promptBoolOnce . "hasGui" "Does this machine have GUI" -}}
 {{- $name := promptStringOnce . "name" "Full name" "Eugene Lazutkin" -}}
@@ -20,6 +29,8 @@
 [data]
 osId = {{ $osId | quote }}
 osIdLike = {{ $osIdLike | quote }}
+osFamily = {{ $osFamily | quote }}
+pkgManager = {{ $pkgManager | quote }}
 wsl = {{ $wsl }}
 codespaces = {{ $codespaces }}
 hasGui = {{ $hasGui }}

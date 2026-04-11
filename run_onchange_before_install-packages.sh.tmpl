@@ -7,7 +7,7 @@
 
 {{ template "install-prelude.sh" . }}
 
-{{ if eq .osIdLike "linux-debian" -}}
+{{ if eq .pkgManager "apt" -}}
 if [ "$hasSudo" -eq 0 ]; then
   echo "${WARN}Both apt and snap require sudo: expect asking for the sudo password.${RESET}"
   echo "${PROMPT}Installing command line apps: sudo apt install...${RESET}"
@@ -31,7 +31,7 @@ EOF
 brew completions link
 {{ if .hasGui -}}flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo{{- end }}
 
-{{- else if or (eq .osIdLike "linux-rhel") (eq .osIdLike "linux-fedora") -}}
+{{- else if eq .pkgManager "dnf" -}}
 if [ "$hasSudo" -eq 0 ]; then
   echo "${WARN}dnf requires sudo: expect asking for the sudo password.${RESET}"
 {{ if ne .osIdLike "linux-fedora" -}}
@@ -64,7 +64,7 @@ EOF
 brew completions link
 {{ if .hasGui -}}flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo{{- end }}
 
-{{- else if eq .osIdLike "darwin" -}}
+{{- else if eq .pkgManager "brew-only" -}}
 if [ -f /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
 elif [ -f /usr/local/bin/brew ]; then

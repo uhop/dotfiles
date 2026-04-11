@@ -3,7 +3,7 @@
 
 {{ template "install-prelude.sh" . }}
 
-{{ if or (eq .osIdLike "linux-debian") (eq .osIdLike "linux-rhel") (eq .osIdLike "linux-fedora") -}}
+{{ if eq .osFamily "linux" -}}
 if ! command -v etckeeper &> /dev/null; then
   exit 0
 fi

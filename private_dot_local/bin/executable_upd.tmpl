@@ -41,7 +41,7 @@ if [[ -v args_options["-r"] ]]; then RESTART_SERVICES=1; fi
 # now before doing anything else. No-op if no marker exists.
 maintenance::cleanup_apparmor_if_marked
 
-{{ if eq .osIdLike "linux-debian" -}}
+{{ if eq .pkgManager "apt" -}}
 apt_snapshot=$(maintenance::snapshot_apt)
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
@@ -56,7 +56,7 @@ if [ "$hasSudo" -eq 0 ]; then
   fi
 fi
 maintenance::check_apt_since "$apt_snapshot" "$RESTART_SERVICES"
-{{- else if or (eq .osIdLike "linux-rhel") (eq .osIdLike "linux-fedora") -}}
+{{- else if eq .pkgManager "dnf" -}}
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}dnf may require sudo: expect asking for the sudo password.${RESET_ALL}"
   echoRun --bold sudo dnf upgrade $ASSUME_YES
@@ -65,7 +65,7 @@ if [ "$hasSudo" -eq 0 ]; then
     echoRun --bold flatpak update $ASSUME_YES
   fi
 fi
-{{- else if eq .osIdLike "darwin" -}}
+{{- else if eq .pkgManager "brew-only" -}}
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}softwareupdate may require sudo: expect asking for the sudo password.${RESET_ALL}"
   echoRun --bold sudo softwareupdate -i -a

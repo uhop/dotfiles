@@ -14,9 +14,9 @@ font_family Hack Nerd Font Mono
 bold_font auto
 italic_font auto
 bold_italic_font auto
-font_size {{ eq .osIdLike "darwin" | ternary "16" "12" }}
+font_size {{ eq .osFamily "darwin" | ternary "16" "12" }}
 
-{{ $Command := eq .osIdLike "darwin" | ternary "super" "ctrl" }}
+{{ $Command := eq .osFamily "darwin" | ternary "super" "ctrl" }}
 
 # SWITCHING TMUX TABS
 map {{ $Command }}+1 send_text normal,application \u00021
