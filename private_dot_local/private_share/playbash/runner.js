@@ -832,6 +832,88 @@ export async function runLocally({playbook, command, hostName, rectHeight, verbo
   });
 }
 
+// Render the post-run fan-out output: per-host summary lines in input
+// order, the footer (`done in Xs · N ok, M failed, ...`), and the
+// cross-host aggregated events section. Returns `{failCount}` so the
+// caller can set the process exit code.
+//
+// `showCapturedOutput` toggles between the two rendering modes:
+//   true  → exec/put/get — show slot.capturedOutput under each host
+//           status line, no sidecar events (none were collected).
+//   false → playbook — show renderSummary(events) and, for failed hosts,
+//           the failure tail plus log path.
+function renderFanoutSummary(slots, {logLabel, verbose, showCapturedOutput}) {
+  let okCount = 0;
+  let failCount = 0;
+  let offlineCount = 0;
+  let skippedCount = 0;
+  for (const slot of slots) {
+    if (slot.statusWord === 'offline') offlineCount++;
+    else if (slot.statusWord === 'skipped') skippedCount++;
+    else if (slot.state === 'ok') okCount++;
+    else failCount++;
+    const elapsed = (slot.elapsedMs / 1000).toFixed(1);
+    process.stderr.write(
+      buildStatusLine({
+        ok: slot.state === 'ok',
+        hostName: slot.name,
+        playbook: logLabel,
+        label: null,
+        status: slot.statusWord,
+        elapsed
+      }) + '\n'
+    );
+    if (showCapturedOutput) {
+      if (slot.capturedOutput && slot.capturedOutput.trim()) {
+        for (const line of slot.capturedOutput.trimEnd().split('\n')) {
+          process.stderr.write(`  ${line}\n`);
+        }
+      }
+      if (
+        slot.state !== 'ok' &&
+        slot.statusWord !== 'offline' &&
+        slot.statusWord !== 'skipped'
+      ) {
+        if (slot.logPath) {
+          process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+        }
+      }
+    } else {
+      renderSummary(slot.events, {verbose});
+      if (slot.state !== 'ok') {
+        renderFailureTail(slot.tail);
+        if (slot.logPath) {
+          process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+        }
+      }
+    }
+  }
+
+  // Footer line + cross-host aggregation.
+  const ranSlots = slots.filter(
+    s => s.statusWord !== 'offline' && s.statusWord !== 'skipped'
+  );
+  const totalElapsed =
+    ranSlots.length > 0
+      ? ((Date.now() - ranSlots[0].startedAt) / 1000).toFixed(1)
+      : '0.0';
+  const summaryParts = [];
+  if (okCount > 0) summaryParts.push(`${okCount} ok`);
+  if (failCount > 0)
+    summaryParts.push(`${COLOR.bold}${COLOR.red}${failCount} failed${COLOR.reset}`);
+  if (skippedCount > 0)
+    summaryParts.push(`${COLOR.dim}${skippedCount} skipped${COLOR.reset}`);
+  if (offlineCount > 0)
+    summaryParts.push(`${COLOR.dim}${offlineCount} offline${COLOR.reset}`);
+  process.stderr.write(
+    `\n${COLOR.dim}done in ${totalElapsed}s${COLOR.reset} · ${summaryParts.join(', ')}\n`
+  );
+
+  renderAggregated(aggregateEvents(slots));
+
+  return {failCount};
+}
+
 // Run a list of targets in parallel through the StatusBoard, then print
 // per-host summaries (in input order) and the aggregated section.
 // When `transfer` is provided (for put/get), each host runs the simple
@@ -975,75 +1057,11 @@ export async function runFanout({
 
   board.finish();
 
-  // Per-host summary lines, input order.
-  let okCount = 0;
-  let failCount = 0;
-  let offlineCount = 0;
-  let skippedCount = 0;
-  for (const slot of slots) {
-    if (slot.statusWord === 'offline') offlineCount++;
-    else if (slot.statusWord === 'skipped') skippedCount++;
-    else if (slot.state === 'ok') okCount++;
-    else failCount++;
-    const elapsed = (slot.elapsedMs / 1000).toFixed(1);
-    process.stderr.write(
-      buildStatusLine({
-        ok: slot.state === 'ok',
-        hostName: slot.name,
-        playbook: logLabel,
-        label: null,
-        status: slot.statusWord,
-        elapsed
-      }) + '\n'
-    );
-    if (transfer || command) {
-      // transfer/exec: show captured output per host
-      if (slot.capturedOutput && slot.capturedOutput.trim()) {
-        for (const line of slot.capturedOutput.trimEnd().split('\n')) {
-          process.stderr.write(`  ${line}\n`);
-        }
-      }
-      if (
-        slot.state !== 'ok' &&
-        slot.statusWord !== 'offline' &&
-        slot.statusWord !== 'skipped'
-      ) {
-        if (slot.logPath) {
-          process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
-        }
-      }
-    } else {
-      renderSummary(slot.events, {verbose});
-      if (slot.state !== 'ok') {
-        renderFailureTail(slot.tail);
-        if (slot.logPath) {
-          process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
-        }
-      }
-    }
-  }
-
-  // Footer line + cross-host aggregation.
-  const ranSlots = slots.filter(
-    s => s.statusWord !== 'offline' && s.statusWord !== 'skipped'
-  );
-  const totalElapsed =
-    ranSlots.length > 0
-      ? ((Date.now() - ranSlots[0].startedAt) / 1000).toFixed(1)
-      : '0.0';
-  const summaryParts = [];
-  if (okCount > 0) summaryParts.push(`${okCount} ok`);
-  if (failCount > 0)
-    summaryParts.push(`${COLOR.bold}${COLOR.red}${failCount} failed${COLOR.reset}`);
-  if (skippedCount > 0)
-    summaryParts.push(`${COLOR.dim}${skippedCount} skipped${COLOR.reset}`);
-  if (offlineCount > 0)
-    summaryParts.push(`${COLOR.dim}${offlineCount} offline${COLOR.reset}`);
-  process.stderr.write(
-    `\n${COLOR.dim}done in ${totalElapsed}s${COLOR.reset} · ${summaryParts.join(', ')}\n`
-  );
-
-  renderAggregated(aggregateEvents(slots));
+  const {failCount} = renderFanoutSummary(slots, {
+    logLabel,
+    verbose,
+    showCapturedOutput: !!(transfer || command)
+  });
 
   // Skip if a signal handler is already cleaning up — see runHostSingle.
   if (!cleaningUp) process.exit(failCount > 0 ? 1 : 0);
