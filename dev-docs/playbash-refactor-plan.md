@@ -181,23 +181,26 @@ Pre-refactor: **3514 lines** total across the playbash files.
 Post-refactor (phases 1–5): **3299 lines** total, net **–215 lines**.
 After subsequent kill-bug fix (commit 5b59093, +130 in runner.js): **3429 lines**.
 After `die()` consolidation into `errors.js` (follow-up, –13 lines): **3416 lines**.
+After `--version` flag (commit c7e1756, ≈+10 lines in executable_playbash): **~3426 lines**.
+After P1-4 subprocess hoist (runner.js −19, doctor.js −30, subprocess.js +44): **3422 lines**.
 
 Per-file breakdown (current):
 
 ```
-   412  bin/executable_playbash       (was 1798, –1386, –77%)
-  1069  share/playbash/runner.js      (new; 948 post-Phase-5, +130 kill-bug fix, –9 errors.js)
+   423  bin/executable_playbash       (was 1798, –1375, –76%)
+  1050  share/playbash/runner.js      (new; 948 post-Phase-5, +130 kill-bug, –9 errors.js, –19 subprocess.js)
    202  share/playbash/commands.js    (new)
    224  share/playbash/transfer.js    (new)
     30  share/playbash/paths.js       (new)
     11  share/playbash/errors.js      (new; shared die() helper)
+    44  share/playbash/subprocess.js  (new; shared run() helper)
    424  share/playbash/render.js      (unchanged)
    166  share/playbash/inventory.js   (–3 after errors.js)
    109  share/playbash/sidecar.js     (unchanged)
    263  share/playbash/staging.js     (unchanged)
-   425  share/playbash/doctor.js      (unchanged)
+   395  share/playbash/doctor.js      (–30 after subprocess.js)
     81  share/playbash/ssh-config.js  (unchanged)
-  3416  total
+  3422  total
 ```
 
 The success criterion was "executable_playbash ≈ 250 lines, runner.js 650–800 post-dedup." Actual at end of Phase 5: 416 / 948. Current: 412 / 1069 — runner.js is larger than the post-Phase-5 snapshot because of the orphan-remote-wrapper cleanup infrastructure added later (`REMOTE_KILLABLE` registry, `killRemoteWrapper`, `trackRemoteWrapper`, `recordRemoteWrapperPid`, plus the extended signal handler in `cleanupAndExit`). That's a correctness fix, not refactor regression. The runner is bigger than estimated because `runFanout` is still a sizeable function on its own — the dedup inside `launchOne` was real but the surrounding fan-out loop, per-host summary printing, and aggregation footer are still all there. The entry point is bigger than estimated because the dispatcher (`dispatch`, `resolveAndValidate`, the `switch` statement, USAGE) is more verbose than I had in my head. Both are well within "single screen of one responsibility" so the goal is met in spirit.
@@ -208,7 +211,7 @@ The success criterion was "executable_playbash ≈ 250 lines, runner.js 650–80
 - **`expandTemplate` and `validateCustomPlaybookPath` ended up exported from `runner.js`** because they're used by both the runner internals AND the dispatcher in `executable_playbash`. This isn't perfect — `expandTemplate` is conceptually a string utility and could live in its own module — but it's only one helper and I didn't want to create a `util.js` for one function. P2.
 - **`resolveAndValidate` stayed in `executable_playbash`** because it depends on `parseArgs` results (`values.self`, `values['no-precheck']`, `values.parallel`). Could be parameterized and hoisted to `runner.js` if more callers need it; for now the dispatcher-only ownership is fine.
 - **`die()` was originally defined in four places** (`executable_playbash`, `runner.js`, `transfer.js`, `inventory.js`) and a fifth appeared in `commands.js` when Phase 3 landed. All five were byte-identical. **Consolidated** into `share/playbash/errors.js` as a follow-up — now every module imports the one copy. Net –13 lines (20 removed from duplicated bodies, 7 added back as imports + new file header).
-- **Dependency direction is clean**: `executable_playbash` → {`runner.js`, `commands.js`, `transfer.js`, `doctor.js`, `errors.js`}. `transfer.js` → `runner.js`. `runner.js` → {`render.js`, `inventory.js`, `sidecar.js`, `staging.js`, `paths.js`, `errors.js`}. No cycles. `commands.js` → {`render.js`, `inventory.js`, `ssh-config.js`, `paths.js`, `errors.js`}. `doctor.js` → {`render.js`, `inventory.js`, `ssh-config.js`}. `staging.js`, `inventory.js` (→ `errors.js`), `render.js`, `sidecar.js`, `ssh-config.js`, `paths.js`, and `errors.js` are leaves.
+- **Dependency direction is clean**: `executable_playbash` → {`runner.js`, `commands.js`, `transfer.js`, `doctor.js`, `errors.js`}. `transfer.js` → `runner.js`. `runner.js` → {`render.js`, `inventory.js`, `sidecar.js`, `staging.js`, `paths.js`, `errors.js`, `subprocess.js`}. No cycles. `commands.js` → {`render.js`, `inventory.js`, `ssh-config.js`, `paths.js`, `errors.js`}. `doctor.js` → {`render.js`, `inventory.js`, `ssh-config.js`, `subprocess.js`}. `staging.js`, `inventory.js` (→ `errors.js`), `render.js`, `sidecar.js`, `ssh-config.js`, `paths.js`, `errors.js`, and `subprocess.js` are leaves.
 
 ## Follow-ups (not part of this refactor)
 
@@ -218,7 +221,7 @@ These were explicitly out of scope; ship as separate small changes when convenie
 - **P1-1** — `dispatch()` uses `resolved.length === 1` instead of `targets.length === 1` to pick single-host vs fan-out. Two-host call where one is self drops to fan-out with one effective host.
 - **P1-2** — `cmdHosts` early-returns on missing inventory and never shows the ssh-only section.
 - **P1-3** — `sshRun` subprocesses (in `staging.js`) are not registered with `ACTIVE_CHILDREN` for SIGINT cleanup. Now that `registerChild` is exported from `runner.js`, `staging.js` could import and use it.
-- **P1-4** — hoist `doctor.js`'s `run()` helper to a shared `subprocess.js`.
+- ~~**P1-4** — hoist `doctor.js`'s `run()` helper to a shared `subprocess.js`.~~ **Done** — `share/playbash/subprocess.js` exports the single `run(cmd, args, {timeoutMs})` primitive; `doctor.js` imports it (was a 28-line private helper), and `runner.js`'s `probeConnectivity` drops its hand-rolled `spawn` + `new Promise` + error-handling in favor of the same helper. Net delta: runner.js −19, doctor.js −30, subprocess.js +44 = ~−5 lines — small raw-LOC win, but the real payoff is one place for "run a short-lived subprocess and capture its output". Bumped `VERSION` to `3.0.1`.
 - **P1-6** — split `runFanout` further (the fan-out loop, per-host summary printing, and aggregation footer could become `runConcurrent`, `renderFanoutSummary`).
 - ~~**`die()` consolidation** — move to a shared `errors.js` so the four copies become one.~~ **Done** — `share/playbash/errors.js` exports the sole copy; `executable_playbash`, `runner.js`, `transfer.js`, `commands.js`, and `inventory.js` all import it. Net –13 lines.
 - All P2 items from the code review.

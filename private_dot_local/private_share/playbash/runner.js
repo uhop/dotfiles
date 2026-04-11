@@ -51,6 +51,7 @@ import {
 } from './staging.js';
 import {LOG_DIR, PLAYBOOK_DIR, PLAYBOOK_PREFIX} from './paths.js';
 import {die} from './errors.js';
+import {run} from './subprocess.js';
 
 // --- global child registry + cleanup on signals ---
 //
@@ -197,37 +198,17 @@ async function cleanupAndExit(remoteEntries) {
 export async function probeConnectivity(targets) {
   const results = await Promise.all(
     targets.map(async ({name, address}) => {
-      try {
-        const proc = spawn(
-          'ssh',
-          [
-            '-o',
-            'BatchMode=yes',
-            '-o',
-            'ConnectTimeout=2',
-            address,
-            '--',
-            'true'
-          ],
-          {stdio: ['ignore', 'ignore', 'ignore']}
-        );
-        const code = await new Promise(resolve => {
-          proc.on('error', () => resolve(255));
-          proc.on('close', resolve);
-        });
-        return {name, address, online: code === 0};
-      } catch {
-        return {name, address, online: false};
-      }
+      const r = await run('ssh', [
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=2',
+        address, '--', 'true'
+      ]);
+      return {name, address, online: r.code === 0};
     })
   );
   return {
-    online: results
-      .filter(r => r.online)
-      .map(({name, address}) => ({name, address})),
-    offline: results
-      .filter(r => !r.online)
-      .map(({name, address}) => ({name, address}))
+    online: results.filter(r => r.online).map(({name, address}) => ({name, address})),
+    offline: results.filter(r => !r.online).map(({name, address}) => ({name, address}))
   };
 }
 

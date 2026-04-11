@@ -33,11 +33,11 @@
 import {existsSync, readdirSync, statSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
-import {spawn} from 'node:child_process';
 
 import {COLOR} from './render.js';
 import {INVENTORY_PATH, isSelfAddress, loadInventory} from './inventory.js';
 import {parseHostNames} from './ssh-config.js';
+import {run} from './subprocess.js';
 
 const SSH_DIR        = join(homedir(), '.ssh');
 const SSH_CONFIG     = join(SSH_DIR, 'config');
@@ -54,36 +54,6 @@ function result(name, status, message, hint) {
 }
 
 // --- subprocess helpers ---
-
-// Run a command and capture stdout/stderr/exitCode. Never throws.
-function run(cmd, args, {timeoutMs} = {}) {
-  return new Promise(resolve => {
-    let stdout = '';
-    let stderr = '';
-    let timed = false;
-    let proc;
-    try {
-      proc = spawn(cmd, args, {stdio: ['ignore', 'pipe', 'pipe']});
-    } catch (err) {
-      resolve({code: -1, stdout: '', stderr: err.message, error: err});
-      return;
-    }
-    proc.stdout.on('data', c => (stdout += c));
-    proc.stderr.on('data', c => (stderr += c));
-    proc.on('error', err => resolve({code: -1, stdout, stderr: stderr || err.message, error: err}));
-    let timer;
-    if (timeoutMs) {
-      timer = setTimeout(() => {
-        timed = true;
-        try { proc.kill('SIGKILL'); } catch {}
-      }, timeoutMs);
-    }
-    proc.on('close', code => {
-      if (timer) clearTimeout(timer);
-      resolve({code: code ?? -1, stdout, stderr, timedOut: timed});
-    });
-  });
-}
 
 // Parse `ssh -G <host>` output into a Map of lowercased option name → value.
 async function sshEffectiveOptions(host) {
