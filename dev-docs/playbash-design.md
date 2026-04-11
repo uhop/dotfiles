@@ -297,6 +297,7 @@ private_dot_local/
       inventory.js                      # load, resolve, self detection, target filtering
       sidecar.js                        # JSON-lines parser, per-host + cross-host aggregation
       staging.js                        # wrapper staging for vanilla hosts, BatchMode ssh
+      doctor.js                         # `playbash doctor` env + per-host diagnostic
       completion.bash                   # bash completion script (read by --bash-completion)
     utils/
       comp.js                           # general-purpose comparison helpers
@@ -335,3 +336,28 @@ Linux-only. The functions are no-ops on Mac (no apt, no `/var/log/apt`).
 ### Background: the docker-ce silent break
 
 Caught during milestone-5 dogfooding, confirmed twice. When `apt` upgrades `docker-ce`, the docker daemon stops working properly (`docker compose up` fails with container conflicts) but no `/run/reboot-required` is created. The user has to know to reboot. The first occurrence on `croc` was diagnosed by manually rebooting and re-running `dcm`; a second occurrence was caught by the same pattern. The pre-emptive `dpkg.log` scan in `maintenance::check_apt_since` (above) detects this automatically — and milestone 12's `--restart-services` flag offers an automatic recovery without a full reboot.
+
+## Doctor
+
+`playbash doctor` is a one-shot diagnostic that surfaces operator-environment problems and per-host connectivity issues with remediation hints, before the user hits a cryptic ssh error mid-playbook. Lives in `private_share/playbash/doctor.js`; the runner imports `runDoctor()` and dispatches via a single `case` branch.
+
+Two sections:
+
+- **Environment** (sequential, operator-side). Each item produces a `{name, status, message, hint?}` record with `status` ∈ `{ok, warn, fail}`:
+  - `~/.ssh/config` exists.
+  - Effective `ControlMaster`, `ControlPersist`, `ControlPath` queried via `ssh -G nonexistent.example.invalid` — using a non-routable hostname makes the call fast (no network) while still letting `Host *` and `Match` blocks apply. The output is parsed into a `Map<lowercased option name, value>`. `ControlMaster auto` is `ok`; anything else (or unset) is `warn` with a hint.
+  - At least one of `id_ed25519`, `id_rsa`, `id_ecdsa`, `id_dsa` exists in `~/.ssh`.
+  - `ssh-add -L` exit 0 with output → `ok` (count of identities). Exit 1 (no identities) or 2 (no agent) → `warn` (best-effort: macOS keychain may bypass the agent).
+  - Inventory file present + parseable via the existing `loadInventory()`. Missing inventory is `warn` (it's optional).
+  - `~/.local/bin/playbash-*` are present and executable. Non-executable entries → `fail` with a `chmod +x` hint.
+  - `~/.local/libs/playbash.sh` and `~/.local/libs/playbash-wrap.py` exist locally — operator side, needed for `--self` runs and for staging to non-managed hosts.
+  - `python3 --version` succeeds on PATH.
+
+- **Hosts** (parallel, per inventory entry). Each host accumulates a list of items; the host's overall status is the worst of any item:
+  - **Self skip.** `isSelfAddress` from `inventory.js`; self entries record a single `(self) — skipped` `ok` item and bypass the ssh probe.
+  - **ssh-config alias presence.** Walk `~/.ssh/config` plus `Include` directives (relative paths resolved against `~/.ssh`, the common `dir/*` glob handled inline without a glob lib), collect literal `Host` patterns (skipping wildcards `*`/`?`). The check only fires when the inventory address looks like a *short* name (no `.` or `:`) — FQDNs and IPs resolve directly via DNS and don't benefit from a Host alias. A short name with no matching Host entry is a `warn` with a hint to add one so user/port/identity become explicit.
+  - **Connectivity probe.** `ssh -o BatchMode=yes -o ConnectTimeout=5 <addr> true` with an 8-second outer timeout that SIGKILLs the subprocess (the `run()` helper in doctor.js handles this generically — never throws, always resolves with `{code, stdout, stderr, timedOut}`). Failures are routed through `classifySshError()` which buckets stderr into `auth`, `timeout`, `refused`, `no route`, `unknown host`, `host key`, `connection drop`, or a 60-char fallback, each with a tailored hint.
+
+The renderer aligns the env section with two padded columns (`name` and `message`) and the host section with three (`name`, `address`, item label), reusing `COLOR` from `render.js` for the `✓ / ⚠ / ✗` glyphs and dim hint arrows. Single-item hosts inline; multi-item hosts stack their items under the host row. The summary line `N ok · N warn · N fail` is computed across the union of env and host items. Exit code is 1 if any `fail` is present (warns are non-fatal), 0 otherwise.
+
+The whole module is one-shot: no shared state with the runner, no caching, no opt-in flags. ~310 lines, no third-party deps. Adding new checks is a matter of pushing one more `result(...)` into `checks` (env) or `out.items` (host).

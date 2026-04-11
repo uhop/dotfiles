@@ -12,7 +12,16 @@
 
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
-import {createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync} from 'node:fs';
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs';
 import {homedir, tmpdir} from 'node:os';
 import {basename, dirname, join} from 'node:path';
 import {parseArgs} from 'node:util';
@@ -23,32 +32,41 @@ import {
   Rectangle,
   StatusBoard,
   buildStatusLine,
-  sanitizeForRect,
+  sanitizeForRect
 } from '../share/playbash/render.js';
 import {
   filterSelf,
   isSelfAddress,
   loadInventory,
-  resolveTargets,
+  resolveTargets
 } from '../share/playbash/inventory.js';
 import {
   aggregateEvents,
   parseSidecar,
   renderAggregated,
-  renderSummary,
+  renderSummary
 } from '../share/playbash/sidecar.js';
-import {STAGING_DIR, WRAPPER_MANAGED, ensureWrapper, sshRun, stagePlaybookDir, stagePlaybookFiles} from '../share/playbash/staging.js';
+import {
+  STAGING_DIR,
+  WRAPPER_MANAGED,
+  ensureWrapper,
+  sshRun,
+  stagePlaybookDir,
+  stagePlaybookFiles
+} from '../share/playbash/staging.js';
+import {runDoctor} from '../share/playbash/doctor.js';
 
 const USAGE = `usage:
-  playbash run   <targets> <playbook> [-n LINES] [-p N] [--self]
-  playbash push  <targets> <script-path> [-n LINES] [-p N] [--self]
-  playbash debug <targets> <playbook> [--self]
-  playbash exec  <targets> [--] <command...> [options]
-  playbash put   <targets> <local-path> [<remote-path>] [-p N] [-N]
-  playbash get   <targets> <remote-path> [<local-path>] [-p N] [-N]
+  playbash run    <targets> <playbook> [-n LINES] [-p N] [--self]
+  playbash push   <targets> <script-path> [-n LINES] [-p N] [--self]
+  playbash debug  <targets> <playbook> [--self]
+  playbash exec   <targets> [--] <command...> [options]
+  playbash put    <targets> <local-path> [<remote-path>] [-p N] [-N]
+  playbash get    <targets> <remote-path> [<local-path>] [-p N] [-N]
   playbash list
   playbash hosts
-  playbash log   [host] [command]
+  playbash log    [host] [command]
+  playbash doctor
   playbash --bash-completion        # print bash completion script
 
 Options (must come before \`--\` when using exec):
@@ -113,7 +131,13 @@ sidecar/summary pipeline.
 sequences stripped — safe to view in any terminal. With no args, picks
 the most recent log across all hosts. With a host name, picks the most
 recent log for that host. With host + command, narrows further. A path
-containing / is read directly (backward compat).`;
+containing / is read directly (backward compat).
+
+\`playbash doctor\` runs a diagnostic checklist over the operator
+environment (~/.ssh/config, keys, agent, inventory, local playbooks,
+helper library, PTY wrapper, python3) and per-host connectivity for
+every inventory host. Output is a green/orange/red checklist with
+remediation hints under failures. Exits 1 if any check fails.`;
 
 const PLAYBOOK_DIR = join(homedir(), '.local', 'bin');
 const PLAYBOOK_PREFIX = 'playbash-';
@@ -145,8 +169,12 @@ function registerChild(child) {
 }
 function killAllChildren(sig) {
   for (const child of ACTIVE_CHILDREN) {
-    try { process.kill(-child.pid, sig); } catch {
-      try { child.kill(sig); } catch {}
+    try {
+      process.kill(-child.pid, sig);
+    } catch {
+      try {
+        child.kill(sig);
+      } catch {}
     }
   }
 }
@@ -156,7 +184,9 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     if (cleaningUp) return;
     cleaningUp = true;
     if (ACTIVE_CHILDREN.size > 0) {
-      process.stderr.write(`\nplaybash: ${sig} received, terminating ${ACTIVE_CHILDREN.size} child(ren)\n`);
+      process.stderr.write(
+        `\nplaybash: ${sig} received, terminating ${ACTIVE_CHILDREN.size} child(ren)\n`
+      );
     }
     killAllChildren('SIGTERM');
     // Give children a moment to die cleanly, then exit. SIGKILL fallback
@@ -167,28 +197,42 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 
 // --- run mechanics ---
 
-
 // Pre-flight connectivity check. Parallel `ssh -o ConnectTimeout=2 true`
 // for every target. Returns {online, offline} arrays of {name, address}.
 async function probeConnectivity(targets) {
-  const results = await Promise.all(targets.map(async ({name, address}) => {
-    try {
-      const proc = spawn('ssh', [
-        '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=2',
-        address, '--', 'true',
-      ], {stdio: ['ignore', 'ignore', 'ignore']});
-      const code = await new Promise(resolve => {
-        proc.on('error', () => resolve(255));
-        proc.on('close', resolve);
-      });
-      return {name, address, online: code === 0};
-    } catch {
-      return {name, address, online: false};
-    }
-  }));
+  const results = await Promise.all(
+    targets.map(async ({name, address}) => {
+      try {
+        const proc = spawn(
+          'ssh',
+          [
+            '-o',
+            'BatchMode=yes',
+            '-o',
+            'ConnectTimeout=2',
+            address,
+            '--',
+            'true'
+          ],
+          {stdio: ['ignore', 'ignore', 'ignore']}
+        );
+        const code = await new Promise(resolve => {
+          proc.on('error', () => resolve(255));
+          proc.on('close', resolve);
+        });
+        return {name, address, online: code === 0};
+      } catch {
+        return {name, address, online: false};
+      }
+    })
+  );
   return {
-    online: results.filter(r => r.online).map(({name, address}) => ({name, address})),
-    offline: results.filter(r => !r.online).map(({name, address}) => ({name, address})),
+    online: results
+      .filter(r => r.online)
+      .map(({name, address}) => ({name, address})),
+    offline: results
+      .filter(r => !r.online)
+      .map(({name, address}) => ({name, address}))
   };
 }
 
@@ -204,7 +248,15 @@ async function probeConnectivity(targets) {
 // (host names are validated against [a-zA-Z0-9._-]), so plain string
 // interpolation is safe. `exec` so python becomes the direct child of
 // sshd's session shell — no intermediate bash -c layer to absorb signals.
-function buildRemoteCommand({reportPath, hostName, cols, rows, playbookPath, wrapperPath, libs}) {
+function buildRemoteCommand({
+  reportPath,
+  hostName,
+  cols,
+  rows,
+  playbookPath,
+  wrapperPath,
+  libs
+}) {
   return (
     `LC_ALL=C ` +
     `PLAYBASH_REPORT=${reportPath} ` +
@@ -257,10 +309,11 @@ function buildExecCommand({cols, rows, command, wrapperPath}) {
 //   - `sudo: a terminal is required` — macOS sudo's "no tty" error
 //     (different from a prompt, but means the same thing for us:
 //     this host needs interactive sudo and we can't help here)
-const STDIN_PROMPT_RE = /(?:\[sudo[^\]]*\]\s*[Pp]assword|^doas\s*\([^)]*\)\s*password|^Password:\s*$|Sorry, try again|sudo: a terminal is required)/m;
+const STDIN_PROMPT_RE =
+  /(?:\[sudo[^\]]*\]\s*[Pp]assword|^doas\s*\([^)]*\)\s*password|^Password:\s*$|Sorry, try again|sudo: a terminal is required)/m;
 const STDIN_RECENT_BUF_MAX = 4096; // bytes of sliding window for regex
-const STDIN_KILL_GRACE_MS = 5000;  // SIGTERM → SIGKILL grace period
-const TAIL_MAX_LINES = 3;          // last N non-blank lines kept for failure context
+const STDIN_KILL_GRACE_MS = 5000; // SIGTERM → SIGKILL grace period
+const TAIL_MAX_LINES = 3; // last N non-blank lines kept for failure context
 
 // Idle threshold in seconds. 0 disables the idle check (regex stays
 // active). Default 90s — generous enough that apt downloads and brew
@@ -282,11 +335,24 @@ function stdinWatchTimeoutMs() {
 //
 // Throws on spawn failure; sidecar fetch errors are non-fatal (logged to
 // stderr) and result in an empty event list.
-async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk}) {
+async function runHost({
+  playbook,
+  hostName,
+  makeChild,
+  getSidecarText,
+  onChunk
+}) {
   const cols = process.stdout.columns || 80;
   const rows = process.stdout.rows || 24;
 
-  const logDir = join(homedir(), '.cache', 'playbash', 'runs', hostName, playbook);
+  const logDir = join(
+    homedir(),
+    '.cache',
+    'playbash',
+    'runs',
+    hostName,
+    playbook
+  );
   mkdirSync(logDir, {recursive: true});
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const logPath = join(logDir, `${stamp}.log`);
@@ -308,10 +374,10 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
   // before storing so the printed context stays clean.
   const tailBuf = [];
   let tailLineFragment = '';
-  const appendToTail = (textChunk) => {
+  const appendToTail = textChunk => {
     const cleaned = textChunk
       .toString('utf8')
-      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')   // strip CSI
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '') // strip CSI
       .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // strip OSC
       .replace(/\r/g, '');
     tailLineFragment += cleaned;
@@ -336,7 +402,7 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
       }
       registerChild(child);
 
-      const killChild = (reason) => {
+      const killChild = reason => {
         if (stuckReason) return;
         stuckReason = reason;
         // Send to the entire process group, not just the immediate child.
@@ -347,9 +413,13 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
         // Killing the group hits the shell AND its descendants.
         // The spawn must use `detached: true` for this to work — see the
         // makeChild call sites.
-        const groupKill = (sig) => {
-          try { process.kill(-child.pid, sig); } catch {
-            try { child.kill(sig); } catch {}
+        const groupKill = sig => {
+          try {
+            process.kill(-child.pid, sig);
+          } catch {
+            try {
+              child.kill(sig);
+            } catch {}
           }
         };
         groupKill('SIGTERM');
@@ -361,15 +431,20 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
       // capped at 5s, floored at 1s — so a 90s threshold polls every
       // 5s, a 2s test threshold polls every 1s.
       if (idleTimeoutMs > 0) {
-        const pollMs = Math.max(1000, Math.min(5000, Math.floor(idleTimeoutMs / 2)));
+        const pollMs = Math.max(
+          1000,
+          Math.min(5000, Math.floor(idleTimeoutMs / 2))
+        );
         idleTimer = setInterval(() => {
           if (stuckReason) return;
           if (Date.now() - lastChunkAt > idleTimeoutMs) killChild('idle');
         }, pollMs);
       }
 
-      const checkForStuck = (chunk) => {
-        recentBuf = (recentBuf + chunk.toString('utf8')).slice(-STDIN_RECENT_BUF_MAX);
+      const checkForStuck = chunk => {
+        recentBuf = (recentBuf + chunk.toString('utf8')).slice(
+          -STDIN_RECENT_BUF_MAX
+        );
         if (!stuckReason && STDIN_PROMPT_RE.test(recentBuf)) killChild('sudo');
       };
 
@@ -424,7 +499,9 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
     const text = await getSidecarText();
     events = parseSidecar(text);
   } catch (err) {
-    process.stderr.write(`playbash: failed to fetch sidecar for ${hostName}: ${err.message}\n`);
+    process.stderr.write(
+      `playbash: failed to fetch sidecar for ${hostName}: ${err.message}\n`
+    );
   }
 
   const elapsedMs = Date.now() - start;
@@ -435,27 +512,51 @@ async function runHost({playbook, hostName, makeChild, getSidecarText, onChunk})
   // genuine non-zero exit.
   const ok = !stuckReason && !result.signal && result.code === 0;
   const statusWord = stuckReason
-    ? (stuckReason === 'sudo' ? 'needs sudo' : 'stuck (idle)')
-    : (result.signal ? `signal ${result.signal}` : `exit ${result.code}`);
+    ? stuckReason === 'sudo'
+      ? 'needs sudo'
+      : 'stuck (idle)'
+    : result.signal
+      ? `signal ${result.signal}`
+      : `exit ${result.code}`;
 
-  return {result, events, logPath, elapsedMs, ok, statusWord, stuckReason, tail: tailBuf};
+  return {
+    result,
+    events,
+    logPath,
+    elapsedMs,
+    ok,
+    statusWord,
+    stuckReason,
+    tail: tailBuf
+  };
 }
 
 // Single-host wrapper around runHost: owns a Rectangle for live output,
 // prints the status line and summary, and exits with the host's exit
 // code. Used by both the remote and local single-host paths.
-async function runHostSingle({playbook, hostName, label, rectHeight, verbose, makeChild, getSidecarText}) {
+async function runHostSingle({
+  playbook,
+  hostName,
+  label,
+  rectHeight,
+  verbose,
+  makeChild,
+  getSidecarText
+}) {
   const rect = new Rectangle(rectHeight);
   rect.start();
 
   let summary;
   try {
     summary = await runHost({
-      playbook, hostName, makeChild, getSidecarText,
+      playbook,
+      hostName,
+      makeChild,
+      getSidecarText,
       onChunk: chunk => {
         if (rect.active) rect.feed(chunk);
         else process.stdout.write(chunk);
-      },
+      }
     });
   } catch (err) {
     rect.finish();
@@ -465,10 +566,16 @@ async function runHostSingle({playbook, hostName, label, rectHeight, verbose, ma
   rect.finish();
 
   const elapsed = (summary.elapsedMs / 1000).toFixed(1);
-  process.stderr.write(buildStatusLine({
-    ok: summary.ok, hostName, playbook, label,
-    status: summary.statusWord, elapsed,
-  }) + '\n');
+  process.stderr.write(
+    buildStatusLine({
+      ok: summary.ok,
+      hostName,
+      playbook,
+      label,
+      status: summary.statusWord,
+      elapsed
+    }) + '\n'
+  );
   renderSummary(summary.events, {verbose});
   if (!summary.ok) {
     // Tail (last few non-blank output lines) gives the user the
@@ -488,7 +595,7 @@ async function runHostSingle({playbook, hostName, label, rectHeight, verbose, ma
 // the indent so it doesn't wrap and break the surrounding layout.
 function renderFailureTail(tail) {
   if (!tail || tail.length === 0) return;
-  const cols = (process.stderr.columns || process.stdout.columns || 80);
+  const cols = process.stderr.columns || process.stdout.columns || 80;
   const indent = '  … ';
   const max = Math.max(20, cols - indent.length);
   for (const line of tail) {
@@ -559,24 +666,37 @@ function validateCustomPlaybookPath(path) {
   return 'file';
 }
 
-
 // Transfer a single file or directory to a remote host.
 async function putOne(address, localPath, remotePath, isDir) {
   if (isDir) {
     const tarBuf = await new Promise((resolve, reject) => {
       const ch = [];
-      const p = spawn('tar', ['cf', '-', '-C', localPath, '.'], {stdio: ['ignore', 'pipe', 'pipe']});
+      const p = spawn('tar', ['cf', '-', '-C', localPath, '.'], {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
       p.stdout.on('data', c => ch.push(c));
       p.on('error', reject);
-      p.on('close', code => code === 0 ? resolve(Buffer.concat(ch)) : reject(new Error(`tar exit ${code}`)));
+      p.on('close', code =>
+        code === 0
+          ? resolve(Buffer.concat(ch))
+          : reject(new Error(`tar exit ${code}`))
+      );
     });
-    const r = await sshRun(address, `mkdir -p ${remotePath} && tar xf - -C ${remotePath}`, {input: tarBuf});
+    const r = await sshRun(
+      address,
+      `mkdir -p ${remotePath} && tar xf - -C ${remotePath}`,
+      {input: tarBuf}
+    );
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
   } else {
     const content = readFileSync(localPath);
-    const remoteDir = remotePath.includes('/') ? remotePath.substring(0, remotePath.lastIndexOf('/')) : '';
+    const remoteDir = remotePath.includes('/')
+      ? remotePath.substring(0, remotePath.lastIndexOf('/'))
+      : '';
     const mkdirCmd = remoteDir ? `mkdir -p ${remoteDir} && ` : '';
-    const r = await sshRun(address, `${mkdirCmd}cat > ${remotePath}`, {input: content});
+    const r = await sshRun(address, `${mkdirCmd}cat > ${remotePath}`, {
+      input: content
+    });
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
   }
 }
@@ -588,11 +708,15 @@ async function getOne(address, remotePath, localPath, isRemoteDir) {
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
     mkdirSync(localPath, {recursive: true});
     await new Promise((resolve, reject) => {
-      const p = spawn('tar', ['xf', '-', '-C', localPath], {stdio: ['pipe', 'ignore', 'pipe']});
+      const p = spawn('tar', ['xf', '-', '-C', localPath], {
+        stdio: ['pipe', 'ignore', 'pipe']
+      });
       p.stdin.write(r.stdout);
       p.stdin.end();
       p.on('error', reject);
-      p.on('close', code => code === 0 ? resolve() : reject(new Error(`tar extract exit ${code}`)));
+      p.on('close', code =>
+        code === 0 ? resolve() : reject(new Error(`tar extract exit ${code}`))
+      );
     });
   } else {
     const r = await sshRun(address, `cat ${remotePath}`, {raw: true});
@@ -603,21 +727,39 @@ async function getOne(address, remotePath, localPath, isRemoteDir) {
   }
 }
 
-async function runRemote({playbook, command, customPath, hostName, address, rectHeight, verbose, managed}) {
+async function runRemote({
+  playbook,
+  command,
+  customPath,
+  hostName,
+  address,
+  rectHeight,
+  verbose,
+  managed
+}) {
   let wrapperPath, playbookPath, libs;
   if (managed) {
     wrapperPath = WRAPPER_MANAGED;
-    if (playbook) { playbookPath = `~/.local/bin/playbash-${playbook}`; libs = null; }
+    if (playbook) {
+      playbookPath = `~/.local/bin/playbash-${playbook}`;
+      libs = null;
+    }
   } else if (playbook) {
-    const resolvedPath = customPath ? expandTemplate(customPath, {host: hostName}) : null;
+    const resolvedPath = customPath
+      ? expandTemplate(customPath, {host: hostName})
+      : null;
     let kind = 'file';
     if (resolvedPath) {
-      try { kind = validateCustomPlaybookPath(resolvedPath); }
-      catch (err) { die(err.message); }
+      try {
+        kind = validateCustomPlaybookPath(resolvedPath);
+      } catch (err) {
+        die(err.message);
+      }
     }
-    const remoteName = kind === 'dir'
-      ? await stagePlaybookDir(address, hostName, resolvedPath)
-      : await stagePlaybookFiles(address, hostName, playbook, resolvedPath);
+    const remoteName =
+      kind === 'dir'
+        ? await stagePlaybookDir(address, hostName, resolvedPath)
+        : await stagePlaybookFiles(address, hostName, playbook, resolvedPath);
     wrapperPath = `${STAGING_DIR}/playbash-wrap.py`;
     playbookPath = `${STAGING_DIR}/${remoteName}`;
     libs = STAGING_DIR;
@@ -626,64 +768,102 @@ async function runRemote({playbook, command, customPath, hostName, address, rect
     libs = null;
   }
   const logLabel = playbook || 'exec';
-  const reportPath = playbook ? `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl` : '';
+  const reportPath = playbook
+    ? `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`
+    : '';
   await runHostSingle({
-    playbook: logLabel, hostName, rectHeight, verbose, label: null,
+    playbook: logLabel,
+    hostName,
+    rectHeight,
+    verbose,
+    label: null,
     makeChild: ({cols, rows}) => {
       const wrapped = command
         ? buildExecCommand({cols, rows, command, wrapperPath})
-        : buildRemoteCommand({reportPath, hostName, cols, rows, playbookPath, wrapperPath, libs});
+        : buildRemoteCommand({
+            reportPath,
+            hostName,
+            cols,
+            rows,
+            playbookPath,
+            wrapperPath,
+            libs
+          });
       return spawn('ssh', ['-o', 'BatchMode=yes', address, '--', wrapped], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true, // own process group so killChild can group-kill
+        detached: true // own process group so killChild can group-kill
       });
     },
     getSidecarText: playbook
-      ? async () => { const r = await sshRun(address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`); return r.stdout; }
-      : async () => '',
+      ? async () => {
+          const r = await sshRun(
+            address,
+            `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`
+          );
+          return r.stdout;
+        }
+      : async () => ''
   });
 }
 
 async function runLocally({playbook, command, hostName, rectHeight, verbose}) {
   const logLabel = playbook || 'exec';
   if (playbook) {
-    const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
-    if (!existsSync(playbookPath)) die(`local playbook not found: ${playbookPath}`);
+    const playbookPath = join(
+      homedir(),
+      '.local',
+      'bin',
+      `playbash-${playbook}`
+    );
+    if (!existsSync(playbookPath))
+      die(`local playbook not found: ${playbookPath}`);
   }
   // Local sidecar lives in $TMPDIR. No ssh, no PTY allocation — the
   // playbook/command runs as a direct child of Node.
-  const reportPath = playbook ? join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`) : '';
+  const reportPath = playbook
+    ? join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`)
+    : '';
   const childArgs = command ? ['-c', command] : [];
-  const childCmd = command ? 'bash' : join(homedir(), '.local', 'bin', `playbash-${playbook}`);
+  const childCmd = command
+    ? 'bash'
+    : join(homedir(), '.local', 'bin', `playbash-${playbook}`);
   const env = {
     ...process.env,
     LC_ALL: 'C',
     COLUMNS: String(process.stdout.columns || 80),
-    LINES: String(process.stdout.rows || 24),
+    LINES: String(process.stdout.rows || 24)
   };
   if (playbook) {
     env.PLAYBASH_REPORT = reportPath;
     env.PLAYBASH_HOST = hostName;
   }
   await runHostSingle({
-    playbook: logLabel, hostName, rectHeight, verbose, label: '(local)',
+    playbook: logLabel,
+    hostName,
+    rectHeight,
+    verbose,
+    label: '(local)',
     makeChild: ({cols, rows}) => {
       env.COLUMNS = String(cols);
       env.LINES = String(rows);
       return spawn(childCmd, childArgs, {
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true, // own process group so killChild can group-kill
-        env,
+        env
       });
     },
     getSidecarText: playbook
       ? async () => {
           let text = '';
-          try { text = readFileSync(reportPath, 'utf8'); } catch {}
-          try { unlinkSync(reportPath); } catch {}
+          try {
+            text = readFileSync(reportPath, 'utf8');
+          } catch {}
+          try {
+            unlinkSync(reportPath);
+          } catch {}
           return text;
         }
-      : async () => '',
+      : async () => ''
   });
 }
 
@@ -691,17 +871,38 @@ async function runLocally({playbook, command, hostName, rectHeight, verbose}) {
 // per-host summaries (in input order) and the aggregated section.
 // When `transfer` is provided (for put/get), each host runs the simple
 // transfer callback instead of the full runHost pipeline.
-async function runFanout({playbook, command, customPath, targets, rectHeight, verbose, parallelLimit, inventory, push, offlineNames, transfer}) {
+async function runFanout({
+  playbook,
+  command,
+  customPath,
+  targets,
+  rectHeight,
+  verbose,
+  parallelLimit,
+  inventory,
+  push,
+  offlineNames,
+  transfer
+}) {
   const logLabel = playbook || transfer?.label || 'exec';
   const effectiveRect = transfer ? 0 : (rectHeight ?? 5);
-  const slots = targets.map(t => new HostSlot(t.name, t.address, effectiveRect));
-  const board = new StatusBoard(slots, {playbook: logLabel, rectHeight: effectiveRect});
+  const slots = targets.map(
+    t => new HostSlot(t.name, t.address, effectiveRect)
+  );
+  const board = new StatusBoard(slots, {
+    playbook: logLabel,
+    rectHeight: effectiveRect
+  });
   board.start();
 
-  const launchOne = async (slot) => {
+  const launchOne = async slot => {
     if (offlineNames.has(slot.name)) {
       board.hostFinished(slot.name, {
-        ok: false, statusWord: 'offline', events: [], logPath: '', elapsedMs: 0,
+        ok: false,
+        statusWord: 'offline',
+        events: [],
+        logPath: '',
+        elapsedMs: 0
       });
       return;
     }
@@ -712,12 +913,22 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
       const start = Date.now();
       try {
         const message = await transfer.fn(slot.name, slot.address);
-        const summary = {ok: true, statusWord: '', events: [], logPath: '', elapsedMs: Date.now() - start};
+        const summary = {
+          ok: true,
+          statusWord: '',
+          events: [],
+          logPath: '',
+          elapsedMs: Date.now() - start
+        };
         if (message) summary.capturedOutput = message;
         board.hostFinished(slot.name, summary);
       } catch (err) {
         board.hostFinished(slot.name, {
-          ok: false, statusWord: err.message.slice(0, 60), events: [], logPath: '', elapsedMs: Date.now() - start,
+          ok: false,
+          statusWord: err.message.slice(0, 60),
+          events: [],
+          logPath: '',
+          elapsedMs: Date.now() - start
         });
       }
       return;
@@ -727,23 +938,39 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
     let makeChild, getSidecarText;
     if (isSelf) {
       if (playbook) {
-        const playbookPath = join(homedir(), '.local', 'bin', `playbash-${playbook}`);
+        const playbookPath = join(
+          homedir(),
+          '.local',
+          'bin',
+          `playbash-${playbook}`
+        );
         if (!existsSync(playbookPath)) {
           board.hostFinished(slot.name, {
-            ok: false, statusWord: 'no script', events: [], logPath: '', elapsedMs: 0,
+            ok: false,
+            statusWord: 'no script',
+            events: [],
+            logPath: '',
+            elapsedMs: 0
           });
           return;
         }
       }
-      const reportPath = playbook ? join(tmpdir(), `playbash-report-${randomBytes(8).toString('hex')}.jsonl`) : '';
-      const childCmd = command ? 'bash' : join(homedir(), '.local', 'bin', `playbash-${playbook}`);
+      const reportPath = playbook
+        ? join(
+            tmpdir(),
+            `playbash-report-${randomBytes(8).toString('hex')}.jsonl`
+          )
+        : '';
+      const childCmd = command
+        ? 'bash'
+        : join(homedir(), '.local', 'bin', `playbash-${playbook}`);
       const childArgs = command ? ['-c', command] : [];
       makeChild = ({cols, rows}) => {
         const env = {
           ...process.env,
           LC_ALL: 'C',
           COLUMNS: String(cols),
-          LINES: String(rows),
+          LINES: String(rows)
         };
         if (playbook) {
           env.PLAYBASH_REPORT = reportPath;
@@ -752,14 +979,18 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
         return spawn(childCmd, childArgs, {
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: true, // own process group so killChild can group-kill
-          env,
+          env
         });
       };
       getSidecarText = playbook
         ? async () => {
             let text = '';
-            try { text = readFileSync(reportPath, 'utf8'); } catch {}
-            try { unlinkSync(reportPath); } catch {}
+            try {
+              text = readFileSync(reportPath, 'utf8');
+            } catch {}
+            try {
+              unlinkSync(reportPath);
+            } catch {}
             return text;
           }
         : async () => '';
@@ -768,15 +999,24 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
       let wrapperPath, playbookPath, libs;
       if (managed) {
         wrapperPath = WRAPPER_MANAGED;
-        if (playbook) { playbookPath = `~/.local/bin/playbash-${playbook}`; libs = null; }
+        if (playbook) {
+          playbookPath = `~/.local/bin/playbash-${playbook}`;
+          libs = null;
+        }
       } else if (playbook) {
-        const resolvedPath = customPath ? expandTemplate(customPath, {host: slot.name}) : null;
+        const resolvedPath = customPath
+          ? expandTemplate(customPath, {host: slot.name})
+          : null;
         if (resolvedPath && !existsSync(resolvedPath)) {
           // Per-host template miss — skip this host (e.g. ./reports/{host}/
           // exists for some hosts but not others). This is "expected
           // missing", not an error.
           board.hostFinished(slot.name, {
-            ok: true, statusWord: 'skipped', events: [], logPath: '', elapsedMs: 0,
+            ok: true,
+            statusWord: 'skipped',
+            events: [],
+            logPath: '',
+            elapsedMs: 0
           });
           return;
         }
@@ -786,13 +1026,25 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
         // staging functions throw Error.
         let remoteName;
         try {
-          const kind = resolvedPath ? validateCustomPlaybookPath(resolvedPath) : 'file';
-          remoteName = kind === 'dir'
-            ? await stagePlaybookDir(slot.address, slot.name, resolvedPath)
-            : await stagePlaybookFiles(slot.address, slot.name, playbook, resolvedPath);
+          const kind = resolvedPath
+            ? validateCustomPlaybookPath(resolvedPath)
+            : 'file';
+          remoteName =
+            kind === 'dir'
+              ? await stagePlaybookDir(slot.address, slot.name, resolvedPath)
+              : await stagePlaybookFiles(
+                  slot.address,
+                  slot.name,
+                  playbook,
+                  resolvedPath
+                );
         } catch (err) {
           board.hostFinished(slot.name, {
-            ok: false, statusWord: err.message.slice(0, 60), events: [], logPath: '', elapsedMs: 0,
+            ok: false,
+            statusWord: err.message.slice(0, 60),
+            events: [],
+            logPath: '',
+            elapsedMs: 0
           });
           return;
         }
@@ -803,35 +1055,62 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
         wrapperPath = await ensureWrapper(slot.address, slot.name);
         libs = null;
       }
-      const reportPath = playbook ? `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl` : '';
+      const reportPath = playbook
+        ? `/tmp/playbash-report-${randomBytes(8).toString('hex')}.jsonl`
+        : '';
       makeChild = ({cols, rows}) => {
         const wrapped = command
           ? buildExecCommand({cols, rows, command, wrapperPath})
-          : buildRemoteCommand({reportPath, hostName: slot.name, cols, rows, playbookPath, wrapperPath, libs});
-        return spawn('ssh', ['-o', 'BatchMode=yes', slot.address, '--', wrapped], {
-          stdio: ['ignore', 'pipe', 'pipe'],
-          detached: true, // own process group so killChild can group-kill
-        });
+          : buildRemoteCommand({
+              reportPath,
+              hostName: slot.name,
+              cols,
+              rows,
+              playbookPath,
+              wrapperPath,
+              libs
+            });
+        return spawn(
+          'ssh',
+          ['-o', 'BatchMode=yes', slot.address, '--', wrapped],
+          {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            detached: true // own process group so killChild can group-kill
+          }
+        );
       };
       getSidecarText = playbook
-        ? async () => { const r = await sshRun(slot.address, `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`); return r.stdout; }
+        ? async () => {
+            const r = await sshRun(
+              slot.address,
+              `cat ${reportPath} 2>/dev/null; rm -f ${reportPath}`
+            );
+            return r.stdout;
+          }
         : async () => '';
     }
 
     try {
       const capturedChunks = command ? [] : null;
       const summary = await runHost({
-        playbook: logLabel, hostName: slot.name, makeChild, getSidecarText,
+        playbook: logLabel,
+        hostName: slot.name,
+        makeChild,
+        getSidecarText,
         onChunk: chunk => {
           board.hostChunk(slot.name, chunk);
           if (capturedChunks) capturedChunks.push(chunk);
-        },
+        }
       });
       if (capturedChunks) summary.capturedOutput = capturedChunks.join('');
       board.hostFinished(slot.name, summary);
     } catch (err) {
       board.hostFinished(slot.name, {
-        ok: false, statusWord: 'spawn err', events: [], logPath: '', elapsedMs: 0,
+        ok: false,
+        statusWord: 'spawn err',
+        events: [],
+        logPath: '',
+        elapsedMs: 0
       });
       process.stderr.write(`playbash: ${slot.name}: ${err.message}\n`);
     }
@@ -869,14 +1148,16 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
     else if (slot.state === 'ok') okCount++;
     else failCount++;
     const elapsed = (slot.elapsedMs / 1000).toFixed(1);
-    process.stderr.write(buildStatusLine({
-      ok: slot.state === 'ok',
-      hostName: slot.name,
-      playbook: logLabel,
-      label: null,
-      status: slot.statusWord,
-      elapsed,
-    }) + '\n');
+    process.stderr.write(
+      buildStatusLine({
+        ok: slot.state === 'ok',
+        hostName: slot.name,
+        playbook: logLabel,
+        label: null,
+        status: slot.statusWord,
+        elapsed
+      }) + '\n'
+    );
     if (transfer || command) {
       // transfer/exec: show captured output per host
       if (slot.capturedOutput && slot.capturedOutput.trim()) {
@@ -884,9 +1165,15 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
           process.stderr.write(`  ${line}\n`);
         }
       }
-      if (slot.state !== 'ok' && slot.statusWord !== 'offline' && slot.statusWord !== 'skipped') {
+      if (
+        slot.state !== 'ok' &&
+        slot.statusWord !== 'offline' &&
+        slot.statusWord !== 'skipped'
+      ) {
         if (slot.logPath) {
-          process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+          process.stderr.write(
+            `  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`
+          );
         }
       }
     } else {
@@ -894,23 +1181,35 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
       if (slot.state !== 'ok') {
         renderFailureTail(slot.tail);
         if (slot.logPath) {
-          process.stderr.write(`  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`);
+          process.stderr.write(
+            `  ${COLOR.dim}↳ ${slot.logPath}${COLOR.reset}\n`
+          );
         }
       }
     }
   }
 
   // Footer line + cross-host aggregation.
-  const ranSlots = slots.filter(s => s.statusWord !== 'offline' && s.statusWord !== 'skipped');
-  const totalElapsed = ranSlots.length > 0
-    ? ((Date.now() - ranSlots[0].startedAt) / 1000).toFixed(1)
-    : '0.0';
+  const ranSlots = slots.filter(
+    s => s.statusWord !== 'offline' && s.statusWord !== 'skipped'
+  );
+  const totalElapsed =
+    ranSlots.length > 0
+      ? ((Date.now() - ranSlots[0].startedAt) / 1000).toFixed(1)
+      : '0.0';
   let summaryParts = [];
   if (okCount > 0) summaryParts.push(`${okCount} ok`);
-  if (failCount > 0) summaryParts.push(`${COLOR.bold}${COLOR.red}${failCount} failed${COLOR.reset}`);
-  if (skippedCount > 0) summaryParts.push(`${COLOR.dim}${skippedCount} skipped${COLOR.reset}`);
-  if (offlineCount > 0) summaryParts.push(`${COLOR.dim}${offlineCount} offline${COLOR.reset}`);
-  process.stderr.write(`\n${COLOR.dim}done in ${totalElapsed}s${COLOR.reset} · ${summaryParts.join(', ')}\n`);
+  if (failCount > 0)
+    summaryParts.push(
+      `${COLOR.bold}${COLOR.red}${failCount} failed${COLOR.reset}`
+    );
+  if (skippedCount > 0)
+    summaryParts.push(`${COLOR.dim}${skippedCount} skipped${COLOR.reset}`);
+  if (offlineCount > 0)
+    summaryParts.push(`${COLOR.dim}${offlineCount} offline${COLOR.reset}`);
+  process.stderr.write(
+    `\n${COLOR.dim}done in ${totalElapsed}s${COLOR.reset} · ${summaryParts.join(', ')}\n`
+  );
 
   renderAggregated(aggregateEvents(slots));
 
@@ -923,11 +1222,18 @@ function latestLogUnder(dir) {
   let best = null;
   let bestName = '';
   let entries;
-  try { entries = readdirSync(dir, {withFileTypes: true}); } catch { return null; }
+  try {
+    entries = readdirSync(dir, {withFileTypes: true});
+  } catch {
+    return null;
+  }
   for (const e of entries) {
     if (e.isDirectory()) {
       const deeper = latestLogUnder(join(dir, e.name));
-      if (deeper && deeper.name > bestName) { best = deeper.path; bestName = deeper.name; }
+      if (deeper && deeper.name > bestName) {
+        best = deeper.path;
+        bestName = deeper.name;
+      }
     } else if (e.name.endsWith('.log') && e.name > bestName) {
       bestName = e.name;
       best = join(dir, e.name);
@@ -982,7 +1288,9 @@ function cmdList() {
     .map(f => f.slice(PLAYBOOK_PREFIX.length))
     .sort();
   if (playbooks.length === 0) {
-    process.stderr.write(`no playbooks found in ${PLAYBOOK_DIR} (looking for ${PLAYBOOK_PREFIX}*)\n`);
+    process.stderr.write(
+      `no playbooks found in ${PLAYBOOK_DIR} (looking for ${PLAYBOOK_PREFIX}*)\n`
+    );
     return;
   }
   for (const p of playbooks) process.stdout.write(`${p}\n`);
@@ -1006,19 +1314,25 @@ async function cmdHosts() {
       hostNames.map(name => isSelfAddress(inv.hosts.get(name).address))
     );
     const width = Math.max(...hostNames.map(n => n.length));
-    const addrWidth = Math.max(...hostNames.map(n => inv.hosts.get(n).address.length));
+    const addrWidth = Math.max(
+      ...hostNames.map(n => inv.hosts.get(n).address.length)
+    );
     for (let i = 0; i < hostNames.length; i++) {
       const name = hostNames[i];
       const addr = inv.hosts.get(name).address;
       const tag = selfFlags[i] ? '  (self)' : '';
-      process.stdout.write(`${name.padEnd(width)}  ${addr.padEnd(addrWidth)}${tag}\n`);
+      process.stdout.write(
+        `${name.padEnd(width)}  ${addr.padEnd(addrWidth)}${tag}\n`
+      );
     }
   }
   if (groupNames.length > 0) {
     process.stdout.write('\ngroups:\n');
     const width = Math.max(...groupNames.map(n => n.length));
     for (const name of groupNames) {
-      process.stdout.write(`  ${name.padEnd(width)}  ${inv.groups.get(name).join(', ')}\n`);
+      process.stdout.write(
+        `  ${name.padEnd(width)}  ${inv.groups.get(name).join(', ')}\n`
+      );
     }
   }
 }
@@ -1044,7 +1358,10 @@ function cmdCompleteTargets() {
 // The script itself lives in completion.bash alongside the other playbash
 // modules — a plain bash file editable with full IDE support.
 function cmdBashCompletion() {
-  const script = readFileSync(join(homedir(), '.local', 'share', 'playbash', 'completion.bash'), 'utf8');
+  const script = readFileSync(
+    join(homedir(), '.local', 'share', 'playbash', 'completion.bash'),
+    'utf8'
+  );
   process.stdout.write(script);
 }
 
@@ -1052,21 +1369,27 @@ function cmdBashCompletion() {
 
 const {values, positionals} = parseArgs({
   options: {
-    lines:             {type: 'string',  short: 'n'},
-    self:              {type: 'boolean', default: false},
-    'no-precheck':     {type: 'boolean', short: 'N', default: false},
-    parallel:          {type: 'string',  short: 'p', default: '0'},
-    'bash-completion': {type: 'boolean', default: false},
+    lines: {type: 'string', short: 'n'},
+    self: {type: 'boolean', default: false},
+    'no-precheck': {type: 'boolean', short: 'N', default: false},
+    parallel: {type: 'string', short: 'p', default: '0'},
+    'bash-completion': {type: 'boolean', default: false}
   },
-  allowPositionals: true,
+  allowPositionals: true
 });
 
 // null when the user didn't pass -n; a validated number otherwise.
-const linesFlag = values.lines != null ? (() => {
-  const n = parseInt(values.lines, 10);
-  if (!Number.isFinite(n) || n < 0) die(`--lines must be a non-negative integer (0 disables the rectangle)`);
-  return n;
-})() : null;
+const linesFlag =
+  values.lines != null
+    ? (() => {
+        const n = parseInt(values.lines, 10);
+        if (!Number.isFinite(n) || n < 0)
+          die(
+            `--lines must be a non-negative integer (0 disables the rectangle)`
+          );
+        return n;
+      })()
+    : null;
 
 if (values['bash-completion']) {
   cmdBashCompletion();
@@ -1096,10 +1419,28 @@ async function runTransferSingle(target, mode, transferFn) {
     const start = Date.now();
     const msg = await transferFn(target.name, target.address);
     const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-    process.stderr.write(buildStatusLine({ok: true, hostName: target.name, playbook: mode, label: null, status: '', elapsed}) + '\n');
+    process.stderr.write(
+      buildStatusLine({
+        ok: true,
+        hostName: target.name,
+        playbook: mode,
+        label: null,
+        status: '',
+        elapsed
+      }) + '\n'
+    );
     if (msg) process.stderr.write(`  ${COLOR.dim}${msg}${COLOR.reset}\n`);
   } catch (err) {
-    process.stderr.write(buildStatusLine({ok: false, hostName: target.name, playbook: mode, label: null, status: err.message.slice(0, 60), elapsed: '0.0'}) + '\n');
+    process.stderr.write(
+      buildStatusLine({
+        ok: false,
+        hostName: target.name,
+        playbook: mode,
+        label: null,
+        status: err.message.slice(0, 60),
+        elapsed: '0.0'
+      }) + '\n'
+    );
     process.exit(1);
   }
 }
@@ -1108,10 +1449,14 @@ async function cmdPut(targetArg, localPathTemplate, remotePathArg) {
   // Normalize the operator-side home prefix so the remote shell does the
   // home resolution per-target (see normalizeRemotePath). Local path is
   // operator-side and is left untouched.
-  const remoteTemplate = normalizeRemotePath(remotePathArg || localPathTemplate);
+  const remoteTemplate = normalizeRemotePath(
+    remotePathArg || localPathTemplate
+  );
   const hasLocalTemplate = localPathTemplate.includes('{host}');
-  if (!hasLocalTemplate && !existsSync(localPathTemplate)) die(`local path not found: ${localPathTemplate}`);
-  const {targets, offlineNames, parallelLimit} = await resolveAndValidate(targetArg);
+  if (!hasLocalTemplate && !existsSync(localPathTemplate))
+    die(`local path not found: ${localPathTemplate}`);
+  const {targets, offlineNames, parallelLimit} =
+    await resolveAndValidate(targetArg);
 
   const doPut = async (hostName, address) => {
     const lp = expandTemplate(localPathTemplate, {host: hostName});
@@ -1120,7 +1465,12 @@ async function cmdPut(targetArg, localPathTemplate, remotePathArg) {
       throw new Error(`not found: ${lp}`);
     }
     const isDir = statSync(lp).isDirectory();
-    const rp = expandTemplate(remoteTemplate.endsWith('/') && !isDir ? remoteTemplate + basename(lp) : remoteTemplate, {host: hostName});
+    const rp = expandTemplate(
+      remoteTemplate.endsWith('/') && !isDir
+        ? remoteTemplate + basename(lp)
+        : remoteTemplate,
+      {host: hostName}
+    );
     await putOne(address, lp, rp, isDir);
     return `${lp} → ${rp}`;
   };
@@ -1129,11 +1479,16 @@ async function cmdPut(targetArg, localPathTemplate, remotePathArg) {
     await runTransferSingle(targets[0], 'put', doPut);
   } else {
     await runFanout({
-      targets, parallelLimit, offlineNames,
-      transfer: {label: 'put', fn: async (hostName, address) => {
-        const msg = await doPut(hostName, address);
-        return msg === null ? 'skipped (file not found)' : msg;
-      }},
+      targets,
+      parallelLimit,
+      offlineNames,
+      transfer: {
+        label: 'put',
+        fn: async (hostName, address) => {
+          const msg = await doPut(hostName, address);
+          return msg === null ? 'skipped (file not found)' : msg;
+        }
+      }
     });
   }
 }
@@ -1142,18 +1497,25 @@ async function cmdGet(targetArg, remoteTemplateArg, localPathArg) {
   // Normalize the operator-side home prefix so the remote shell does the
   // home resolution per-target (see normalizeRemotePath).
   const remoteTemplate = normalizeRemotePath(remoteTemplateArg);
-  const {targets, offlineNames, parallelLimit} = await resolveAndValidate(targetArg);
+  const {targets, offlineNames, parallelLimit} =
+    await resolveAndValidate(targetArg);
   const remoteBase = basename(remoteTemplate);
-  const defaultLocal = targets.length === 1 ? remoteBase : `{host}-${remoteBase}`;
+  const defaultLocal =
+    targets.length === 1 ? remoteBase : `{host}-${remoteBase}`;
   const localTemplate = localPathArg || defaultLocal;
   if (targets.length > 1 && !localTemplate.includes('{host}')) {
-    die(`multiple targets require {host} in the local path to avoid overwrites`);
+    die(
+      `multiple targets require {host} in the local path to avoid overwrites`
+    );
   }
 
   const doGet = async (hostName, address) => {
     const rp = expandTemplate(remoteTemplate, {host: hostName});
     const lp = expandTemplate(localTemplate, {host: hostName});
-    const isDir = (await sshRun(address, `test -d ${rp} && echo d || echo f`)).stdout.trim() === 'd';
+    const isDir =
+      (
+        await sshRun(address, `test -d ${rp} && echo d || echo f`)
+      ).stdout.trim() === 'd';
     await getOne(address, rp, lp, isDir);
     return `${rp} → ${lp}`;
   };
@@ -1162,8 +1524,10 @@ async function cmdGet(targetArg, remoteTemplateArg, localPathArg) {
     await runTransferSingle(targets[0], 'get', doGet);
   } else {
     await runFanout({
-      targets, parallelLimit, offlineNames,
-      transfer: {label: 'get', fn: doGet},
+      targets,
+      parallelLimit,
+      offlineNames,
+      transfer: {label: 'get', fn: doGet}
     });
   }
 }
@@ -1177,13 +1541,14 @@ async function resolveAndValidate(targetArg) {
   const {targets, skipped} = await filterSelf(resolved, values.self);
 
   if (targets.length === 0) {
-    if (skipped.length > 0) die(`all targets resolved to self; pass --self to include`);
+    if (skipped.length > 0)
+      die(`all targets resolved to self; pass --self to include`);
     die('target list resolved to nothing');
   }
 
   if (skipped.length > 0) {
     process.stderr.write(
-      `${COLOR.dim}· skipping self (${skipped.join(', ')}); pass --self to include${COLOR.reset}\n`,
+      `${COLOR.dim}· skipping self (${skipped.join(', ')}); pass --self to include${COLOR.reset}\n`
     );
   }
 
@@ -1193,10 +1558,11 @@ async function resolveAndValidate(targetArg) {
     for (const t of offline) offlineNames.add(t.name);
     if (offlineNames.size > 0) {
       process.stderr.write(
-        `${COLOR.dim}· offline: ${[...offlineNames].join(', ')}${COLOR.reset}\n`,
+        `${COLOR.dim}· offline: ${[...offlineNames].join(', ')}${COLOR.reset}\n`
       );
     }
-    if (offlineNames.size === targets.length) die('all targets are unreachable');
+    if (offlineNames.size === targets.length)
+      die('all targets are unreachable');
   }
 
   const parallelLimit = parseInt(values.parallel, 10);
@@ -1209,7 +1575,13 @@ async function resolveAndValidate(targetArg) {
 
 // Shared dispatcher for `run`, `push`, `debug`, and `exec`.
 async function dispatch({job, targetArg, rectHeight, verbose, push}) {
-  const {inventory: inv, resolved, targets, offlineNames, parallelLimit} = await resolveAndValidate(targetArg);
+  const {
+    inventory: inv,
+    resolved,
+    targets,
+    offlineNames,
+    parallelLimit
+  } = await resolveAndValidate(targetArg);
 
   if (resolved.length === 1) {
     const only = resolved[0];
@@ -1218,30 +1590,52 @@ async function dispatch({job, targetArg, rectHeight, verbose, push}) {
       const hint = job.playbook
         ? `pass --self to run locally, or invoke the bare script directly: playbash-${job.playbook}`
         : `pass --self to run locally`;
-      die(`"${only.name}" (${only.address}) resolves to a local interface; refusing to run on self.\n${hint}`);
+      die(
+        `"${only.name}" (${only.address}) resolves to a local interface; refusing to run on self.\n${hint}`
+      );
     }
     if (isSelf) {
       await runLocally({...job, hostName: only.name, rectHeight, verbose});
     } else {
       const managed = !push && inv.hosts.has(only.name);
       if (!push && job.playbook && !managed) {
-        process.stderr.write(`${COLOR.dim}· ${only.name} not in inventory — pushing playbook${COLOR.reset}\n`);
+        process.stderr.write(
+          `${COLOR.dim}· ${only.name} not in inventory — pushing playbook${COLOR.reset}\n`
+        );
       }
-      await runRemote({...job, hostName: only.name, address: only.address, rectHeight, verbose, managed});
+      await runRemote({
+        ...job,
+        hostName: only.name,
+        address: only.address,
+        rectHeight,
+        verbose,
+        managed
+      });
     }
     return;
   }
 
   if (!push && job.playbook) {
-    const nonInv = targets.filter(t => !inv.hosts.has(t.name) && !offlineNames.has(t.name));
+    const nonInv = targets.filter(
+      t => !inv.hosts.has(t.name) && !offlineNames.has(t.name)
+    );
     if (nonInv.length > 0) {
       process.stderr.write(
-        `${COLOR.dim}· pushing playbook to ${nonInv.map(t => t.name).join(', ')} (not in inventory)${COLOR.reset}\n`,
+        `${COLOR.dim}· pushing playbook to ${nonInv.map(t => t.name).join(', ')} (not in inventory)${COLOR.reset}\n`
       );
     }
   }
 
-  await runFanout({...job, targets, rectHeight, verbose, parallelLimit, inventory: inv, push, offlineNames});
+  await runFanout({
+    ...job,
+    targets,
+    rectHeight,
+    verbose,
+    parallelLimit,
+    inventory: inv,
+    push,
+    offlineNames
+  });
 }
 
 switch (command) {
@@ -1255,8 +1649,14 @@ switch (command) {
     await cmdHosts();
     break;
   }
+  case 'doctor': {
+    if (rest.length > 0) die(`doctor takes no arguments`);
+    await runDoctor();
+    break;
+  }
   case 'log': {
-    if (rest.length > 2) die(`log takes at most two arguments: [host] [command]`);
+    if (rest.length > 2)
+      die(`log takes at most two arguments: [host] [command]`);
     cmdLog(rest[0], rest[1]);
     break;
   }
@@ -1267,7 +1667,8 @@ switch (command) {
   }
   case 'run':
   case 'debug': {
-    if (rest.length !== 2) die(`${command} takes <targets> <playbook>\n${USAGE}`);
+    if (rest.length !== 2)
+      die(`${command} takes <targets> <playbook>\n${USAGE}`);
     const [targetArg, playbookArg] = rest;
     const isCustomPath = playbookArg.includes('/');
     if (isCustomPath) {
@@ -1276,36 +1677,59 @@ switch (command) {
       // up front so the user gets an error before any ssh work starts.
       if (!playbookArg.includes('{host}')) {
         let kind;
-        try { kind = validateCustomPlaybookPath(playbookArg); }
-        catch (err) { die(err.message); }
+        try {
+          kind = validateCustomPlaybookPath(playbookArg);
+        } catch (err) {
+          die(err.message);
+        }
         process.stderr.write(
           kind === 'dir'
             ? `${COLOR.dim}· ${playbookArg} is a directory playbook — using push mode${COLOR.reset}\n`
-            : `${COLOR.dim}· ${playbookArg} is a file path — using push mode${COLOR.reset}\n`,
+            : `${COLOR.dim}· ${playbookArg} is a file path — using push mode${COLOR.reset}\n`
         );
       } else {
-        process.stderr.write(`${COLOR.dim}· ${playbookArg} is a templated path — using push mode${COLOR.reset}\n`);
+        process.stderr.write(
+          `${COLOR.dim}· ${playbookArg} is a templated path — using push mode${COLOR.reset}\n`
+        );
       }
     } else {
-      if (!/^[a-zA-Z0-9._-]+$/.test(playbookArg)) die(`invalid playbook name "${playbookArg}"`);
+      if (!/^[a-zA-Z0-9._-]+$/.test(playbookArg))
+        die(`invalid playbook name "${playbookArg}"`);
     }
-    const playbook = isCustomPath ? basename(playbookArg.replace(/\/+$/, '')) : playbookArg;
+    const playbook = isCustomPath
+      ? basename(playbookArg.replace(/\/+$/, ''))
+      : playbookArg;
     const customPath = isCustomPath ? playbookArg : null;
     const rectHeight = command === 'debug' ? 0 : (linesFlag ?? 5);
     const verbose = command === 'debug';
-    await dispatch({job: {playbook, customPath}, targetArg, rectHeight, verbose, push: isCustomPath});
+    await dispatch({
+      job: {playbook, customPath},
+      targetArg,
+      rectHeight,
+      verbose,
+      push: isCustomPath
+    });
     break;
   }
   case 'push': {
     if (rest.length !== 2) die(`push takes <targets> <script-path>\n${USAGE}`);
     const [targetArg, scriptPath] = rest;
     if (!scriptPath.includes('{host}')) {
-      try { validateCustomPlaybookPath(scriptPath); }
-      catch (err) { die(err.message); }
+      try {
+        validateCustomPlaybookPath(scriptPath);
+      } catch (err) {
+        die(err.message);
+      }
     }
     const playbook = basename(scriptPath.replace(/\/+$/, ''));
     const rectHeight = linesFlag ?? 5;
-    await dispatch({job: {playbook, customPath: scriptPath}, targetArg, rectHeight, verbose: false, push: true});
+    await dispatch({
+      job: {playbook, customPath: scriptPath},
+      targetArg,
+      rectHeight,
+      verbose: false,
+      push: true
+    });
     break;
   }
   case 'exec': {
@@ -1314,16 +1738,24 @@ switch (command) {
     const command = cmdParts.join(' ');
     if (!command) die(`exec requires a command after the target\n${USAGE}`);
     const rectHeight = linesFlag ?? 0;
-    await dispatch({job: {command}, targetArg, rectHeight, verbose: false, push: false});
+    await dispatch({
+      job: {command},
+      targetArg,
+      rectHeight,
+      verbose: false,
+      push: false
+    });
     break;
   }
   case 'put': {
-    if (rest.length < 2 || rest.length > 3) die(`put takes <targets> <local-path> [<remote-path>]\n${USAGE}`);
+    if (rest.length < 2 || rest.length > 3)
+      die(`put takes <targets> <local-path> [<remote-path>]\n${USAGE}`);
     await cmdPut(rest[0], rest[1], rest[2]);
     break;
   }
   case 'get': {
-    if (rest.length < 2 || rest.length > 3) die(`get takes <targets> <remote-path> [<local-path>]\n${USAGE}`);
+    if (rest.length < 2 || rest.length > 3)
+      die(`get takes <targets> <remote-path> [<local-path>]\n${USAGE}`);
     await cmdGet(rest[0], rest[1], rest[2]);
     break;
   }
