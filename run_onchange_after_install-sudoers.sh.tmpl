@@ -39,7 +39,7 @@ SUDOERS_PATH=/etc/sudoers.d/chezmoi
 # The desired rule block. Edit here to change what chezmoi installs.
 # Re-running chezmoi apply propagates changes via the run_onchange_ hash.
 managed_rules=$(cat <<'RULES'
-{{- /*
+{{/*
   Group name for sudoers rules. Each platform has a different default sudo group.
 */ -}}
 {{- $sudoGroup := "" -}}
