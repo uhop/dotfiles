@@ -14,7 +14,7 @@ import {homedir} from 'node:os';
 import {basename, dirname} from 'node:path';
 import {spawn} from 'node:child_process';
 
-import {COLOR, buildStatusLine} from './render.js';
+import {COLOR, buildStatusLine, truncateStatus} from './render.js';
 import {die} from './errors.js';
 import {expandTemplate, runFanout} from './runner.js';
 import {sshRun} from './staging.js';
@@ -124,7 +124,7 @@ async function runTransferSingle(target, mode, transferFn) {
         hostName: target.name,
         playbook: mode,
         label: null,
-        status: err.message.slice(0, 60),
+        status: truncateStatus(err.message),
         elapsed: '0.0'
       }) + '\n'
     );

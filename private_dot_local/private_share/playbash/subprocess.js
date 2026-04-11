@@ -18,7 +18,7 @@ export function run(cmd, args, {timeoutMs} = {}) {
   return new Promise(resolve => {
     let stdout = '';
     let stderr = '';
-    let timed = false;
+    let timedOut = false;
     let proc;
     try {
       proc = spawn(cmd, args, {stdio: ['ignore', 'pipe', 'pipe']});
@@ -32,13 +32,13 @@ export function run(cmd, args, {timeoutMs} = {}) {
     let timer;
     if (timeoutMs) {
       timer = setTimeout(() => {
-        timed = true;
+        timedOut = true;
         try { proc.kill('SIGKILL'); } catch {}
       }, timeoutMs);
     }
     proc.on('close', code => {
       if (timer) clearTimeout(timer);
-      resolve({code: code ?? -1, stdout, stderr, timedOut: timed});
+      resolve({code: code ?? -1, stdout, stderr, timedOut});
     });
   });
 }

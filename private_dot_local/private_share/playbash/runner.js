@@ -33,6 +33,7 @@ import {
   StatusBoard,
   buildStatusLine,
   sanitizeForRect,
+  truncateStatus,
 } from './render.js';
 import {isSelfAddress} from './inventory.js';
 import {
@@ -42,14 +43,18 @@ import {
   renderSummary,
 } from './sidecar.js';
 import {
-  STAGING_DIR,
-  WRAPPER_MANAGED,
   ensureWrapper,
   sshRun,
   stagePlaybookDir,
   stagePlaybookFiles,
 } from './staging.js';
-import {LOG_DIR, PLAYBOOK_DIR, PLAYBOOK_PREFIX} from './paths.js';
+import {
+  LOG_DIR,
+  PLAYBOOK_DIR,
+  PLAYBOOK_PREFIX,
+  STAGING_DIR,
+  WRAPPER_MANAGED,
+} from './paths.js';
 import {die} from './errors.js';
 import {run} from './subprocess.js';
 
@@ -962,7 +967,7 @@ export async function runFanout({
         board.hostFinished(slot.name, summary);
       } catch (err) {
         board.hostFinished(slot.name, {
-          ok: false, statusWord: err.message.slice(0, 60),
+          ok: false, statusWord: truncateStatus(err.message),
           events: [], logPath: '', elapsedMs: Date.now() - start
         });
       }
@@ -1003,7 +1008,7 @@ export async function runFanout({
         });
       } catch (err) {
         board.hostFinished(slot.name, {
-          ok: false, statusWord: err.message.slice(0, 60),
+          ok: false, statusWord: truncateStatus(err.message),
           events: [], logPath: '', elapsedMs: 0
         });
         return;

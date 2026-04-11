@@ -104,6 +104,18 @@ export const COLOR = COLOR_ENABLED
 
 // --- Status line builder (shared between single-host and fan-out) ---
 
+// Short error / status messages shown after a ✗ glyph on a one-line row.
+// 60 chars is the widest we'll render before truncating; long stack-trace-y
+// error messages get cut off with an ellipsis so the reader can see at a
+// glance that the tail was elided rather than suspecting it's the whole
+// message. Callers use `truncateStatus` rather than hand-rolling the slice.
+export const STATUS_WORD_MAX_LEN = 60;
+
+export function truncateStatus(msg) {
+  if (msg.length <= STATUS_WORD_MAX_LEN) return msg;
+  return msg.slice(0, STATUS_WORD_MAX_LEN - 1) + '…';
+}
+
 export function buildStatusLine({ok, hostName, playbook, label, status, elapsed}) {
   const glyph = ok
     ? `${COLOR.green}✓${COLOR.reset}`

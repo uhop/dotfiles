@@ -186,24 +186,25 @@ After P1-4 subprocess hoist (runner.js −19, doctor.js −30, subprocess.js +44
 After P1-6 renderFanoutSummary extraction (runner.js +18): **3440 lines**.
 After P0-3 customPathKind short-circuit (executable_playbash +2, runner.js +4): **3446 lines**.
 After P1-1/P1-2/P1-3 bug fixes (executable_playbash +1, commands.js +6, staging.js +8): **3461 lines**.
+After 3.0.5 audit polish (render.js +12, runner.js +5, staging.js –1): **3477 lines**.
 
 Per-file breakdown (current):
 
 ```
    426  bin/executable_playbash       (was 1798, –1372, –76%)
-  1072  share/playbash/runner.js      (new; 948 post-Phase-5, +130 kill-bug, –9 errors.js, –19 subprocess.js, +18 renderFanoutSummary, +4 customPathKind)
+  1077  share/playbash/runner.js      (new; 948 post-Phase-5, +130 kill-bug, –9 errors.js, –19 subprocess.js, +18 renderFanoutSummary, +4 customPathKind, +5 paths dedupe + truncateStatus)
    208  share/playbash/commands.js    (new; +6 P1-2)
    224  share/playbash/transfer.js    (new)
     30  share/playbash/paths.js       (new)
     11  share/playbash/errors.js      (new; shared die() helper)
     44  share/playbash/subprocess.js  (new; shared run() helper)
-   424  share/playbash/render.js      (unchanged)
+   436  share/playbash/render.js      (+12: STATUS_WORD_MAX_LEN + truncateStatus)
    166  share/playbash/inventory.js   (–3 after errors.js)
    109  share/playbash/sidecar.js     (unchanged)
-   271  share/playbash/staging.js     (+8 P1-3: registerChild)
+   270  share/playbash/staging.js     (+8 P1-3: registerChild; –1 paths dedupe)
    395  share/playbash/doctor.js      (–30 after subprocess.js)
     81  share/playbash/ssh-config.js  (unchanged)
-  3461  total
+  3477  total
 ```
 
 The success criterion was "executable_playbash ≈ 250 lines, runner.js 650–800 post-dedup." Actual at end of Phase 5: 416 / 948. Current: 412 / 1069 — runner.js is larger than the post-Phase-5 snapshot because of the orphan-remote-wrapper cleanup infrastructure added later (`REMOTE_KILLABLE` registry, `killRemoteWrapper`, `trackRemoteWrapper`, `recordRemoteWrapperPid`, plus the extended signal handler in `cleanupAndExit`). That's a correctness fix, not refactor regression. The runner is bigger than estimated because `runFanout` is still a sizeable function on its own — the dedup inside `launchOne` was real but the surrounding fan-out loop, per-host summary printing, and aggregation footer are still all there. The entry point is bigger than estimated because the dispatcher (`dispatch`, `resolveAndValidate`, the `switch` statement, USAGE) is more verbose than I had in my head. Both are well within "single screen of one responsibility" so the goal is met in spirit.
@@ -227,5 +228,15 @@ These were explicitly out of scope; ship as separate small changes when convenie
 - ~~**P1-4** — hoist `doctor.js`'s `run()` helper to a shared `subprocess.js`.~~ **Done** — `share/playbash/subprocess.js` exports the single `run(cmd, args, {timeoutMs})` primitive; `doctor.js` imports it (was a 28-line private helper), and `runner.js`'s `probeConnectivity` drops its hand-rolled `spawn` + `new Promise` + error-handling in favor of the same helper. Net delta: runner.js −19, doctor.js −30, subprocess.js +44 = ~−5 lines — small raw-LOC win, but the real payoff is one place for "run a short-lived subprocess and capture its output". Bumped `VERSION` to `3.0.1`.
 - ~~**P1-6** — split `runFanout` further (the fan-out loop, per-host summary printing, and aggregation footer could become `runConcurrent`, `renderFanoutSummary`).~~ **Partially done** — `renderFanoutSummary` extracted. `runFanout` shrank from 211 → 147 lines (−30%); `renderFanoutSummary` is a 75-line self-contained helper that takes `(slots, {logLabel, verbose, showCapturedOutput})` and returns `{failCount}`. The `runConcurrent` extraction was **intentionally dropped** — grep confirmed zero other callers in the codebase, making it a premature one-caller hoist with no consolidation payoff. Net runner.js delta: +18 lines (cognitive win, not LOC win — the split boundary has its own header comment cost). Bumped `VERSION` to `3.0.2`.
 - ~~**`die()` consolidation** — move to a shared `errors.js` so the four copies become one.~~ **Done** — `share/playbash/errors.js` exports the sole copy; `executable_playbash`, `runner.js`, `transfer.js`, `commands.js`, and `inventory.js` all import it. Net –13 lines.
-- All P2 items from the code review.
-- Bug fixes B-1 through B-6 from the code review.
+- ~~All P2 items from the code review.~~ The original list was captured in a prior conversation and isn't in any dev-docs file or memory. A fresh audit was run (via the Explore agent + manual cross-checking) as a substitute. Verified-and-fixed items landed in version `3.0.5`:
+  - **`STAGING_DIR` / `WRAPPER_MANAGED` duplicated** between `paths.js` and `staging.js` — leftover from Phase 1 (`paths.js` was created but `staging.js`'s originals were never removed). Both files exported the same literal; `runner.js` imported them from `staging.js` rather than the authoritative `paths.js`. Fixed by removing the duplicates from `staging.js`, having `staging.js` import `STAGING_DIR` from `paths.js` for internal use, and updating `runner.js` to import both constants from `paths.js`.
+  - **Magic number `60` for `statusWord` truncation** in three call sites (`runner.js:965`, `runner.js:1006`, `transfer.js:127`) — plus silent truncation: a long error message got cut off with no indication. Fixed by exporting `STATUS_WORD_MAX_LEN = 60` from `render.js` plus a `truncateStatus(msg)` helper that appends `…` when truncation occurs. All three call sites now use the helper. The `doctor.js:106` `.slice(0, 60)` is a separate semantic context (ssh error classification) and was left alone.
+  - **`subprocess.js:21`** — local `timed` variable returned as `timedOut: timed`. Minor naming drift from the Phase-P1-4 hoist. Renamed `timed` → `timedOut` throughout so the closure matches the returned field name.
+
+  Invalidated findings (false alarms from the audit, documented so they don't get re-reported):
+  - `Math.max(...arr)` "empty array crash" in `commands.js:126,141` — both sites are guarded by `if (arr.length > 0)`.
+  - Same in `doctor.js:326` (checks built from a fixed list, never empty) and `doctor.js:338-339` (guarded by `if (hosts.length === 0) return`).
+  - Same in `render.js:261` (`StatusBoard` constructed only from `runFanout`, which runs only when `targets.length >= 2` because `dispatch` catches `targets.length === 1` first).
+  - `cleanupAndExit` "unhandled rejection" — `killRemoteWrapper` is documented as never-throwing and `process.exit(130)` fires unconditionally afterwards.
+  - `idleTimer/killTimer` "resource leak" — the agent itself noted "No actual leak" in the finding.
+- ~~Bug fixes B-1 through B-6 from the code review.~~ Not accessible. Covered by the fresh audit above; three real items found and fixed (listed under P2 above). The remaining agent-reported items were invalidated when cross-checked against actual code.

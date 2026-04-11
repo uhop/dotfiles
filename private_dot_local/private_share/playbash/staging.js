@@ -27,13 +27,12 @@ import {homedir} from 'node:os';
 import {basename as pathBasename, join} from 'node:path';
 import {spawn} from 'node:child_process';
 
+import {STAGING_DIR} from './paths.js';
 import {registerChild} from './runner.js';
 
 const WRAPPER_LOCAL   = join(homedir(), '.local', 'libs', 'playbash-wrap.py');
 const HELPER_LOCAL    = join(homedir(), '.local', 'libs', 'playbash.sh');
 const PLAYBOOK_DIR   = join(homedir(), '.local', 'bin');
-export const WRAPPER_MANAGED = '~/.local/libs/playbash-wrap.py';
-export const STAGING_DIR = '~/.cache/playbash-staging';
 const WRAPPER_STAGED  = `${STAGING_DIR}/playbash-wrap.py`;
 const CACHE_DIR       = join(homedir(), '.cache', 'playbash', 'staging');
 

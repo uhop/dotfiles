@@ -40,7 +40,7 @@ import {runDoctor} from '../share/playbash/doctor.js';
 
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
-const VERSION = '3.0.4';
+const VERSION = '3.0.5';
 
 const USAGE = `usage:
   playbash run    <targets> <playbook> [-n LINES] [-p N] [--self]
