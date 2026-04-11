@@ -119,8 +119,36 @@ Consequences:
 - Any interactive `ssh host` before or after a playbash run also benefits from the warm master. This is a feature.
 - Playbash cannot forcibly close the master and must not try to (`ssh -O exit` would also kill unrelated sessions sharing the socket).
 - A playbook longer than `ControlPersist` (5 min) is still fine — the master stays alive while connections are active; `ControlPersist` only counts idle time.
+- **Cleanup on Ctrl+C does not propagate through the mux master.** Killing the local mux client only sends a channel-close to the master, which keeps the underlying TCP connection alive. sshd never observes a disconnect, never SIGHUPs the wrapper, and the wrapper's POLLHUP/EPIPE detectors never fire either. The runner works around this with the **PID preamble + remote-kill** mechanism described under [Cleanup on signal](#cleanup-on-signal) — the wrapper announces its PID over stdout before forking, the runner stores it per-host, and on signal cleanup the runner sends `ssh host kill -TERM <pid>` over a fresh channel that the master happily multiplexes alongside the stuck one.
 
 Revisit if any of these become true: playbooks where deterministic teardown matters, or users without `ControlMaster auto` in their ssh config. The fallback is a private `/tmp/playbash.XXXX/` socket directory owned by playbash.
+
+## Cleanup on signal
+
+When the operator hits Ctrl+C (or `kill` sends SIGTERM/SIGHUP) to the runner, **every child process across every host must die**. There are three pieces:
+
+1. **Local process registry.** Every spawn that owns its own process group (`detached: true`) registers itself in a `Set` at the top of `runner.js`. The runner installs SIGINT/SIGTERM/SIGHUP handlers on its own process. On signal: `process.kill(-child.pid, 'SIGTERM')` for each entry, which hits the entire process group (the spawn must be detached for the negative PID to mean "process group ID"). For `--self` runs, this is the whole story — the playbook's bash is in our group, gets the signal, dies.
+
+2. **PTY wrapper signal trap.** For ssh-backed runs, the entry point on the remote side is `playbash-wrap.py`, a small Python wrapper that `pty.fork`s the playbook in the child and runs a poll loop in the parent. The wrapper installs `SIGTERM/SIGHUP/SIGINT/SIGPIPE` handlers that `os.killpg` the PTY child's process group, then exits. *This used to be the only remote cleanup path*, on the theory that killing the local ssh client would cause sshd to SIGHUP its child the way it does on a real connection drop.
+
+3. **PID preamble + remote-kill.** That theory falls apart under ssh `ControlMaster` multiplexing. When the local mux client is killed, the master sends a `SSH_MSG_CHANNEL_CLOSE` to sshd but the underlying TCP connection stays alive (the master is still serving other channels and is held by `ControlPersist`). sshd does not synthesize a SIGHUP for what it sees as a clean channel close; the wrapper sees nothing. **Verified on the production fleet 2026-04-11**: a Ctrl+C'd `playbash run all daily` left the wrapper + bash + chezmoi + install-packages.sh + doas subtree alive on every Linux host, holding chezmoi state locks for 8+ minutes until manually killed.
+
+   The fix is for the wrapper to *announce its own PID* to the runner over stdout before doing anything else:
+
+   ```python
+   # In playbash-wrap.py, BEFORE pty.fork:
+   os.write(1, f"__playbash_wrap_pid {os.getpid()}\n".encode())
+   ```
+
+   The runner's `runHost` chunk handler buffers the head of the per-host stdout stream until either a newline arrives or 256 bytes pile up, then matches against `^__playbash_wrap_pid (\d+)$`. On match: the PID is stored in a `REMOTE_KILLABLE` map keyed by the local ssh child's PID; the matched line is stripped from the stream so it never appears in the rectangle, log, tail buffer, or stuck detector. On no-match (256 bytes without a recognizable preamble — i.e. a host running an older wrapper): the bytes are forwarded as-is and that host's run continues without a known remote PID. Backward-compatible.
+
+   On signal cleanup, the runner does both:
+   - `process.kill(-child.pid, 'SIGTERM')` for every local ssh client (existing behavior),
+   - `spawn('ssh', [..., address, '--', 'kill -TERM PID; sleep 0.5; kill -KILL PID'])` for every remote wrapper PID it has on file. These are kicked off in parallel; the signal handler awaits up to 2 seconds for them to complete, then `process.exit(130)`. The fresh ssh channel for the kill *also* multiplexes over the stuck master — the master happily accepts new channels, it's just the existing ones that are stranded.
+
+   `runHostSingle` and `runFanout` both check a `cleaningUp` flag before their normal `process.exit` calls, so a signal-handler cleanup in flight isn't truncated by the runner's own normal-exit path.
+
+The combination — local registry + wrapper trap + remote-kill via PID preamble — gives deterministic teardown under every connection topology we run (mux, non-mux, --self, Linux target, macOS target). Verified end-to-end with `playbash exec all 'sleep 60'` + Ctrl+C → all hosts cleaned up within 2 seconds, exit code 130.
 
 ## Runtime model
 

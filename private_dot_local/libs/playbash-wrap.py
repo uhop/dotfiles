@@ -47,6 +47,20 @@ if len(sys.argv) < 2:
     sys.stderr.write("usage: playbash-wrap.py <playbook> [args...]\n")
     sys.exit(2)
 
+# Announce our PID to the runner over stdout BEFORE pty.fork. This is the
+# load-bearing piece of the cleanup story under ssh ControlMaster: when
+# the operator hits Ctrl+C, the runner sends SIGTERM to its local ssh
+# mux client, but the master keeps the underlying TCP connection alive,
+# so sshd never observes a disconnect, never SIGHUPs us, and our
+# POLLHUP/EPIPE detectors never fire either. The runner uses this PID to
+# send a separate `ssh host kill -TERM <pid>` over a fresh channel,
+# which kills us directly. The runner strips this line from the
+# displayed and logged stream — see runHost in share/playbash/runner.js.
+try:
+    os.write(1, f"__playbash_wrap_pid {os.getpid()}\n".encode())
+except OSError:
+    pass
+
 pid, fd = pty.fork()
 if pid == 0:
     os.execvp(sys.argv[1], sys.argv[1:])

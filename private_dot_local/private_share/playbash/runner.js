@@ -71,16 +71,51 @@ function die(msg, code = 2) {
 // Verified on macOS: previously a stuck `playbash run daily ... --self`
 // followed by Ctrl+C left bash + sudo behind indefinitely.
 //
-// For ssh-backed runs, killing the local ssh client makes sshd deliver
-// SIGHUP to its child (the python pty wrapper), which now traps the
-// signal and killpgs its bash subtree. So the same registry handles both
-// local and remote cleanup.
+// For ssh-backed runs there is a second cleanup channel needed because
+// of how ssh ControlMaster multiplexing works: killing the local ssh
+// mux client only sends a channel-close to the master, which keeps the
+// underlying TCP connection alive and never tells sshd that anything
+// went wrong. The remote sshd-session keeps running, never SIGHUPs the
+// wrapper, and the wrapper's POLLHUP/EPIPE detectors never fire either.
+// Result: the entire bash → playbook → chezmoi → install-packages →
+// doas subtree on the target survives as an orphan, holding state
+// locks etc. (Observed against the full Linux fleet 2026-04-11.)
+//
+// The fix: the wrapper writes its remote PID to stdout as the first
+// line (`__playbash_wrap_pid <pid>\n`) before pty.fork. The runner
+// parses this preamble out of the per-host stream and stores it in
+// REMOTE_KILLABLE keyed by the local ssh child PID. On signal cleanup,
+// the runner sends `ssh host kill -TERM <remote-pid>` over a *fresh*
+// channel — the master happily accepts new channels even when an old
+// one is stuck — which delivers SIGTERM directly to the orphaned
+// wrapper. The wrapper's signal handler then killpgs its bash subtree
+// the way it was always supposed to.
 const ACTIVE_CHILDREN = new Set();
+const REMOTE_KILLABLE = new Map(); // local ssh pid → {address, remotePid}
 
 export function registerChild(child) {
   if (!child || !child.pid) return;
   ACTIVE_CHILDREN.add(child);
-  child.once('close', () => ACTIVE_CHILDREN.delete(child));
+  child.once('close', () => {
+    ACTIVE_CHILDREN.delete(child);
+    REMOTE_KILLABLE.delete(child.pid);
+  });
+}
+
+// Mark a local ssh child as having a remote wrapper that needs to be
+// killed via a fresh ssh channel on cleanup. Called by makeRemoteChild
+// at spawn time; the remote PID is filled in later when the wrapper's
+// preamble line lands in the chunk handler.
+function trackRemoteWrapper(child, address) {
+  if (!child || !child.pid) return;
+  REMOTE_KILLABLE.set(child.pid, {address, remotePid: null});
+}
+
+// Called from runHost's chunk handler once the `__playbash_wrap_pid N`
+// line has been parsed out of the head of the stream.
+function recordRemoteWrapperPid(localPid, remotePid) {
+  const entry = REMOTE_KILLABLE.get(localPid);
+  if (entry) entry.remotePid = remotePid;
 }
 
 function killAllChildren(sig) {
@@ -95,21 +130,73 @@ function killAllChildren(sig) {
   }
 }
 
+// Send a kill to the remote wrapper via a fresh ssh channel. Returns a
+// promise that resolves when the kill completes or after a 4-second
+// timeout (whichever comes first). Never throws — best-effort cleanup.
+function killRemoteWrapper(address, remotePid) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    let proc;
+    try {
+      proc = spawn('ssh', [
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=3',
+        address, '--',
+        // SIGTERM, give the wrapper half a second to killpg its subtree
+        // and exit, then SIGKILL whatever's left.
+        `kill -TERM ${remotePid} 2>/dev/null; sleep 0.5; kill -KILL ${remotePid} 2>/dev/null; true`,
+      ], {stdio: ['ignore', 'ignore', 'ignore']});
+    } catch {
+      finish();
+      return;
+    }
+    proc.on('error', finish);
+    proc.on('close', finish);
+    setTimeout(() => {
+      try { proc.kill('SIGKILL'); } catch {}
+      finish();
+    }, 4000).unref();
+  });
+}
+
 let cleaningUp = false;
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(sig, () => {
     if (cleaningUp) return;
     cleaningUp = true;
-    if (ACTIVE_CHILDREN.size > 0) {
+    const localCount = ACTIVE_CHILDREN.size;
+    const remoteEntries = [...REMOTE_KILLABLE.values()].filter(e => e.remotePid);
+    if (localCount > 0 || remoteEntries.length > 0) {
+      const parts = [];
+      if (localCount > 0) parts.push(`${localCount} local`);
+      if (remoteEntries.length > 0) parts.push(`${remoteEntries.length} remote`);
       process.stderr.write(
-        `\nplaybash: ${sig} received, terminating ${ACTIVE_CHILDREN.size} child(ren)\n`
+        `\nplaybash: ${sig} received, terminating ${parts.join(' + ')} child(ren)\n`
       );
     }
+    // Local SIGTERM is synchronous and immediate.
     killAllChildren('SIGTERM');
-    // Give children a moment to die cleanly, then exit. SIGKILL fallback
-    // happens via the per-host killTimer that may already be armed.
-    setTimeout(() => process.exit(130), 500).unref();
+    // Remote kills run in parallel over fresh ssh channels. We give them
+    // up to 2 seconds to land before exiting; the per-host kill itself
+    // has a 4-second ceiling but we don't want to sit on Ctrl+C waiting
+    // for slow networks.
+    cleanupAndExit(remoteEntries);
   });
+}
+
+async function cleanupAndExit(remoteEntries) {
+  if (remoteEntries.length > 0) {
+    const kills = remoteEntries.map(e => killRemoteWrapper(e.address, e.remotePid));
+    await Promise.race([
+      Promise.all(kills),
+      new Promise(r => setTimeout(r, 2000)),
+    ]);
+  } else {
+    // Match the old 500ms grace for local-only cleanups.
+    await new Promise(r => setTimeout(r, 500));
+  }
+  process.exit(130);
 }
 
 // --- preflight connectivity check ---
@@ -360,16 +447,50 @@ async function runHost({
         if (!stuckReason && STDIN_PROMPT_RE.test(recentBuf)) killChild('sudo');
       };
 
+      // Strip the wrapper's `__playbash_wrap_pid <N>` preamble from the
+      // very head of the stdout stream. The preamble exists so the
+      // runner can kill the wrapper directly via a fresh ssh channel on
+      // Ctrl+C — see the REMOTE_KILLABLE block at the top of this file.
+      // Buffer the head until we see a newline OR 256 bytes (whichever
+      // comes first); if we matched, store the PID and forward only the
+      // post-newline bytes; otherwise forward as-is for backward compat
+      // with hosts running the pre-fix wrapper.
+      let preambleParsed = false;
+      let preambleBuf = Buffer.alloc(0);
+      const PREAMBLE_RE = /^__playbash_wrap_pid (\d+)\r?\n/;
+      const stripPreamble = chunk => {
+        if (preambleParsed) return chunk;
+        preambleBuf = Buffer.concat([preambleBuf, chunk]);
+        const nl = preambleBuf.indexOf(0x0a);
+        if (nl < 0 && preambleBuf.length < 256) return null; // wait for more
+        const head = preambleBuf.subarray(0, nl >= 0 ? nl + 1 : preambleBuf.length).toString('utf8');
+        const m = head.match(PREAMBLE_RE);
+        let rest;
+        if (m && nl >= 0) {
+          recordRemoteWrapperPid(child.pid, parseInt(m[1], 10));
+          rest = preambleBuf.subarray(nl + 1);
+        } else {
+          rest = preambleBuf;
+        }
+        preambleParsed = true;
+        preambleBuf = null;
+        return rest;
+      };
+
       child.stdout.on('data', chunk => {
-        // Log gets the raw byte stream (forensic copy). The display path
-        // gets the sanitized version so terminal queries from remote
-        // tools cannot reach the user's terminal regardless of mode.
-        log.write(chunk);
-        if (onChunk) onChunk(sanitizeForRect(chunk));
+        const trimmed = stripPreamble(chunk);
+        if (trimmed === null) return; // still waiting for the preamble newline
+        if (trimmed.length === 0) return;
+        // Log gets the trimmed byte stream (forensic copy minus the
+        // wrapper's preamble line). The display path gets the sanitized
+        // version so terminal queries from remote tools cannot reach
+        // the user's terminal regardless of mode.
+        log.write(trimmed);
+        if (onChunk) onChunk(sanitizeForRect(trimmed));
 
         lastChunkAt = Date.now();
-        appendToTail(chunk);
-        checkForStuck(chunk);
+        appendToTail(trimmed);
+        checkForStuck(trimmed);
       });
       child.stderr.on('data', chunk => {
         log.write(chunk);
@@ -499,7 +620,11 @@ async function runHostSingle({
     process.stderr.write(`  ${COLOR.dim}↳ ${summary.logPath}${COLOR.reset}\n`);
   }
 
-  process.exit(summary.result.code ?? 1);
+  // Skip if a signal handler is already cleaning up — its async cleanup
+  // will call process.exit(130) once the remote-kill ssh subprocesses
+  // have had a chance to deliver their commands. Without this guard,
+  // our normal exit could race with cleanup and cut it short.
+  if (!cleaningUp) process.exit(summary.result.code ?? 1);
 }
 
 // Render the captured tail of output (last few non-blank lines) under a
@@ -650,9 +775,13 @@ function prepareLocalJob({playbook, command, hostName}) {
 }
 
 // Spawn a remote ssh child running `wrapped` (the full remote command
-// line — either a buildRemoteCommand or buildExecCommand result).
+// line — either a buildRemoteCommand or buildExecCommand result), and
+// register it for remote-kill cleanup. The remote PID gets filled in
+// later when runHost parses the wrapper's `__playbash_wrap_pid` preamble.
 function makeRemoteChild(address, wrapped) {
-  return spawn('ssh', [...SSH_BASE_ARGS, address, '--', wrapped], CHILD_SPAWN_OPTS);
+  const child = spawn('ssh', [...SSH_BASE_ARGS, address, '--', wrapped], CHILD_SPAWN_OPTS);
+  trackRemoteWrapper(child, address);
+  return child;
 }
 
 // Build a "fetch and clean up the remote sidecar file" closure. Returns
@@ -944,5 +1073,6 @@ export async function runFanout({
 
   renderAggregated(aggregateEvents(slots));
 
-  process.exit(failCount > 0 ? 1 : 0);
+  // Skip if a signal handler is already cleaning up — see runHostSingle.
+  if (!cleaningUp) process.exit(failCount > 0 ? 1 : 0);
 }
