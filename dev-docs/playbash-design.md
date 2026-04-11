@@ -298,6 +298,7 @@ private_dot_local/
       sidecar.js                        # JSON-lines parser, per-host + cross-host aggregation
       staging.js                        # wrapper staging for vanilla hosts, BatchMode ssh
       doctor.js                         # `playbash doctor` env + per-host diagnostic
+      ssh-config.js                     # parseHostNames(): walk ~/.ssh/config + Includes
       completion.bash                   # bash completion script (read by --bash-completion)
     utils/
       comp.js                           # general-purpose comparison helpers

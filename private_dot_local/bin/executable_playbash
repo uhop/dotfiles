@@ -55,6 +55,7 @@ import {
   stagePlaybookFiles
 } from '../share/playbash/staging.js';
 import {runDoctor} from '../share/playbash/doctor.js';
+import {parseHostNames} from '../share/playbash/ssh-config.js';
 
 const USAGE = `usage:
   playbash run    <targets> <playbook> [-n LINES] [-p N] [--self]
@@ -1335,6 +1336,19 @@ async function cmdHosts() {
       );
     }
   }
+  // Third section: ssh-config Host aliases that aren't in inventory.
+  // These work as bare aliases at runtime (the dispatcher passes
+  // unknown names verbatim to ssh) but are not part of `all` and don't
+  // belong to any group. Surfacing them here makes them discoverable
+  // alongside the canonical fleet.
+  const inventoryNames = new Set(hostNames);
+  const sshOnly = [...parseHostNames()]
+    .filter(n => !inventoryNames.has(n))
+    .sort();
+  if (sshOnly.length > 0) {
+    process.stdout.write(`\n${COLOR.dim}ssh aliases (not in inventory):${COLOR.reset}\n`);
+    for (const name of sshOnly) process.stdout.write(`  ${name}\n`);
+  }
 }
 
 // --- bash completion ---
@@ -1345,11 +1359,25 @@ async function cmdHosts() {
 // formatting — just names. Single source of truth: bash never parses
 // inventory.json directly, so live changes are picked up on every tab.
 function cmdCompleteTargets() {
+  // Suggestions are sourced from two places:
+  //   1. Inventory: hosts, groups, and the implicit `all` group. These
+  //      are the canonical fleet members and the only things `all` and
+  //      group expansion know about at runtime.
+  //   2. ~/.ssh/config: literal Host entries (no wildcards). These work
+  //      as bare ssh aliases at runtime — the dispatcher passes unknown
+  //      names verbatim to ssh — but completion didn't know about them
+  //      until now, so the user had to type them from memory.
+  // We merge both sources, dedupe (a name in both ends up once), and
+  // emit alphabetically. Plain strings, no descriptions — see
+  // dev-docs/bash-rich-completion.md if we ever want richer suggestions.
+  const names = new Set();
   const inv = loadInventory();
-  if (!inv.present) return;
-  const names = new Set(['all']);
-  for (const n of inv.hosts.keys()) names.add(n);
-  for (const n of inv.groups.keys()) names.add(n);
+  if (inv.present) {
+    names.add('all');
+    for (const n of inv.hosts.keys()) names.add(n);
+    for (const n of inv.groups.keys()) names.add(n);
+  }
+  for (const n of parseHostNames()) names.add(n);
   for (const n of [...names].sort()) process.stdout.write(`${n}\n`);
 }
 

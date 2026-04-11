@@ -30,13 +30,14 @@
 // failures and warnings, summary line at the bottom. Exit code 0 if no
 // failures (warns are OK), 1 otherwise.
 
-import {existsSync, readFileSync, readdirSync, statSync} from 'node:fs';
+import {existsSync, readdirSync, statSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {spawn} from 'node:child_process';
 
 import {COLOR} from './render.js';
 import {INVENTORY_PATH, isSelfAddress, loadInventory} from './inventory.js';
+import {parseHostNames} from './ssh-config.js';
 
 const SSH_DIR        = join(homedir(), '.ssh');
 const SSH_CONFIG     = join(SSH_DIR, 'config');
@@ -97,64 +98,6 @@ async function sshEffectiveOptions(host) {
     map.set(t.slice(0, idx).toLowerCase(), t.slice(idx + 1));
   }
   return map;
-}
-
-// --- ssh config parser ---
-//
-// Walk ~/.ssh/config (and any Include'd files), collect literal Host names
-// (skipping wildcard patterns like `*` or `web?`). Used to detect inventory
-// hosts that have no dedicated Host entry — they may still work via DNS,
-// but we surface that as a warning so the user can decide.
-
-function parseHostNames() {
-  const out = new Set();
-  const visited = new Set();
-
-  const expandInclude = pattern => {
-    // Relative paths are resolved against ~/.ssh per ssh_config(5).
-    const absPattern = pattern.startsWith('/') ? pattern : join(SSH_DIR, pattern);
-    // Handle the common `dir/*` form without pulling in a glob lib.
-    if (absPattern.endsWith('/*')) {
-      const dir = absPattern.slice(0, -2);
-      try {
-        return readdirSync(dir)
-          .map(f => join(dir, f))
-          .filter(p => {
-            try { return statSync(p).isFile(); } catch { return false; }
-          });
-      } catch { return []; }
-    }
-    return existsSync(absPattern) ? [absPattern] : [];
-  };
-
-  const walk = path => {
-    if (visited.has(path)) return;
-    visited.add(path);
-    let text;
-    try { text = readFileSync(path, 'utf8'); } catch { return; }
-    for (const rawLine of text.split('\n')) {
-      const t = rawLine.trim();
-      if (!t || t.startsWith('#')) continue;
-      const m = t.match(/^(Host|Include)\s+(.+)$/i);
-      if (!m) continue;
-      const key = m[1].toLowerCase();
-      const value = m[2].trim();
-      if (key === 'host') {
-        for (const name of value.split(/\s+/)) {
-          if (name && !name.includes('*') && !name.includes('?')) {
-            out.add(name);
-          }
-        }
-      } else if (key === 'include') {
-        for (const pat of value.split(/\s+/)) {
-          for (const sub of expandInclude(pat)) walk(sub);
-        }
-      }
-    }
-  };
-
-  walk(SSH_CONFIG);
-  return out;
 }
 
 // --- ssh error classification ---
