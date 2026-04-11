@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# run_onchange_after_install-sudoers.sh.tmpl — manage /etc/sudoers.d/chezmoi
+# with NOPASSWD rules for the platform's package manager and maintenance commands.
+#
+# Re-runs whenever the rendered script changes (i.e., when the rule list below
+# changes). Idempotent: compares rendered rules with current file, skips write
+# if identical.
+#
+# Why: non-interactive tools (playbash, upd -y, cln -y) need passwordless
+# privilege escalation. Without this, they hang or fail at sudo password
+# prompts. Where doas is installed, doas handles this via /etc/doas.conf;
+# this script is the fallback for machines without doas.
+#
+# Skip conditions:
+#   - User has no sudo access
+#   - doas is installed and active (the sudo→doas alias means sudoers rules
+#     are bypassed anyway; cleaner to leave the file alone)
+#
+# Validation: writes to a tmp file, runs `visudo -cf` to validate syntax.
+# Refuses to install if validation fails.
+#
+# Permissions: 0440 root:root (Linux) or root:wheel (macOS), per sudo's
+# requirements. Files in /etc/sudoers.d/ with wrong perms are silently
+# ignored by sudo.
+
+{{ template "install-prelude.sh" . }}
+
+# Skip if user has no sudo access — nothing to grant.
+[ "$hasSudo" -eq 0 ] || exit 0
+
+# Skip if doas is active — doas handles passwordless rules separately,
+# and the sudo→doas alias means our sudoers rules would be unused.
+if command -v doas &>/dev/null && [ -f /etc/doas.conf ]; then
+  exit 0
+fi
+
+SUDOERS_PATH=/etc/sudoers.d/chezmoi
+
+# The desired rule block. Edit here to change what chezmoi installs.
+# Re-running chezmoi apply propagates changes via the run_onchange_ hash.
+managed_rules=$(cat <<'RULES'
+{{- /*
+  Group name for sudoers rules. Each platform has a different default sudo group.
+*/ -}}
+{{- $sudoGroup := "" -}}
+{{- if eq .pkgManager "apt" -}}{{- $sudoGroup = "sudo" -}}{{- end -}}
+{{- if eq .pkgManager "dnf" -}}{{- $sudoGroup = "wheel" -}}{{- end -}}
+{{- if eq .osFamily "darwin" -}}{{- $sudoGroup = "admin" -}}{{- end -}}
+# Managed by chezmoi — passwordless rules for upd/cln/playbash automation.
+# Do not edit by hand; edit run_onchange_after_install-sudoers.sh.tmpl instead.
+{{ if eq .pkgManager "apt" -}}
+# apt + Debian-stack tools (snap, AppArmor)
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt update
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt upgrade
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt -y upgrade
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt upgrade -y
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt autoremove
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt -y autoremove
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt autoremove -y
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt autoclean
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt -y autoclean
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt autoclean -y
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/snap refresh
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/sbin/aa-remove-unknown
+{{- else if eq .pkgManager "dnf" -}}
+# dnf
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf upgrade
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf -y upgrade
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf upgrade -y
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf autoremove
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf -y autoremove
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf autoremove -y
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf clean all
+{{- end }}
+{{ if eq .osFamily "linux" -}}
+# Linux system services
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart docker
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart containerd
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /bin/ping
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/ping
+{{- else if eq .osFamily "darwin" -}}
+# macOS system update
+%{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/sbin/softwareupdate
+{{- end }}
+RULES
+)
+
+# Skip on platforms with no rules to install (shouldn't happen, but safe).
+if [ -z "$(printf '%s\n' "$managed_rules" | grep -v '^[[:space:]]*#' | grep -v '^[[:space:]]*$')" ]; then
+  exit 0
+fi
+
+# Compare with current file (if any) to avoid pointless writes.
+if [ -f "$SUDOERS_PATH" ]; then
+  current=$(sudo cat "$SUDOERS_PATH" 2>/dev/null || echo "")
+  if [ "$current" = "$managed_rules" ]; then
+    exit 0  # already in sync
+  fi
+fi
+
+# Write to temp file and validate before installing.
+tmp=$(mktemp)
+# Force-overwrite (>|) because mktemp pre-created the file and the prelude
+# sets `set -C` (noclobber) which would otherwise refuse `>`.
+printf '%s\n' "$managed_rules" >| "$tmp"
+chmod 0440 "$tmp"
+
+if ! sudo visudo -cf "$tmp" >/dev/null 2>&1; then
+  echo "${WARN}visudo -cf validation failed; refusing to install ${SUDOERS_PATH}${RESET}" >&2
+  sudo visudo -cf "$tmp" >&2 || true
+  rm -f "$tmp"
+  exit 1
+fi
+
+echo "${WARN}Writing ${SUDOERS_PATH} requires sudo: expect asking for the sudo password (cached if already entered).${RESET}"
+echo "${PROMPT}Installing ${SUDOERS_PATH}...${RESET}"
+{{ if eq .osFamily "darwin" -}}
+sudo install -m 0440 -o root -g wheel "$tmp" "$SUDOERS_PATH"
+{{- else -}}
+sudo install -m 0440 -o root -g root "$tmp" "$SUDOERS_PATH"
+{{- end }}
+rm -f "$tmp"
+echo "${PROMPT}Updated ${SUDOERS_PATH}${RESET}"
