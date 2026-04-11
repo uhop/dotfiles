@@ -29,6 +29,7 @@ import {spawn} from 'node:child_process';
 
 import {STAGING_DIR} from './paths.js';
 import {registerChild} from './runner.js';
+import {shellQuote} from './shell-escape.js';
 
 const WRAPPER_LOCAL   = join(homedir(), '.local', 'libs', 'playbash-wrap.py');
 const HELPER_LOCAL    = join(homedir(), '.local', 'libs', 'playbash.sh');
@@ -116,14 +117,24 @@ async function stageWrapper(address, hostName) {
 // Probe the remote staging dir for existing files and their SHA-256 hashes.
 // Returns a Map<filename, sha256hex>. Uses a Python one-liner (Python 3.3+
 // is already a hard requirement for the PTY wrapper).
-async function probeRemoteShas(address, remotePaths) {
+//
+// Takes plain filenames (not full paths) so this function owns the
+// STAGING_DIR-prefix construction and the shell-quoting of the untrusted
+// basename component. Library files (playbash-wrap.py, playbash.sh) and
+// managed playbook names are safe; single-file custom playbooks upstream
+// come from pathBasename of operator input and may contain spaces or
+// metacharacters — shellQuote handles them.
+async function probeRemoteShas(address, fileNames) {
   const pyScript = [
     'import hashlib,sys',
     'for f in sys.argv[1:]:',
     ' try:print(hashlib.sha256(open(f,"rb").read()).hexdigest(),f.rsplit("/",1)[-1])',
     ' except:pass',
   ].join('\n');
-  const r = await sshRun(address, `python3 -c '${pyScript}' ${remotePaths.join(' ')}`);
+  const quoted = fileNames
+    .map(n => `${STAGING_DIR}/${shellQuote(n)}`)
+    .join(' ');
+  const r = await sshRun(address, `python3 -c '${pyScript}' ${quoted}`);
   const shas = new Map();
   if (r.code === 0) {
     for (const line of r.stdout.split('\n')) {
@@ -143,15 +154,20 @@ async function probeRemoteShas(address, remotePaths) {
 async function uploadStagedFiles(address, hostName, files) {
   const remoteShas = await probeRemoteShas(
     address,
-    files.map(f => `${STAGING_DIR}/${f.name}`),
+    files.map(f => f.name),
   );
   const needed = files.filter(f => remoteShas.get(f.name) !== f.sha);
   if (needed.length === 0) return;
 
   const stageOne = ({name, content, executable}) => {
+    // `name` may be pathBasename(customLocalPath) for single-file custom
+    // playbooks and can contain spaces/quotes/metacharacters — quote it
+    // against the trusted STAGING_DIR prefix. STAGING_DIR itself starts
+    // with `~` and must stay unquoted so the remote shell expands home.
+    const qName = shellQuote(name);
     const cmd = executable
-      ? `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${name} && chmod +x ${STAGING_DIR}/${name}`
-      : `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${name}`;
+      ? `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${qName} && chmod +x ${STAGING_DIR}/${qName}`
+      : `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${qName}`;
     return sshRun(address, cmd, {input: content});
   };
   const results = await Promise.all(needed.map(stageOne));

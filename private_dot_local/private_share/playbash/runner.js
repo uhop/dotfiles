@@ -56,6 +56,7 @@ import {
   WRAPPER_MANAGED,
 } from './paths.js';
 import {die} from './errors.js';
+import {shellQuotePath} from './shell-escape.js';
 import {run} from './subprocess.js';
 
 // --- global child registry + cleanup on signals ---
@@ -224,11 +225,19 @@ export async function probeConnectivity(targets) {
 // rationale (PTY allocation, POLLHUP-on-stdout disconnect detection,
 // signal-driven killpg cleanup of the bash subtree).
 //
-// All this function does is build the remote shell command line. The
-// playbook path, env-var names, and host name are all values we control
-// (host names are validated against [a-zA-Z0-9._-]), so plain string
-// interpolation is safe. `exec` so python becomes the direct child of
-// sshd's session shell — no intermediate bash -c layer to absorb signals.
+// All this function does is build the remote shell command line.
+//
+// Trust split: `reportPath` (randomBytes hex), `hostName` (validated
+// against [a-zA-Z0-9._-]), `cols`/`rows` (integers), `libs` (constant or
+// null), `wrapperPath` (constant, either `~/.local/libs/playbash-wrap.py`
+// or `${STAGING_DIR}/playbash-wrap.py`) are all trusted and emitted raw.
+// `playbookPath` is the one field that can carry operator-supplied bytes
+// — for a push of a single-file custom playbook with a space in its
+// basename, it's `${STAGING_DIR}/space test.sh`. `shellQuotePath` quotes
+// the non-tilde suffix so the remote shell treats it as one word while
+// still expanding the leading `~/`. `exec` so python becomes the direct
+// child of sshd's session shell — no intermediate bash -c layer to
+// absorb signals.
 function buildRemoteCommand({
   reportPath,
   hostName,
@@ -244,7 +253,7 @@ function buildRemoteCommand({
     `PLAYBASH_HOST=${hostName} ` +
     (libs ? `PLAYBASH_LIBS=${libs} ` : '') +
     `COLUMNS=${cols} LINES=${rows} ` +
-    `exec python3 -u ${wrapperPath} ${playbookPath}`
+    `exec python3 -u ${wrapperPath} ${shellQuotePath(playbookPath)}`
   );
 }
 

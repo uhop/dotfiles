@@ -17,6 +17,7 @@ import {spawn} from 'node:child_process';
 import {COLOR, buildStatusLine, truncateStatus} from './render.js';
 import {die} from './errors.js';
 import {expandTemplate, runFanout} from './runner.js';
+import {shellQuotePath} from './shell-escape.js';
 import {sshRun} from './staging.js';
 
 // Bash expands `~` and `~user` on the command line BEFORE playbash sees the
@@ -37,8 +38,12 @@ function normalizeRemotePath(path) {
   return path;
 }
 
-// Transfer a single file or directory to a remote host.
+// Transfer a single file or directory to a remote host. `remotePath` is
+// operator-supplied and may contain spaces, quotes, or `~` — quoted via
+// shellQuotePath so the remote shell interprets it as one word while
+// preserving leading `~` home expansion.
 async function putOne(address, localPath, remotePath, isDir) {
+  const qRemote = shellQuotePath(remotePath);
   if (isDir) {
     const tarBuf = await new Promise((resolve, reject) => {
       const ch = [];
@@ -55,7 +60,7 @@ async function putOne(address, localPath, remotePath, isDir) {
     });
     const r = await sshRun(
       address,
-      `mkdir -p ${remotePath} && tar xf - -C ${remotePath}`,
+      `mkdir -p ${qRemote} && tar xf - -C ${qRemote}`,
       {input: tarBuf}
     );
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
@@ -64,18 +69,20 @@ async function putOne(address, localPath, remotePath, isDir) {
     const remoteDir = remotePath.includes('/')
       ? remotePath.substring(0, remotePath.lastIndexOf('/'))
       : '';
-    const mkdirCmd = remoteDir ? `mkdir -p ${remoteDir} && ` : '';
-    const r = await sshRun(address, `${mkdirCmd}cat > ${remotePath}`, {
+    const mkdirCmd = remoteDir ? `mkdir -p ${shellQuotePath(remoteDir)} && ` : '';
+    const r = await sshRun(address, `${mkdirCmd}cat > ${qRemote}`, {
       input: content
     });
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
   }
 }
 
-// Transfer a single file or directory from a remote host.
+// Transfer a single file or directory from a remote host. See putOne for
+// the shellQuotePath rationale.
 async function getOne(address, remotePath, localPath, isRemoteDir) {
+  const qRemote = shellQuotePath(remotePath);
   if (isRemoteDir) {
-    const r = await sshRun(address, `tar cf - -C ${remotePath} .`, {raw: true});
+    const r = await sshRun(address, `tar cf - -C ${qRemote} .`, {raw: true});
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
     mkdirSync(localPath, {recursive: true});
     await new Promise((resolve, reject) => {
@@ -90,7 +97,7 @@ async function getOne(address, remotePath, localPath, isRemoteDir) {
       );
     });
   } else {
-    const r = await sshRun(address, `cat ${remotePath}`, {raw: true});
+    const r = await sshRun(address, `cat ${qRemote}`, {raw: true});
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
     const localDir = dirname(localPath);
     if (localDir) mkdirSync(localDir, {recursive: true});
@@ -205,7 +212,7 @@ export async function cmdGet(validated, remoteTemplateArg, localPathArg) {
     const lp = expandTemplate(localTemplate, {host: hostName});
     const isDir =
       (
-        await sshRun(address, `test -d ${rp} && echo d || echo f`)
+        await sshRun(address, `test -d ${shellQuotePath(rp)} && echo d || echo f`)
       ).stdout.trim() === 'd';
     await getOne(address, rp, lp, isDir);
     return `${rp} → ${lp}`;

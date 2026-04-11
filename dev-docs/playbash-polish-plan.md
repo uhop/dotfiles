@@ -162,17 +162,18 @@ export function shellQuote(s) {
 }
 ```
 
-**Call-site updates** — 7 total:
+**Call-site updates** — 8 total (the 8th — `runner.js` `buildRemoteCommand` — was discovered during positive testing when `playbash push nuke '/tmp/space test.sh'` failed with `FileNotFoundError` from the remote `execvp` even after the transfer.js/staging.js fixes were in place):
 
-| File | Line | Before | After |
+| File | Line(s) | Before | After |
 |---|---|---|---|
-| `transfer.js` | 58 | `mkdir -p ${remotePath} && tar xf - -C ${remotePath}` | quote `remotePath` (use a local `const q = shellQuote(remotePath)`) |
-| `transfer.js` | 68 | `${mkdirCmd}cat > ${remotePath}` | quote `remotePath`; adjust `mkdirCmd` to use `shellQuote(remoteDir)` |
-| `transfer.js` | 78 | `tar cf - -C ${remotePath} .` | quote `remotePath` |
-| `transfer.js` | 93 | `cat ${remotePath}` | quote `remotePath` |
-| `transfer.js` | 208 | `test -d ${rp} && echo d || echo f` | quote `rp` |
-| `staging.js` | 126 | `python3 -c '${pyScript}' ${remotePaths.join(' ')}` | map each path through `shellQuote`, then `.join(' ')` |
-| `staging.js` | 153-154 | `cat > ${STAGING_DIR}/${name}` (+ chmod variant) | quote the full remote path `shellQuote(\`${STAGING_DIR}/${name}\`)` |
+| `transfer.js` | 58 | `mkdir -p ${remotePath} && tar xf - -C ${remotePath}` | `const qRemote = shellQuotePath(remotePath)` hoisted; `mkdir -p ${qRemote} && tar xf - -C ${qRemote}` |
+| `transfer.js` | 68 | `${mkdirCmd}cat > ${remotePath}` | `${mkdirCmd}cat > ${qRemote}` with `mkdirCmd` now using `shellQuotePath(remoteDir)` |
+| `transfer.js` | 78 | `tar cf - -C ${remotePath} .` | `tar cf - -C ${qRemote} .` |
+| `transfer.js` | 93 | `cat ${remotePath}` | `cat ${qRemote}` |
+| `transfer.js` | 208 | `test -d ${rp} && echo d || echo f` | `test -d ${shellQuotePath(rp)} && echo d || echo f` |
+| `staging.js` | 126 | `python3 -c '${pyScript}' ${remotePaths.join(' ')}` | Refactored `probeRemoteShas` to take `fileNames` (not full paths) and construct `${STAGING_DIR}/${shellQuote(n)}` internally. Clearer trust boundary: STAGING_DIR trusted, basename quoted. |
+| `staging.js` | 153-154 | `cat > ${STAGING_DIR}/${name}` (+ chmod variant) | `const qName = shellQuote(name)` hoisted; `cat > ${STAGING_DIR}/${qName}` (STAGING_DIR stays unquoted so tilde expands) |
+| `runner.js` | 247 | `exec python3 -u ${wrapperPath} ${playbookPath}` (in `buildRemoteCommand`) | `exec python3 -u ${wrapperPath} ${shellQuotePath(playbookPath)}`. Expanded the function's docstring to document the trust split: `reportPath`/`hostName`/`libs`/`wrapperPath` are trusted (constants or validated); only `playbookPath` can carry operator-supplied bytes for push of single-file custom playbooks. |
 
 Note: `STAGING_DIR` is `~/.cache/playbash-staging` (literal `~`). Wrapping the whole `${STAGING_DIR}/${name}` in single quotes would quote the `~` and prevent expansion. Instead, quote just the filename portion: `${STAGING_DIR}/${shellQuote(name)}`. Same trick for the paths in `transfer.js` that use `~/...` — except that `remotePath` there is operator-supplied, so we need to preserve `~` expansion too. Decision: quote the path with a sed-style split: prefix `~` stays unquoted, the rest is quoted. Or simpler: **always concatenate quoted segments** — `'` + escaped + `'`, and if a user wants `~` expansion, they pass `~/foo` which normalizes to `'~/foo'` which... won't expand.
 
@@ -235,7 +236,7 @@ Final plan:
 | Phase | Status | Version | Commit | Notes |
 |---|---|---|---|---|
 | 1 — polish | ✅ | `3.0.6` | (pending commit) | P-1: `errors.js` coerces non-string `msg` via `String(msg)`. P-2: `libs/playbash.sh` documents the `--data` contract (pre-formed JSON, caller's responsibility). Verified: `die(new Error('test'))` now prints `playbash: Error: test` instead of `[object Object]`; all regression smoke tests pass. |
-| 2 — shell quoting | ⏳ | `3.1.0` | — | A-1 + A-2 + A-3 via `shellQuote` / `shellQuotePath` |
+| 2 — shell quoting | ✅ | `3.1.0` | (pending commit) | A-1 + A-2 + A-3 via `shellQuote` / `shellQuotePath`. New module `share/playbash/shell-escape.js` (43 lines) with two exports. **8 call sites fixed** — the plan listed 7; an 8th surfaced when the positive test exposed `buildRemoteCommand` in `runner.js` also interpolating `playbookPath` raw. Full test matrix verified on `nuke`: plain-path put/get roundtrip byte-identical; put+get+push all work with `/tmp/space test.sh`; fan-out exec, managed `run`, doctor, list, hosts all pass regression. |
 
 ## Follow-up (Option C)
 
