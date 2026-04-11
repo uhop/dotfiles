@@ -26,7 +26,8 @@
       "Bash(chezmoi cat:*)",
       "Bash(chezmoi verify:*)",
       "Bash(chezmoi diff:*)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(wc:*)"
     ]
   }
 }

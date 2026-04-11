@@ -6,8 +6,11 @@
 // ~/.cache/playbash-staging/playbash-wrap.py via `cat | ssh`.
 //
 // For `run`/`debug` on vanilla hosts, also stages playbash.sh (helper
-// library) and the playbook script into the same staging dir, so the
-// playbook can source its helper via PLAYBASH_LIBS=<staging>.
+// library) and the playbook into the same staging dir, so the playbook can
+// source its helper via PLAYBASH_LIBS=<staging>. Two playbook shapes are
+// supported: a single file (uploaded as STAGING_DIR/<filename>), and a
+// directory tree (tar'd and extracted into STAGING_DIR/<dirname>/, with
+// main.sh as the entry point).
 //
 // The caller decides managed vs. upload based on inventory membership:
 // hosts in the inventory are managed (wrapper + playbooks pre-deployed via
@@ -16,6 +19,7 @@
 // keyed by the local wrapper's SHA-256. For playbook files, a remote SHA-256
 // probe (one ssh round trip) replaces local caching — the remote is the
 // source of truth, so deleted or corrupted files are re-uploaded on next run.
+// Directory playbooks always re-tar the whole tree (small dirs, simple model).
 
 import {createHash} from 'node:crypto';
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
@@ -30,6 +34,12 @@ export const WRAPPER_MANAGED = '~/.local/libs/playbash-wrap.py';
 export const STAGING_DIR = '~/.cache/playbash-staging';
 const WRAPPER_STAGED  = `${STAGING_DIR}/playbash-wrap.py`;
 const CACHE_DIR       = join(homedir(), '.cache', 'playbash', 'staging');
+
+// Directory playbook names go into shell command lines (rm -rf, mkdir, tar
+// extract). Restrict to a safe character set, and reserve names that would
+// collide with the staged libraries at the staging root.
+const SAFE_DIR_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+const RESERVED_DIR_NAMES = new Set(['playbash-wrap.py', 'playbash.sh']);
 
 // --- ssh helpers ---
 
@@ -118,18 +128,52 @@ async function probeRemoteShas(address, remotePaths) {
   return shas;
 }
 
-// Ensure the staging dir on the remote has up-to-date copies of the wrapper,
-// helper library, and playbook script. One SSH probe computes SHA-256 of
-// existing remote files; only files with a mismatched or missing hash are
-// re-uploaded (parallel `cat | ssh` calls, one per file). No local cache —
-// the remote is the source of truth.
-//
-// `customLocalPath` overrides the default playbook location for custom
-// scripts (paths containing /). Returns the remote filename used in the
-// staging dir so the caller can construct the full remote path.
-export async function stagePlaybookFiles(address, hostName, playbookName, customLocalPath) {
+// Probe + upload a list of files into STAGING_DIR. Each file is `{name,
+// content, sha, executable}`. One SSH round trip hashes the existing remote
+// copies; only mismatched or missing files are re-uploaded (parallel
+// `cat | ssh` calls, one per file). No local cache — the remote is the
+// source of truth, so deleted or corrupted files are re-uploaded next run.
+async function uploadStagedFiles(address, hostName, files) {
+  const remoteShas = await probeRemoteShas(
+    address,
+    files.map(f => `${STAGING_DIR}/${f.name}`),
+  );
+  const needed = files.filter(f => remoteShas.get(f.name) !== f.sha);
+  if (needed.length === 0) return;
+
+  const stageOne = ({name, content, executable}) => {
+    const cmd = executable
+      ? `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${name} && chmod +x ${STAGING_DIR}/${name}`
+      : `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${name}`;
+    return sshRun(address, cmd, {input: content});
+  };
+  const results = await Promise.all(needed.map(stageOne));
+  for (let i = 0; i < results.length; i++) {
+    if (results[i].code !== 0) {
+      throw new Error(
+        `failed to stage ${needed[i].name} on ${hostName}: ${results[i].stderr.trim() || `exit ${results[i].code}`}`,
+      );
+    }
+  }
+}
+
+// Build the wrapper + helper file descriptors for upload. Both live at the
+// staging root and are shared across every staged playbook on the host.
+function libFileDescriptors() {
   const wrapperContent = readFileSync(WRAPPER_LOCAL);
   const helperContent = readFileSync(HELPER_LOCAL);
+  return [
+    {name: 'playbash-wrap.py', content: wrapperContent, sha: fileSha(wrapperContent), executable: true},
+    {name: 'playbash.sh',      content: helperContent,  sha: fileSha(helperContent),  executable: false},
+  ];
+}
+
+// Ensure the staging dir on the remote has up-to-date copies of the wrapper,
+// helper library, and a single-file playbook script. `customLocalPath`
+// overrides the default playbook location for custom scripts (paths
+// containing /). Returns the remote filename used in the staging dir so the
+// caller can construct the full remote path.
+export async function stagePlaybookFiles(address, hostName, playbookName, customLocalPath) {
   const playbookLocalPath = customLocalPath || join(PLAYBOOK_DIR, `playbash-${playbookName}`);
   if (!existsSync(playbookLocalPath)) {
     throw new Error(`playbook not found locally: ${playbookLocalPath}`);
@@ -138,38 +182,66 @@ export async function stagePlaybookFiles(address, hostName, playbookName, custom
   const remoteName = customLocalPath ? pathBasename(customLocalPath) : `playbash-${playbookName}`;
 
   const files = [
-    {name: 'playbash-wrap.py', content: wrapperContent, sha: fileSha(wrapperContent), executable: true},
-    {name: 'playbash.sh', content: helperContent, sha: fileSha(helperContent), executable: false},
+    ...libFileDescriptors(),
     {name: remoteName, content: playbookContent, sha: fileSha(playbookContent), executable: true},
   ];
-
-  // Probe: one SSH round trip to hash all staged files on the remote.
-  const remoteShas = await probeRemoteShas(
-    address,
-    files.map(f => `${STAGING_DIR}/${f.name}`),
-  );
-
-  // Upload only files whose remote SHA doesn't match the local copy.
-  const needed = files.filter(f => remoteShas.get(f.name) !== f.sha);
-  if (needed.length === 0) return remoteName;
-
-  const stageOne = ({name, content, executable}) => {
-    const cmd = executable
-      ? `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${name} && chmod +x ${STAGING_DIR}/${name}`
-      : `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${name}`;
-    return sshRun(address, cmd, {input: content});
-  };
-
-  const results = await Promise.all(needed.map(stageOne));
-
-  for (let i = 0; i < results.length; i++) {
-    if (results[i].code !== 0) {
-      throw new Error(
-        `failed to stage ${needed[i].name} on ${hostName}: ${results[i].stderr.trim() || `exit ${results[i].code}`}`,
-      );
-    }
-  }
+  await uploadStagedFiles(address, hostName, files);
   return remoteName;
+}
+
+// Stage a directory tree as a playbook bundle. The directory must contain
+// an executable main.sh entry point — the caller is responsible for
+// validation (the runner's validateCustomPlaybookPath helper does this).
+//
+// The whole tree is tar'd and extracted into ~/.cache/playbash-staging/<dir>/
+// (rm -rf'd first so stale files from a previous push don't linger). The
+// wrapper + helper library are staged as siblings at the staging root, so
+// the playbook can source $PLAYBASH_LIBS/playbash.sh unchanged. Helpers
+// inside the directory are reachable via $(dirname "$0") from main.sh.
+//
+// Returns the remote entry path relative to STAGING_DIR (e.g. "mydir/main.sh")
+// — same shape as stagePlaybookFiles, so the runner treats both uniformly.
+export async function stagePlaybookDir(address, hostName, localDir) {
+  const dirName = pathBasename(localDir.replace(/\/+$/, ''));
+  if (!dirName || !SAFE_DIR_NAME_RE.test(dirName)) {
+    throw new Error(
+      `invalid playbook directory name "${dirName}" — must match [a-zA-Z0-9._-]+`,
+    );
+  }
+  if (RESERVED_DIR_NAMES.has(dirName)) {
+    throw new Error(
+      `playbook directory name "${dirName}" conflicts with a staged library file`,
+    );
+  }
+
+  // Stage wrapper + helper at the staging root (probe + conditional upload).
+  await uploadStagedFiles(address, hostName, libFileDescriptors());
+
+  // Tar the directory contents (the . at the end captures dotfiles too) and
+  // upload + extract in one ssh call. Wipe any previous stage of the same
+  // dir so stale files from a previous push don't linger.
+  const tarBuf = await new Promise((resolve, reject) => {
+    const chunks = [];
+    const p = spawn('tar', ['cf', '-', '-C', localDir, '.'], {stdio: ['ignore', 'pipe', 'pipe']});
+    p.stdout.on('data', c => chunks.push(c));
+    p.on('error', reject);
+    p.on('close', code =>
+      code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`tar exit ${code}`)),
+    );
+  });
+
+  const remoteDir = `${STAGING_DIR}/${dirName}`;
+  const cmd =
+    `mkdir -p ${STAGING_DIR} && rm -rf ${remoteDir} && ` +
+    `mkdir -p ${remoteDir} && tar xf - -C ${remoteDir}`;
+  const r = await sshRun(address, cmd, {input: tarBuf});
+  if (r.code !== 0) {
+    throw new Error(
+      `failed to stage directory ${localDir} on ${hostName}: ${r.stderr.trim() || `exit ${r.code}`}`,
+    );
+  }
+
+  return `${dirName}/main.sh`;
 }
 
 // --- public API ---

@@ -146,6 +146,19 @@ The ssh master is left to `ControlPersist`.
 
 A non-zero exit from the playbook is a hard failure. Warnings and suggested actions are *always* communicated through the sidecar, never through exit codes — this is the explicit lesson from the original ansible discussion.
 
+### Directory playbooks
+
+A custom playbook path (slash convention) may resolve to either a single file or a **directory**. Directory form is for ad-hoc playbooks that need to ship private helpers — the directory bundles the entry point and its sibling files into one self-contained artifact.
+
+- **Trigger.** The slash-convention path resolves to a directory (`statSync(...).isDirectory()`). This is the only trigger; chezmoi-managed playbooks under `~/.local/bin/playbash-*` remain single-file (a directory there would lose the "runnable by hand over plain `ssh host playbash-foo`" property — directories aren't found by PATH lookup).
+- **Entry point.** Hardcoded convention: `<dir>/main.sh`. Must exist and be a regular *executable* file. The runner validates both at the operator side before any ssh work; failures die fast with `chmod +x <path>` as the actionable hint. The exec bit is required (not silently chmod'd at upload time) so `cd <dir> && ./main.sh` works locally for debugging — same property the single-file convention guarantees, just applied to a dir.
+- **Staging.** The entire tree is `tar c | ssh tar x`'d into `~/.cache/playbash-staging/<dirname>/` on the remote. The wrapper and helper library (`playbash-wrap.py`, `playbash.sh`) are staged as siblings at the staging root, shared with single-file pushes — `uploadStagedFiles` does a SHA-256 probe and only re-uploads changed files. The directory subdir itself is `rm -rf`'d before extraction so stale files from a previous push don't linger; `<dirname>` is validated against `[a-zA-Z0-9._-]+` and a small reserved-names set so the unquoted shell command line is injection-safe.
+- **Helpers.** Sibling files in the directory are reachable from `main.sh` via `SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)`. The wrapper exec's `main.sh` by absolute path, so `$0` is absolute and the standard idiom finds them. The playbash helper library is sourced via `$PLAYBASH_LIBS/playbash.sh` exactly as in the single-file case — `PLAYBASH_LIBS` points at the staging root, where the staged `playbash.sh` lives.
+- **Templated paths.** A path like `./reports/{host}/` is allowed and resolves per host. Validation is deferred to per-host expansion — for fan-out runs, a malformed dir on one host becomes a per-host failure (caught and reported in the status board) and does not abort in-flight runs on other hosts.
+- **Caveat.** Like single-file `push`, only self-contained playbooks work — a directory playbook that depends on chezmoi-managed scripts (`upd`, `cln`, `dcms`) is no different from a single-file playbook with the same dependency.
+
+The runner code is unified: `runRemote` and `runFanout` each call `validateCustomPlaybookPath` once and dispatch to `stagePlaybookDir` or `stagePlaybookFiles` based on the result. `buildRemoteCommand` is shape-agnostic — it just receives the absolute remote path of the entry point.
+
 ### Interactive input detection
 
 Some commands (notably `chezmoi update` when it needs to install system packages) sporadically drop into a `sudo` password prompt. More generally, *any* prompt for stdin is a problem under playbash: the playbook has no tty for the user and would just hang.

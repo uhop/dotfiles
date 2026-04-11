@@ -37,7 +37,7 @@ import {
   renderAggregated,
   renderSummary,
 } from '../share/playbash/sidecar.js';
-import {STAGING_DIR, WRAPPER_MANAGED, ensureWrapper, sshRun, stagePlaybookFiles} from '../share/playbash/staging.js';
+import {STAGING_DIR, WRAPPER_MANAGED, ensureWrapper, sshRun, stagePlaybookDir, stagePlaybookFiles} from '../share/playbash/staging.js';
 
 const USAGE = `usage:
   playbash run   <targets> <playbook> [-n LINES] [-p N] [--self]
@@ -75,6 +75,12 @@ runs it — like \`put\` but with execution. Takes <targets> <script-path>
 (targets first, mirroring \`put\` and \`exec\`). \`run\` with a file path
 (containing /) automatically uses push mode. Only self-contained scripts
 work — scripts that depend on chezmoi-managed tools will not.
+
+  Directory playbooks: <script-path> may also be a directory. The directory
+  must contain an executable \`main.sh\` entry point; the whole tree is tar'd
+  and uploaded into ~/.cache/playbash-staging/<dirname>/. Helpers in the
+  directory are reachable from main.sh via \$(dirname "\$0"); the playbash
+  helper library is sourced via \$PLAYBASH_LIBS/playbash.sh as usual.
 
 \`exec\` runs an arbitrary command through the same wrapper / rectangle /
 fan-out pipeline as \`run\`, without a playbook. Use \`--\` before the
@@ -498,6 +504,43 @@ function expandTemplate(template, vars) {
   return template.replace(/\{(\w+)\}/g, (m, key) => vars[key] ?? m);
 }
 
+// Validate a custom playbook path (slash convention). Returns 'file' or
+// 'dir' on success, throws Error with a clear message on failure. The
+// caller decides whether to die() or mark a single host as failed —
+// fanout needs the latter so a malformed templated path doesn't kill
+// in-flight runs on other hosts.
+//
+// File case: path must exist and be a regular file. The staging code
+// chmods the uploaded copy +x on the remote, so a non-executable source
+// file is fine — same as today.
+//
+// Directory case: must contain main.sh as the entry point, and main.sh
+// must be a regular executable file. We require the executable bit on
+// purpose so the playbook is "runnable by hand" inside the dir for
+// debugging — same property the design doc calls out for single files.
+function validateCustomPlaybookPath(path) {
+  if (!existsSync(path)) throw new Error(`script not found: ${path}`);
+  const stats = statSync(path);
+  if (stats.isDirectory()) {
+    const entry = join(path, 'main.sh');
+    if (!existsSync(entry)) {
+      throw new Error(`directory playbook ${path} has no main.sh entry point`);
+    }
+    const entryStats = statSync(entry);
+    if (!entryStats.isFile()) {
+      throw new Error(`${entry} is not a regular file`);
+    }
+    if ((entryStats.mode & 0o111) === 0) {
+      throw new Error(`${entry} must be executable (run: chmod +x ${entry})`);
+    }
+    return 'dir';
+  }
+  if (!stats.isFile()) {
+    throw new Error(`${path} is not a regular file or directory`);
+  }
+  return 'file';
+}
+
 
 // Transfer a single file or directory to a remote host.
 async function putOne(address, localPath, remotePath, isDir) {
@@ -549,8 +592,14 @@ async function runRemote({playbook, command, customPath, hostName, address, rect
     if (playbook) { playbookPath = `~/.local/bin/playbash-${playbook}`; libs = null; }
   } else if (playbook) {
     const resolvedPath = customPath ? expandTemplate(customPath, {host: hostName}) : null;
-    if (resolvedPath && !existsSync(resolvedPath)) die(`script not found: ${resolvedPath}`);
-    const remoteName = await stagePlaybookFiles(address, hostName, playbook, resolvedPath);
+    let kind = 'file';
+    if (resolvedPath) {
+      try { kind = validateCustomPlaybookPath(resolvedPath); }
+      catch (err) { die(err.message); }
+    }
+    const remoteName = kind === 'dir'
+      ? await stagePlaybookDir(address, hostName, resolvedPath)
+      : await stagePlaybookFiles(address, hostName, playbook, resolvedPath);
     wrapperPath = `${STAGING_DIR}/playbash-wrap.py`;
     playbookPath = `${STAGING_DIR}/${remoteName}`;
     libs = STAGING_DIR;
@@ -705,12 +754,30 @@ async function runFanout({playbook, command, customPath, targets, rectHeight, ve
       } else if (playbook) {
         const resolvedPath = customPath ? expandTemplate(customPath, {host: slot.name}) : null;
         if (resolvedPath && !existsSync(resolvedPath)) {
+          // Per-host template miss — skip this host (e.g. ./reports/{host}/
+          // exists for some hosts but not others). This is "expected
+          // missing", not an error.
           board.hostFinished(slot.name, {
             ok: true, statusWord: 'skipped', events: [], logPath: '', elapsedMs: 0,
           });
           return;
         }
-        const remoteName = await stagePlaybookFiles(slot.address, slot.name, playbook, resolvedPath);
+        // Validate + stage. Errors here (malformed dir, missing main.sh,
+        // ssh staging failure) become per-host failures so other in-flight
+        // runs are not affected. validateCustomPlaybookPath throws Error;
+        // staging functions throw Error.
+        let remoteName;
+        try {
+          const kind = resolvedPath ? validateCustomPlaybookPath(resolvedPath) : 'file';
+          remoteName = kind === 'dir'
+            ? await stagePlaybookDir(slot.address, slot.name, resolvedPath)
+            : await stagePlaybookFiles(slot.address, slot.name, playbook, resolvedPath);
+        } catch (err) {
+          board.hostFinished(slot.name, {
+            ok: false, statusWord: err.message.slice(0, 60), events: [], logPath: '', elapsedMs: 0,
+          });
+          return;
+        }
         wrapperPath = `${STAGING_DIR}/playbash-wrap.py`;
         playbookPath = `${STAGING_DIR}/${remoteName}`;
         libs = STAGING_DIR;
@@ -1180,12 +1247,25 @@ switch (command) {
     const [targetArg, playbookArg] = rest;
     const isCustomPath = playbookArg.includes('/');
     if (isCustomPath) {
-      if (!existsSync(playbookArg)) die(`script not found: ${playbookArg}`);
-      process.stderr.write(`${COLOR.dim}· ${playbookArg} is a file path — using push mode${COLOR.reset}\n`);
+      // Templated paths (containing {host}) defer validation to per-host
+      // expansion in runRemote/runFanout. Non-templated paths are validated
+      // up front so the user gets an error before any ssh work starts.
+      if (!playbookArg.includes('{host}')) {
+        let kind;
+        try { kind = validateCustomPlaybookPath(playbookArg); }
+        catch (err) { die(err.message); }
+        process.stderr.write(
+          kind === 'dir'
+            ? `${COLOR.dim}· ${playbookArg} is a directory playbook — using push mode${COLOR.reset}\n`
+            : `${COLOR.dim}· ${playbookArg} is a file path — using push mode${COLOR.reset}\n`,
+        );
+      } else {
+        process.stderr.write(`${COLOR.dim}· ${playbookArg} is a templated path — using push mode${COLOR.reset}\n`);
+      }
     } else {
       if (!/^[a-zA-Z0-9._-]+$/.test(playbookArg)) die(`invalid playbook name "${playbookArg}"`);
     }
-    const playbook = isCustomPath ? basename(playbookArg) : playbookArg;
+    const playbook = isCustomPath ? basename(playbookArg.replace(/\/+$/, '')) : playbookArg;
     const customPath = isCustomPath ? playbookArg : null;
     const rectHeight = command === 'debug' ? 0 : (linesFlag ?? 5);
     const verbose = command === 'debug';
@@ -1195,8 +1275,11 @@ switch (command) {
   case 'push': {
     if (rest.length !== 2) die(`push takes <targets> <script-path>\n${USAGE}`);
     const [targetArg, scriptPath] = rest;
-    if (!scriptPath.includes('{host}') && !existsSync(scriptPath)) die(`script not found: ${scriptPath}`);
-    const playbook = basename(scriptPath);
+    if (!scriptPath.includes('{host}')) {
+      try { validateCustomPlaybookPath(scriptPath); }
+      catch (err) { die(err.message); }
+    }
+    const playbook = basename(scriptPath.replace(/\/+$/, ''));
     const rectHeight = linesFlag ?? 5;
     await dispatch({job: {playbook, customPath: scriptPath}, targetArg, rectHeight, verbose: false, push: true});
     break;
