@@ -94,7 +94,7 @@ export function cmdList() {
     .sort();
   if (playbooks.length === 0) {
     process.stderr.write(
-      `no playbooks found in ${PLAYBOOK_DIR} (looking for ${PLAYBOOK_PREFIX}*)\n`
+      `no playbooks found in ${PLAYBOOK_DIR} (looking for ${PLAYBOOK_PREFIX}*) — run 'playbash doctor' to diagnose\n`
     );
     return;
   }

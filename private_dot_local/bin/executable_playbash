@@ -40,15 +40,15 @@ import {runDoctor} from '../share/playbash/doctor.js';
 
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
-const VERSION = '3.1.0';
+const VERSION = '3.1.1';
 
 const USAGE = `usage:
   playbash run    <targets> <playbook> [-n LINES] [-p N] [--self]
   playbash push   <targets> <script-path> [-n LINES] [-p N] [--self]
   playbash debug  <targets> <playbook> [--self]
-  playbash exec   <targets> [--] <command...> [options]
-  playbash put    <targets> <local-path> [<remote-path>] [-p N] [-N]
-  playbash get    <targets> <remote-path> [<local-path>] [-p N] [-N]
+  playbash exec   <targets> [--] <command...> [-n LINES] [-p N] [--self] [-N]
+  playbash put    <targets> <local-path> [<remote-path>] [-p N] [--self] [-N]
+  playbash get    <targets> <remote-path> [<local-path>] [-p N] [--self] [-N]
   playbash list
   playbash hosts
   playbash log    [host] [command]
@@ -57,7 +57,8 @@ const USAGE = `usage:
   playbash --bash-completion        # print bash completion script
 
 Options (must come before \`--\` when using exec):
-  -n, --lines N    height of the live output rectangle (default 5)
+  -n, --lines N    height of the live output rectangle for run/push (default 5).
+                   exec defaults to 0; pass -n N to enable.
                    pass 0 to disable the rectangle and stream output raw
   -p, --parallel N max concurrent hosts in fan-out (default 0 = unlimited)
   --self           allow running on the local host (default: refuse)
@@ -359,6 +360,8 @@ switch (command) {
       ? basename(playbookArg.replace(/\/+$/, ''))
       : playbookArg;
     const customPath = isCustomPath ? playbookArg : null;
+    if (command === 'debug' && linesFlag != null)
+      die('debug does not accept -n — use "run <targets> <playbook> -n N" for a rectangle');
     const rectHeight = command === 'debug' ? 0 : (linesFlag ?? 5);
     const verbose = command === 'debug';
     await dispatch({

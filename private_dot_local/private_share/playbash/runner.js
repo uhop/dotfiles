@@ -516,7 +516,7 @@ async function runHost({
   let events = [];
   try {
     const text = await getSidecarText();
-    events = parseSidecar(text);
+    events = parseSidecar(text, hostName);
   } catch (err) {
     process.stderr.write(
       `playbash: failed to fetch sidecar for ${hostName}: ${err.message}\n`
@@ -975,8 +975,10 @@ export async function runFanout({
         if (message) summary.capturedOutput = message;
         board.hostFinished(slot.name, summary);
       } catch (err) {
+        const detail = err.stderr ? `${err.message}\n${err.stderr}` : err.message;
         board.hostFinished(slot.name, {
           ok: false, statusWord: truncateStatus(err.message),
+          capturedOutput: detail,
           events: [], logPath: '', elapsedMs: Date.now() - start
         });
       }

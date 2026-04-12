@@ -75,7 +75,7 @@ export function resolveHost(name, inventory) {
 // with a clear error.
 export function resolveTargets(arg, inventory) {
   const tokens = arg.split(',').map(t => t.trim()).filter(Boolean);
-  if (tokens.length === 0) die(`empty target list`);
+  if (tokens.length === 0) die('empty target list (pass a host name, group name, or "all")');
   const out = [];
   const seen = new Set();
   const push = (name, address) => {

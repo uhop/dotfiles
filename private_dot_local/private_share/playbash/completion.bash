@@ -31,6 +31,9 @@ _playbash() {
 
   case "$subcommand" in
     list|hosts|doctor)
+      if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "-h --help" -- "$cur") )
+      fi
       return
       ;;
     log)

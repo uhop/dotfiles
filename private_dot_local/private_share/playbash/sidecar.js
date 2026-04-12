@@ -6,14 +6,15 @@
 
 import {COLOR} from './render.js';
 
-export function parseSidecar(text) {
+export function parseSidecar(text, hostName) {
   const events = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     try {
       events.push(JSON.parse(line));
     } catch {
-      process.stderr.write(`playbash: ignoring malformed sidecar line: ${line}\n`);
+      const host = hostName ? ` (${hostName})` : '';
+      process.stderr.write(`playbash: ignoring malformed sidecar line${host}: ${line}\n`);
     }
   }
   return events;
