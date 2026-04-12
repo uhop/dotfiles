@@ -42,18 +42,25 @@ dotfiles/                              # chezmoi source directory
 ├── private_dot_local/
 │   ├── bin/                           # → ~/.local/bin/ (CLI utilities)
 │   │   ├── executable_arx             # Archive viewer/extractor
+│   │   ├── executable_bootstrap-dotfiles  # Remote host dotfiles installer
+│   │   ├── executable_bootstrap-remote    # SSH access setup for remote hosts
+│   │   ├── executable_clean-completions   # Remove options.bash completion files
 │   │   ├── executable_cln.tmpl        # Cleanup script (apt/dnf, brew, flatpak, docker, node)
 │   │   ├── executable_dcm             # Single docker compose runner with retry-on-apparmor
 │   │   ├── executable_dcms            # All docker-compose stacks under ~/servers/
 │   │   ├── executable_goup            # Run command in current + parent directories
 │   │   ├── executable_gpurr           # Git pull all repos
 │   │   ├── executable_gpwiki          # Git push wiki
+│   │   ├── executable_imop            # Image optimizer/converter
 │   │   ├── executable_jot             # Encrypted S3 notes editor
 │   │   ├── executable_mount-raid.tmpl # NFS mount helper
 │   │   ├── executable_ollama-sync     # Update all ollama models
+│   │   ├── executable_pick            # Interactive command reference (fzf)
 │   │   ├── executable_upd.tmpl        # System updater (apt/dnf, snap, flatpak, brew, bun)
 │   │   ├── executable_update-dependencies   # Update project dependencies
-│   │   ├── executable_git-*           # Git helper scripts
+│   │   ├── executable_trim-node-versions.js    # Trim old node versions
+│   │   ├── executable_update-node-versions.js  # Update node major versions
+│   │   ├── executable_git-*           # Git helper scripts (incl. git-pick → pick git)
 │   │   ├── executable_playbash        # Multi-host playbook runner (Node)
 │   │   └── executable_playbash-{daily,weekly,hello,sample}  # playbash playbooks
 │   ├── libs/

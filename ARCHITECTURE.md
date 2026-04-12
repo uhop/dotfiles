@@ -33,25 +33,31 @@ dotfiles/                                          # chezmoi source directory
 ├── private_dot_local/
 │   ├── bin/                                       # → ~/.local/bin/ (CLI utilities)
 │   │   ├── executable_arx                         # archive viewer/extractor
+│   │   ├── executable_bootstrap-dotfiles          # remote host dotfiles installer
+│   │   ├── executable_bootstrap-remote            # SSH access setup for remote hosts
+│   │   ├── executable_clean-completions           # remove options.bash completion files
 │   │   ├── executable_cln.tmpl                    # system cleanup
 │   │   ├── executable_dcm                         # docker compose runner with apparmor retry
 │   │   ├── executable_dcms                        # all docker stacks under ~/servers/
 │   │   ├── executable_goup                        # run command up directory tree
 │   │   ├── executable_gpurr                       # git pull all repos
 │   │   ├── executable_gpwiki                      # git push wiki
+│   │   ├── executable_imop                        # image optimizer/converter
 │   │   ├── executable_jot                         # encrypted S3 notes
 │   │   ├── executable_mount-raid.tmpl             # NFS mount helper
 │   │   ├── executable_ollama-sync                 # update ollama models
+│   │   ├── executable_pick                        # interactive command reference (fzf)
 │   │   ├── executable_upd.tmpl                    # system updater
 │   │   ├── executable_update-dependencies         # project dependency updater
-│   │   ├── executable_git-{br,brr,bs,mbs,pull-main,super-clean}  # git helpers
 │   │   ├── executable_trim-node-versions.js       # trim old node versions
 │   │   ├── executable_update-node-versions.js     # update node major versions
+│   │   ├── executable_git-{br,brr,bs,mbs,pick,pull-main,super-clean}  # git helpers
 │   │   ├── executable_playbash                    # multi-host playbook runner (Node)
 │   │   └── executable_playbash-{daily,weekly,hello,sample}  # playbash playbooks
 │   ├── libs/                                      # → ~/.local/libs/
 │   │   ├── bootstrap.sh                           # options.bash bootstrap
 │   │   ├── playbash.sh                            # event helpers sourced by playbash playbooks
+│   │   ├── playbash-wrap.py                       # cross-platform PTY wrapper (stdin relay for --sudo)
 │   │   └── maintenance.sh                         # report_reboot/warn/action + apt-history scan
 │   │                                              # (sourced by upd, cln; double-emits to stdout
 │   │                                              # AND $PLAYBASH_REPORT JSON-lines sidecar)
@@ -83,11 +89,16 @@ options.bash (external)
 bootstrap.sh                  ← auto-updates options.bash, sources ansi.sh + args.sh + args-help.sh + args-version.sh
     ↑
 executable_arx                ← archive viewer/extractor
+executable_bootstrap-dotfiles ← remote host dotfiles installer
+executable_bootstrap-remote   ← SSH access setup for remote hosts
+executable_clean-completions  ← remove options.bash completion files
 executable_cln.tmpl           ← system cleanup (apt/dnf, brew, flatpak, docker, node) → maintenance.sh
 executable_goup               ← run command in current + parent dirs
+executable_imop               ← image optimizer/converter
 executable_jot                ← encrypted S3 notes (age, brotli, gzip, etc.)
 executable_mount-raid.tmpl    ← NFS mount
 executable_ollama-sync        ← ollama model updater
+executable_pick               ← interactive command reference (fzf)
 executable_upd.tmpl           ← system updater (apt/dnf, snap, flatpak, brew, bun, tmux) → maintenance.sh
 ```
 
