@@ -45,7 +45,7 @@ _playbash() {
       # put <targets> <local-path> [<remote-path>]
       case "$prev" in -p|--parallel) return ;; esac
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "-p --parallel --self -N --no-precheck -h --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "-p --parallel --self --sudo -N --no-precheck -h --help" -- "$cur") )
         return
       fi
       local pos=0 skip_next=0
@@ -73,7 +73,7 @@ _playbash() {
       # get <targets> <remote-path> [<local-path>]
       case "$prev" in -p|--parallel) return ;; esac
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "-p --parallel --self -N --no-precheck -h --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "-p --parallel --self --sudo -N --no-precheck -h --help" -- "$cur") )
         return
       fi
       local pos=0 skip_next=0

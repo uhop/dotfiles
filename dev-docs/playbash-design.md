@@ -410,6 +410,6 @@ The whole module is one-shot: no shared state with the runner, no caching, no op
 
 **Bump policy:** every commit that changes playbash's behavior, CLI surface, or output should update `VERSION` in the same commit. Refactors that don't touch behavior (file splits, `die()` consolidation, etc.) also get a patch bump so `--version` reflects the actually-running code and bisection has a usable anchor. The version is the single source of truth for "what's installed" — the wiki and release notes trail it, not the other way around.
 
-**Current:** `3.2.0` — all v3 follow-ups shipped, plus shell-quoting fixes, UX polish, and `--sudo` password injection via PTY stdin relay.
+**Current:** `3.3.0` — all v3 follow-ups shipped, plus shell-quoting fixes, UX polish, `--sudo` password injection via PTY stdin relay (run/exec/push/debug), and `--sudo` for put/get via `sudo -S` stdin pipe.
 
 **Not tracked in `--version`:** the staging cache format, the sidecar protocol version, the PTY wrapper's own version. Those are separate concerns with their own evolution — the sidecar is a newline-delimited JSON stream where consumers ignore unknown event fields; the wrapper announces its protocol via the `__playbash_wrap_pid` preamble (absence = older wrapper, runner falls back gracefully). Bundling all of that into the CLI version would conflate independent compat stories.

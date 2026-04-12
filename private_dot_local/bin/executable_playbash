@@ -42,15 +42,15 @@ import {runDoctor} from '../share/playbash/doctor.js';
 
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
-const VERSION = '3.2.0';
+const VERSION = '3.3.0';
 
 const USAGE = `usage:
   playbash run    <targets> <playbook> [-n LINES] [-p N] [--self] [--sudo]
   playbash push   <targets> <script-path> [-n LINES] [-p N] [--self] [--sudo]
   playbash debug  <targets> <playbook> [--self] [--sudo]
   playbash exec   <targets> [--] <command...> [-n LINES] [-p N] [--self] [-N] [--sudo]
-  playbash put    <targets> <local-path> [<remote-path>] [-p N] [--self] [-N]
-  playbash get    <targets> <remote-path> [<local-path>] [-p N] [--self] [-N]
+  playbash put    <targets> <local-path> [<remote-path>] [-p N] [--self] [--sudo] [-N]
+  playbash get    <targets> <remote-path> [<local-path>] [-p N] [--self] [--sudo] [-N]
   playbash list
   playbash hosts
   playbash log    [host] [command]
@@ -458,14 +458,16 @@ switch (command) {
     if (rest.length < 2 || rest.length > 3)
       die(`put takes <targets> <local-path> [<remote-path>]\n${USAGE}`);
     const validated = await resolveAndValidate(rest[0]);
-    await cmdPut(validated, rest[1], rest[2]);
+    const sudoPassword = values.sudo ? promptPassword() : null;
+    await cmdPut(validated, rest[1], rest[2], sudoPassword);
     break;
   }
   case 'get': {
     if (rest.length < 2 || rest.length > 3)
       die(`get takes <targets> <remote-path> [<local-path>]\n${USAGE}`);
     const validated = await resolveAndValidate(rest[0]);
-    await cmdGet(validated, rest[1], rest[2]);
+    const sudoPassword = values.sudo ? promptPassword() : null;
+    await cmdGet(validated, rest[1], rest[2], sudoPassword);
     break;
   }
   default:

@@ -148,7 +148,7 @@ running daily on 2 hosts
 
 ### When NOT to prompt
 
-- `put`/`get` don't use `--sudo` — they run as the ssh user. Root-owned destination support is a separate future feature.
+- ~~`put`/`get` don't use `--sudo`~~ — **Shipped in v3.3.0.** `put`/`get` now accept `--sudo`, wrapping remote commands with `sudo -S sh -c '...'` and prepending the password to stdin. See `transfer.js` for the implementation.
 - `doctor` never prompts — it's a read-only diagnostic.
 - `list`/`hosts`/`log` — no remote execution.
 

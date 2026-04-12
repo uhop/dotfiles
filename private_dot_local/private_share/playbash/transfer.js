@@ -17,7 +17,7 @@ import {spawn} from 'node:child_process';
 import {COLOR, buildStatusLine, truncateStatus} from './render.js';
 import {die} from './errors.js';
 import {expandTemplate, runFanout} from './runner.js';
-import {shellQuotePath} from './shell-escape.js';
+import {shellQuote, shellQuotePath} from './shell-escape.js';
 import {sshRun} from './staging.js';
 
 // Bash expands `~` and `~user` on the command line BEFORE playbash sees the
@@ -38,11 +38,31 @@ function normalizeRemotePath(path) {
   return path;
 }
 
+// When sudoPassword is set, wrap a remote command for `sudo -S` and return
+// the password bytes to prepend to stdin. `sudo -S` reads one line (the
+// password) from stdin, then the remainder flows to the wrapped command.
+function sudoWrap(cmd, sudoPassword) {
+  if (!sudoPassword) return {cmd, inputPrefix: null};
+  return {
+    cmd: `sudo -S sh -c ${shellQuote(cmd)}`,
+    inputPrefix: Buffer.from(sudoPassword + '\n')
+  };
+}
+
+// After a sudo-wrapped sshRun, check stderr for wrong-password indicators
+// and throw a clear error instead of the raw sudo output.
+function checkSudoError(r, sudoPassword) {
+  if (sudoPassword && r.code !== 0 &&
+      /sorry, try again|authentication failed/i.test(r.stderr)) {
+    throw new Error('wrong password');
+  }
+}
+
 // Transfer a single file or directory to a remote host. `remotePath` is
 // operator-supplied and may contain spaces, quotes, or `~` — quoted via
 // shellQuotePath so the remote shell interprets it as one word while
 // preserving leading `~` home expansion.
-async function putOne(address, localPath, remotePath, isDir) {
+async function putOne(address, localPath, remotePath, isDir, sudoPassword) {
   const qRemote = shellQuotePath(remotePath);
   if (isDir) {
     const tarBuf = await new Promise((resolve, reject) => {
@@ -58,11 +78,13 @@ async function putOne(address, localPath, remotePath, isDir) {
           : reject(new Error(`tar exit ${code}`))
       );
     });
-    const r = await sshRun(
-      address,
+    const {cmd, inputPrefix} = sudoWrap(
       `mkdir -p ${qRemote} && tar xf - -C ${qRemote}`,
-      {input: tarBuf}
+      sudoPassword
     );
+    const input = inputPrefix ? Buffer.concat([inputPrefix, tarBuf]) : tarBuf;
+    const r = await sshRun(address, cmd, {input});
+    checkSudoError(r, sudoPassword);
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
   } else {
     const content = readFileSync(localPath);
@@ -70,19 +92,22 @@ async function putOne(address, localPath, remotePath, isDir) {
       ? remotePath.substring(0, remotePath.lastIndexOf('/'))
       : '';
     const mkdirCmd = remoteDir ? `mkdir -p ${shellQuotePath(remoteDir)} && ` : '';
-    const r = await sshRun(address, `${mkdirCmd}cat > ${qRemote}`, {
-      input: content
-    });
+    const {cmd, inputPrefix} = sudoWrap(`${mkdirCmd}cat > ${qRemote}`, sudoPassword);
+    const input = inputPrefix ? Buffer.concat([inputPrefix, content]) : content;
+    const r = await sshRun(address, cmd, {input});
+    checkSudoError(r, sudoPassword);
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
   }
 }
 
 // Transfer a single file or directory from a remote host. See putOne for
 // the shellQuotePath rationale.
-async function getOne(address, remotePath, localPath, isRemoteDir) {
+async function getOne(address, remotePath, localPath, isRemoteDir, sudoPassword) {
   const qRemote = shellQuotePath(remotePath);
   if (isRemoteDir) {
-    const r = await sshRun(address, `tar cf - -C ${qRemote} .`, {raw: true});
+    const {cmd, inputPrefix} = sudoWrap(`tar cf - -C ${qRemote} .`, sudoPassword);
+    const r = await sshRun(address, cmd, {raw: true, ...(inputPrefix && {input: inputPrefix})});
+    checkSudoError(r, sudoPassword);
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
     mkdirSync(localPath, {recursive: true});
     await new Promise((resolve, reject) => {
@@ -97,7 +122,9 @@ async function getOne(address, remotePath, localPath, isRemoteDir) {
       );
     });
   } else {
-    const r = await sshRun(address, `cat ${qRemote}`, {raw: true});
+    const {cmd, inputPrefix} = sudoWrap(`cat ${qRemote}`, sudoPassword);
+    const r = await sshRun(address, cmd, {raw: true, ...(inputPrefix && {input: inputPrefix})});
+    checkSudoError(r, sudoPassword);
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
     const localDir = dirname(localPath);
     if (localDir) mkdirSync(localDir, {recursive: true});
@@ -144,7 +171,7 @@ async function runTransferSingle(target, mode, transferFn) {
 // `validated` is the {targets, offlineNames, parallelLimit, ...} bundle
 // produced by the dispatcher's resolveAndValidate — having the dispatcher
 // pre-validate keeps this module free of CLI-global dependencies.
-export async function cmdPut(validated, localPathTemplate, remotePathArg) {
+export async function cmdPut(validated, localPathTemplate, remotePathArg, sudoPassword) {
   // Normalize the operator-side home prefix so the remote shell does the
   // home resolution per-target (see normalizeRemotePath). Local path is
   // operator-side and is left untouched.
@@ -169,7 +196,7 @@ export async function cmdPut(validated, localPathTemplate, remotePathArg) {
         : remoteTemplate,
       {host: hostName}
     );
-    await putOne(address, lp, rp, isDir);
+    await putOne(address, lp, rp, isDir, sudoPassword);
     return `${lp} → ${rp}`;
   };
 
@@ -192,7 +219,7 @@ export async function cmdPut(validated, localPathTemplate, remotePathArg) {
 }
 
 // Download a file or directory from one or more targets.
-export async function cmdGet(validated, remoteTemplateArg, localPathArg) {
+export async function cmdGet(validated, remoteTemplateArg, localPathArg, sudoPassword) {
   // Normalize the operator-side home prefix so the remote shell does the
   // home resolution per-target (see normalizeRemotePath).
   const remoteTemplate = normalizeRemotePath(remoteTemplateArg);
@@ -210,11 +237,16 @@ export async function cmdGet(validated, remoteTemplateArg, localPathArg) {
   const doGet = async (hostName, address) => {
     const rp = expandTemplate(remoteTemplate, {host: hostName});
     const lp = expandTemplate(localTemplate, {host: hostName});
-    const isDir =
-      (
-        await sshRun(address, `test -d ${shellQuotePath(rp)} && echo d || echo f`)
-      ).stdout.trim() === 'd';
-    await getOne(address, rp, lp, isDir);
+    const {cmd: probeCmd, inputPrefix} = sudoWrap(
+      `test -d ${shellQuotePath(rp)} && echo d || echo f`,
+      sudoPassword
+    );
+    const probeResult = await sshRun(
+      address, probeCmd, inputPrefix ? {input: inputPrefix} : undefined
+    );
+    checkSudoError(probeResult, sudoPassword);
+    const isDir = probeResult.stdout.trim() === 'd';
+    await getOne(address, rp, lp, isDir, sudoPassword);
     return `${rp} → ${lp}`;
   };
 
