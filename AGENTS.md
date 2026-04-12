@@ -103,11 +103,12 @@ Template data is defined in `.chezmoi.toml.tmpl`:
 
 ## Critical rules
 
+- **Minimal external dependencies.** Prefer standard system tools and already-available solutions over adding new packages. Every external dependency must be explicitly discussed, justified, approved, and documented (what and why). When in doubt, code it rather than import it.
 - **Bash 4.0+** for all shell scripts. Start with `#!/usr/bin/env bash`.
 - **`set -euCo pipefail`** and **`shopt -s expand_aliases`** at the top of every utility script.
 - **Do not add comments or remove comments** unless explicitly asked.
 - **Do not modify or delete test scripts** without understanding what they verify.
-- All CLI utilities that use `options.bash` source it via `. ~/.local/libs/bootstrap.sh`.
+- **Bash utilities with options or non-trivial output must use `options.bash`** (via `. ~/.local/libs/bootstrap.sh`). It handles option parsing, help screens, colored output, terminal-aware formatting, and shell completions (bash today; zsh/fish in the future). It is a controlled dependency (same author) and should be the default choice over hand-rolled argument parsing or raw `echo`/`printf` for user-facing output. If a utility pattern exposes a generic gap in options.bash, flag it — improvements flow back to the library.
 - **`args_cleaned` is an array.** Use `set -- "${args_cleaned[@]}"` (not `eval set -- "${args_cleaned}"`).
 - Templates (`.tmpl` files) use Go template syntax with chezmoi data. Guard package-manager blocks with `{{ if eq .pkgManager "apt" }}` / `{{ if eq .pkgManager "dnf" }}`; use `{{ if eq .osFamily "linux" }}` / `{{ if eq .osFamily "darwin" }}` for OS-level conditionals.
 - Files listed in `.chezmoiignore` are not deployed to target machines.
@@ -172,6 +173,15 @@ Key modules used by dotfiles utilities:
 - **`ansi.sh`** — ANSI escape codes, color globals, terminal-aware output
 
 For the full `options.bash` API see [its wiki](https://github.com/uhop/options.bash/wiki).
+
+## dev-docs conventions
+
+The `dev-docs/` directory holds planning documents. Completed plans move to `dev-docs/done/`; design docs stay (they're long-lived reference).
+
+- **`<feature>-design.md`** — problem statement, constraints, research findings, decisions and their rationale, open questions, criticism. The "what" and "why." Durable — useful months later when revisiting a feature.
+- **`<feature>-plan.md`** — implementation phases, concrete changes, task breakdown, dependency graph. The "how." Perishable — consumed as work proceeds, moves to `done/` when complete.
+- Small features can combine both into a single `<feature>-plan.md` when the design rationale fits in a short paragraph.
+- Design docs should cross-reference their plan (`See [<feature>-plan.md]`) and vice versa.
 
 ## Key conventions
 

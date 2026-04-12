@@ -28,7 +28,14 @@
       "Bash(chezmoi diff:*)",
       "Bash(echo \"exit: $?\")",
       "Bash(wc:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "WebSearch",
+      "WebFetch(domain:www.freedesktop.org)",
+      "WebFetch(domain:man.archlinux.org)",
+      "WebFetch(domain:man7.org)",
+      "WebFetch(domain:launchd.info)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:dev.to)"
     ]
   }
 }
