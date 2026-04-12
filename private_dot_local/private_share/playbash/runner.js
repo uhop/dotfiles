@@ -332,7 +332,8 @@ async function runHost({
   hostName,
   makeChild,
   getSidecarText,
-  onChunk
+  onChunk,
+  sudoPassword
 }) {
   const cols = process.stdout.columns || 80;
   const rows = process.stdout.rows || 24;
@@ -408,6 +409,12 @@ async function runHost({
           }
         };
         groupKill('SIGTERM');
+        // Under ssh ControlMaster, SIGTERM kills the mux client but the
+        // master may keep the channel's pipes open. Destroying the stdio
+        // streams unblocks the 'close' event so runHost can resolve.
+        try { child.stdout.destroy(); } catch {}
+        try { child.stderr.destroy(); } catch {}
+        if (child.stdin) try { child.stdin.destroy(); } catch {}
         killTimer = setTimeout(() => groupKill('SIGKILL'), STDIN_KILL_GRACE_MS);
       };
 
@@ -426,11 +433,42 @@ async function runHost({
         }, pollMs);
       }
 
+      let sudoInjections = 0;
+      const WRONG_PASSWORD_RE = /Sorry, try again|Authentication failed/;
+
       const checkForStuck = chunk => {
         recentBuf = (recentBuf + chunk.toString('utf8')).slice(
           -STDIN_RECENT_BUF_MAX
         );
-        if (!stuckReason && STDIN_PROMPT_RE.test(recentBuf)) killChild('sudo');
+        if (stuckReason) return;
+
+        // Count how many password prompts have appeared so far.
+        const promptMatches = recentBuf.match(new RegExp(STDIN_PROMPT_RE.source, 'gm'));
+        const promptCount = promptMatches ? promptMatches.length : 0;
+
+        if (sudoPassword) {
+          // Inject on the first prompt only.
+          if (sudoInjections === 0 && promptCount >= 1) {
+            try { child.stdin.write(sudoPassword + '\n'); } catch {}
+            sudoInjections = 1;
+            return;
+          }
+
+          // After injection: wrong password if we see the failure message
+          // OR a second prompt (meaning sudo rejected and re-prompted).
+          if (sudoInjections > 0 && WRONG_PASSWORD_RE.test(recentBuf)) {
+            killChild('wrong password');
+            return;
+          }
+          if (sudoInjections > 0 && promptCount >= 2) {
+            killChild('wrong password');
+            return;
+          }
+          return;
+        }
+
+        // No --sudo: kill on prompt as before.
+        if (promptCount >= 1) killChild('sudo');
       };
 
       // Strip the wrapper's `__playbash_wrap_pid <N>` preamble from the
@@ -533,7 +571,9 @@ async function runHost({
   const statusWord = stuckReason
     ? stuckReason === 'sudo'
       ? 'needs sudo'
-      : 'stuck (idle)'
+      : stuckReason === 'wrong password'
+        ? 'wrong password'
+        : 'stuck (idle)'
     : result.signal
       ? `signal ${result.signal}`
       : `exit ${result.code}`;
@@ -559,6 +599,7 @@ async function runHostSingle({
   label,
   rectHeight,
   verbose,
+  sudoPassword,
   makeChild,
   getSidecarText
 }) {
@@ -572,6 +613,7 @@ async function runHostSingle({
       hostName,
       makeChild,
       getSidecarText,
+      sudoPassword,
       onChunk: chunk => {
         if (rect.active) rect.feed(chunk);
         else process.stdout.write(chunk);
@@ -689,6 +731,10 @@ const CHILD_SPAWN_OPTS = {
   stdio: ['ignore', 'pipe', 'pipe'],
   detached: true // own process group so killChild can group-kill
 };
+const CHILD_SPAWN_OPTS_SUDO = {
+  stdio: ['pipe', 'pipe', 'pipe'],
+  detached: true
+};
 
 // Build a fresh per-run sidecar report path. baseDir is `/tmp` for the
 // remote case (works on every Unix we support without thinking about
@@ -738,7 +784,7 @@ async function prepareRemoteJob({playbook, customPath, customPathKind, hostName,
 // Build the local-job tuple for a --self run: a makeChild closure that
 // runHost can call, plus a getSidecarText fetcher. Throws if a named
 // playbook does not exist locally — caller decides die vs per-host fail.
-function prepareLocalJob({playbook, command, hostName}) {
+function prepareLocalJob({playbook, command, hostName, sudoPassword}) {
   if (playbook) {
     const playbookPath = join(PLAYBOOK_DIR, `${PLAYBOOK_PREFIX}${playbook}`);
     if (!existsSync(playbookPath)) {
@@ -753,9 +799,10 @@ function prepareLocalJob({playbook, command, hostName}) {
     baseEnv.PLAYBASH_REPORT = reportPath;
     baseEnv.PLAYBASH_HOST = hostName;
   }
+  const spawnOpts = sudoPassword ? CHILD_SPAWN_OPTS_SUDO : CHILD_SPAWN_OPTS;
   return {
     makeChild: ({cols, rows}) => spawn(childCmd, childArgs, {
-      ...CHILD_SPAWN_OPTS,
+      ...spawnOpts,
       env: {...baseEnv, COLUMNS: String(cols), LINES: String(rows)}
     }),
     getSidecarText: makeLocalSidecarFetcher(reportPath)
@@ -766,8 +813,9 @@ function prepareLocalJob({playbook, command, hostName}) {
 // line — either a buildRemoteCommand or buildExecCommand result), and
 // register it for remote-kill cleanup. The remote PID gets filled in
 // later when runHost parses the wrapper's `__playbash_wrap_pid` preamble.
-function makeRemoteChild(address, wrapped) {
-  const child = spawn('ssh', [...SSH_BASE_ARGS, address, '--', wrapped], CHILD_SPAWN_OPTS);
+function makeRemoteChild(address, wrapped, sudoPassword) {
+  const spawnOpts = sudoPassword ? CHILD_SPAWN_OPTS_SUDO : CHILD_SPAWN_OPTS;
+  const child = spawn('ssh', [...SSH_BASE_ARGS, address, '--', wrapped], spawnOpts);
   trackRemoteWrapper(child, address);
   return child;
 }
@@ -805,7 +853,8 @@ export async function runRemote({
   address,
   rectHeight,
   verbose,
-  managed
+  managed,
+  sudoPassword
 }) {
   let job;
   try {
@@ -820,21 +869,22 @@ export async function runRemote({
     hostName,
     rectHeight,
     verbose,
+    sudoPassword,
     label: null,
     makeChild: ({cols, rows}) => {
       const wrapped = command
         ? buildExecCommand({cols, rows, command, wrapperPath: job.wrapperPath})
         : buildRemoteCommand({reportPath, hostName, cols, rows, ...job});
-      return makeRemoteChild(address, wrapped);
+      return makeRemoteChild(address, wrapped, sudoPassword);
     },
     getSidecarText: makeRemoteSidecarFetcher(address, reportPath)
   });
 }
 
-export async function runLocally({playbook, command, hostName, rectHeight, verbose}) {
+export async function runLocally({playbook, command, hostName, rectHeight, verbose, sudoPassword}) {
   let job;
   try {
-    job = prepareLocalJob({playbook, command, hostName});
+    job = prepareLocalJob({playbook, command, hostName, sudoPassword});
   } catch (err) {
     die(err.message);
   }
@@ -843,6 +893,7 @@ export async function runLocally({playbook, command, hostName, rectHeight, verbo
     hostName,
     rectHeight,
     verbose,
+    sudoPassword,
     label: '(local)',
     makeChild: job.makeChild,
     getSidecarText: job.getSidecarText
@@ -947,7 +998,8 @@ export async function runFanout({
   inventory,
   push,
   offlineNames,
-  transfer
+  transfer,
+  sudoPassword
 }) {
   const logLabel = playbook || transfer?.label || 'exec';
   const effectiveRect = transfer ? 0 : (rectHeight ?? 5);
@@ -991,7 +1043,7 @@ export async function runFanout({
     if (isSelf) {
       let job;
       try {
-        job = prepareLocalJob({playbook, command, hostName: slot.name});
+        job = prepareLocalJob({playbook, command, hostName: slot.name, sudoPassword});
       } catch {
         board.hostFinished(slot.name, {
           ok: false, statusWord: 'no script', events: [], logPath: '', elapsedMs: 0
@@ -1029,7 +1081,7 @@ export async function runFanout({
         const wrapped = command
           ? buildExecCommand({cols, rows, command, wrapperPath: job.wrapperPath})
           : buildRemoteCommand({reportPath, hostName: slot.name, cols, rows, ...job});
-        return makeRemoteChild(slot.address, wrapped);
+        return makeRemoteChild(slot.address, wrapped, sudoPassword);
       };
       getSidecarText = makeRemoteSidecarFetcher(slot.address, reportPath);
     }
@@ -1041,6 +1093,7 @@ export async function runFanout({
         hostName: slot.name,
         makeChild,
         getSidecarText,
+        sudoPassword,
         onChunk: chunk => {
           board.hostChunk(slot.name, chunk);
           if (capturedChunks) capturedChunks.push(chunk);

@@ -80,6 +80,16 @@ for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGPIPE):
 p = select.poll()
 p.register(fd, select.POLLIN | select.POLLHUP | select.POLLERR)
 
+# Relay stdin to the PTY master so the runner can inject input (e.g.
+# sudo passwords via --sudo). When stdin is /dev/null (the common
+# non-sudo case), the first read returns EOF and we unregister
+# immediately — zero overhead on the normal path.
+stdin_open = True
+try:
+    p.register(0, select.POLLIN | select.POLLHUP | select.POLLERR)
+except Exception:
+    stdin_open = False
+
 try:
     while not done:
         try:
@@ -96,7 +106,26 @@ try:
             _kill()
             break
         for efd, ev in events:
-            if efd == fd:
+            if efd == 0 and stdin_open:
+                if ev & select.POLLIN:
+                    try:
+                        d = os.read(0, 4096)
+                    except OSError:
+                        p.unregister(0)
+                        stdin_open = False
+                        continue
+                    if not d:
+                        p.unregister(0)
+                        stdin_open = False
+                        continue
+                    try:
+                        os.write(fd, d)
+                    except OSError:
+                        pass
+                elif ev & (select.POLLHUP | select.POLLERR):
+                    p.unregister(0)
+                    stdin_open = False
+            elif efd == fd:
                 if ev & select.POLLIN:
                     try:
                         d = os.read(fd, 4096)

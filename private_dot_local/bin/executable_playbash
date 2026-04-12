@@ -10,8 +10,10 @@
 //   playbash-sidecar.js   — parse, per-host summary, cross-host aggregation
 //   playbash-staging.js   — wrapper staging for vanilla hosts, BatchMode ssh
 
+import {openSync, closeSync, readSync, writeSync} from 'node:fs';
 import {parseArgs} from 'node:util';
 import {basename} from 'node:path';
+import {execSync} from 'node:child_process';
 
 import {
   probeConnectivity,
@@ -40,13 +42,13 @@ import {runDoctor} from '../share/playbash/doctor.js';
 
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
-const VERSION = '3.1.1';
+const VERSION = '3.2.0';
 
 const USAGE = `usage:
-  playbash run    <targets> <playbook> [-n LINES] [-p N] [--self]
-  playbash push   <targets> <script-path> [-n LINES] [-p N] [--self]
-  playbash debug  <targets> <playbook> [--self]
-  playbash exec   <targets> [--] <command...> [-n LINES] [-p N] [--self] [-N]
+  playbash run    <targets> <playbook> [-n LINES] [-p N] [--self] [--sudo]
+  playbash push   <targets> <script-path> [-n LINES] [-p N] [--self] [--sudo]
+  playbash debug  <targets> <playbook> [--self] [--sudo]
+  playbash exec   <targets> [--] <command...> [-n LINES] [-p N] [--self] [-N] [--sudo]
   playbash put    <targets> <local-path> [<remote-path>] [-p N] [--self] [-N]
   playbash get    <targets> <remote-path> [<local-path>] [-p N] [--self] [-N]
   playbash list
@@ -62,6 +64,7 @@ Options (must come before \`--\` when using exec):
                    pass 0 to disable the rectangle and stream output raw
   -p, --parallel N max concurrent hosts in fan-out (default 0 = unlimited)
   --self           allow running on the local host (default: refuse)
+  --sudo           prompt for a password and inject it when sudo/doas asks
   -N, --no-precheck  skip the ssh connectivity pre-flight check
 
 <targets> is one positional that may be a single host name, a comma-
@@ -138,6 +141,7 @@ const {values, positionals} = parseArgs({
   options: {
     lines: {type: 'string', short: 'n'},
     self: {type: 'boolean', default: false},
+    sudo: {type: 'boolean', default: false},
     'no-precheck': {type: 'boolean', short: 'N', default: false},
     parallel: {type: 'string', short: 'p', default: '0'},
     'bash-completion': {type: 'boolean', default: false},
@@ -231,8 +235,39 @@ async function resolveAndValidate(targetArg) {
   return {inventory, resolved, targets, offlineNames, parallelLimit};
 }
 
+// Prompt the operator for a password with echo disabled. Reads from
+// /dev/tty directly so piped stdin doesn't interfere.
+function promptPassword() {
+  let fd;
+  try {
+    fd = openSync('/dev/tty', 'r+');
+  } catch {
+    die('--sudo requires an interactive terminal');
+  }
+  try {
+    writeSync(fd, 'Password: ');
+    // Disable echo via stty on the tty fd
+    execSync('stty -echo', {stdio: [fd, fd, fd]});
+    const buf = Buffer.alloc(1024);
+    let pw = '';
+    while (true) {
+      const n = readSync(fd, buf, 0, 1, undefined);
+      if (n === 0) break;
+      const ch = buf.toString('utf8', 0, n);
+      if (ch === '\n' || ch === '\r') break;
+      pw += ch;
+    }
+    execSync('stty echo', {stdio: [fd, fd, fd]});
+    writeSync(fd, '\n');
+    return pw;
+  } finally {
+    try { execSync('stty echo', {stdio: [fd, fd, fd]}); } catch {}
+    closeSync(fd);
+  }
+}
+
 // Shared dispatcher for `run`, `push`, `debug`, and `exec`.
-async function dispatch({job, targetArg, rectHeight, verbose, push}) {
+async function dispatch({job, targetArg, rectHeight, verbose, push, sudoPassword}) {
   const {
     inventory: inv,
     targets,
@@ -254,7 +289,7 @@ async function dispatch({job, targetArg, rectHeight, verbose, push}) {
     // with "all targets resolved to self" before dispatch runs.
     const isSelf = await isSelfAddress(only.address);
     if (isSelf) {
-      await runLocally({...job, hostName: only.name, rectHeight, verbose});
+      await runLocally({...job, hostName: only.name, rectHeight, verbose, sudoPassword});
     } else {
       const managed = !push && inv.hosts.has(only.name);
       if (!push && job.playbook && !managed) {
@@ -268,7 +303,8 @@ async function dispatch({job, targetArg, rectHeight, verbose, push}) {
         address: only.address,
         rectHeight,
         verbose,
-        managed
+        managed,
+        sudoPassword
       });
     }
     return;
@@ -293,7 +329,8 @@ async function dispatch({job, targetArg, rectHeight, verbose, push}) {
     parallelLimit,
     inventory: inv,
     push,
-    offlineNames
+    offlineNames,
+    sudoPassword
   });
 }
 
@@ -364,12 +401,14 @@ switch (command) {
       die('debug does not accept -n — use "run <targets> <playbook> -n N" for a rectangle');
     const rectHeight = command === 'debug' ? 0 : (linesFlag ?? 5);
     const verbose = command === 'debug';
+    const sudoPassword = values.sudo ? promptPassword() : null;
     await dispatch({
       job: {playbook, customPath, customPathKind},
       targetArg,
       rectHeight,
       verbose,
-      push: isCustomPath
+      push: isCustomPath,
+      sudoPassword
     });
     break;
   }
@@ -386,12 +425,14 @@ switch (command) {
     }
     const playbook = basename(scriptPath.replace(/\/+$/, ''));
     const rectHeight = linesFlag ?? 5;
+    const sudoPassword = values.sudo ? promptPassword() : null;
     await dispatch({
       job: {playbook, customPath: scriptPath, customPathKind},
       targetArg,
       rectHeight,
       verbose: false,
-      push: true
+      push: true,
+      sudoPassword
     });
     break;
   }
@@ -401,12 +442,14 @@ switch (command) {
     const command = cmdParts.join(' ');
     if (!command) die(`exec requires a command after the target\n${USAGE}`);
     const rectHeight = linesFlag ?? 0;
+    const sudoPassword = values.sudo ? promptPassword() : null;
     await dispatch({
       job: {command},
       targetArg,
       rectHeight,
       verbose: false,
-      push: false
+      push: false,
+      sudoPassword
     });
     break;
   }

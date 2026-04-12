@@ -4,7 +4,7 @@ Technical rationale and protocol details for `playbash`, the multi-host bash pla
 
 Companion docs:
 
-- [`playbash-roadmap.md`](./playbash-roadmap.md) — milestone checklist and current status.
+- [`playbash-roadmap.md`](./done/playbash-roadmap.md) — milestone checklist and current status.
 - [`playbash-debugging.md`](./done/playbash-debugging.md) — full debugging trail for the milestone-11 Mac PTY bugs.
 
 ## Why not pyinfra
@@ -325,7 +325,14 @@ private_dot_local/
       inventory.js                      # load, resolve, self detection, target filtering
       sidecar.js                        # JSON-lines parser, per-host + cross-host aggregation
       staging.js                        # wrapper staging for vanilla hosts, BatchMode ssh
+      runner.js                         # execution pipeline: spawn, tee, sidecar, fan-out
+      transfer.js                       # put/get file transfer over ssh
+      commands.js                       # list, hosts, log, __complete-targets, --bash-completion
       doctor.js                         # `playbash doctor` env + per-host diagnostic
+      errors.js                         # die() — exit with a user-facing error message
+      paths.js                          # shared path constants (LOG_DIR, PLAYBOOK_DIR, etc.)
+      shell-escape.js                   # shellQuote / shellQuotePath for remote command lines
+      subprocess.js                     # run(): short-lived subprocess helper (doctor, probes)
       ssh-config.js                     # parseHostNames(): walk ~/.ssh/config + Includes
       completion.bash                   # bash completion script (read by --bash-completion)
     utils/
@@ -340,7 +347,7 @@ Notes:
 - General-purpose helpers (`comp.js`, `semver.js`, `nvm.js`) live in `private_share/utils/` and are imported by other Node executables (`update-node-versions.js`, `trim-node-versions.js`).
 - There is no `connection.js` because connection lifecycle is delegated to `~/.ssh/config` (see [Connection management](#connection-management)).
 - `cmdList` filters out `.js` files defensively, in case future helpers land in `bin/`.
-- Dependency graph: entry → all four playbash modules; sidecar → render (for `COLOR`). No cycles.
+- Dependency graph: entry → runner, commands, transfer, inventory, render, doctor; runner → render, inventory, sidecar, staging; staging ↔ runner (cyclic — `registerChild` accessed at call time only, safe in ESM). No other cycles.
 - All ssh invocations pass `-o BatchMode=yes`. Passwordless auth (key agent or pre-configured public-key) is a hard requirement — same as ansible / pyinfra / fabric. Auth failures are fast and deterministic.
 
 ## Reboot/warning reporting in upd/cln
@@ -397,12 +404,12 @@ The whole module is one-shot: no shared state with the runner, no caching, no op
 
 **Scheme:** loose semver — `MAJOR.MINOR.PATCH`.
 
-- **MAJOR** tracks the roadmap's `vN` milestones in [`playbash-roadmap.md`](./playbash-roadmap.md). `1.x.x` = v1 (proof of concept), `2.x.x` = v2 (production polish), `3.x.x` = v3 (portability to vanilla hosts). A major bump means a meaningfully different product (new transport model, new deployment story, etc.) and gets its own roadmap section.
+- **MAJOR** tracks the roadmap's `vN` milestones in [`playbash-roadmap.md`](./done/playbash-roadmap.md). `1.x.x` = v1 (proof of concept), `2.x.x` = v2 (production polish), `3.x.x` = v3 (portability to vanilla hosts). A major bump means a meaningfully different product (new transport model, new deployment story, etc.) and gets its own roadmap section.
 - **MINOR** bumps on any user-visible feature addition or behavior change: a new subcommand, a new flag, a new sidecar event kind, a change in exit-code semantics, a change in default output that scripts might be parsing. v3 follow-ups (milestones 18–24) are minor bumps within `3.x.x`.
 - **PATCH** bumps on bug fixes and pure internal refactors with zero user-visible behavior change.
 
 **Bump policy:** every commit that changes playbash's behavior, CLI surface, or output should update `VERSION` in the same commit. Refactors that don't touch behavior (file splits, `die()` consolidation, etc.) also get a patch bump so `--version` reflects the actually-running code and bisection has a usable anchor. The version is the single source of truth for "what's installed" — the wiki and release notes trail it, not the other way around.
 
-**Current:** `3.0.0` — snapshot at the end of the v3 roadmap close. Subsequent v3 follow-ups (cleanup-on-signal, ssh-config completion enrichment, doctor, directory playbooks, `die()` consolidation, `--version` itself) will start bumping from this baseline.
+**Current:** `3.1.1` — all v3 follow-ups (cleanup-on-signal, ssh-config completion enrichment, doctor, directory playbooks) shipped, plus shell-quoting fixes and UX polish.
 
 **Not tracked in `--version`:** the staging cache format, the sidecar protocol version, the PTY wrapper's own version. Those are separate concerns with their own evolution — the sidecar is a newline-delimited JSON stream where consumers ignore unknown event fields; the wrapper announces its protocol via the `__playbash_wrap_pid` preamble (absence = older wrapper, runner falls back gracefully). Bundling all of that into the CLI version would conflate independent compat stories.
