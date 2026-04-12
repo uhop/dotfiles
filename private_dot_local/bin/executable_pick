@@ -32,14 +32,21 @@ args_program_required_command="no"
 
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Output bash completion script"
 
-# Handle --bash-completion manually: topics are dynamic (JSON filenames),
-# so the auto-generated completion from options.bash can't list them.
-for _arg in "$@"; do
-  if [[ "$_arg" == "--bash-completion" ]]; then
-    cat <<'COMP'
+# Override the default completion generator: topics are dynamic (JSON
+# filenames in $PICK_DIR), so the auto-generated completion from
+# options.bash can't list them.
+args::completion::generate() {
+  cat <<'COMP'
+# options.bash-completion v1
+# Bash completion for pick
 _pick_completions() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
+  if [[ "$cur" == -* ]]; then
+    COMPREPLY=($(compgen -W "-v --version -h --help --bash-completion" -- "$cur"))
+    return
+  fi
   if [[ $COMP_CWORD -eq 1 ]]; then
     local pick_dir="${PICK_DIR:-$HOME/.local/share/pick}"
     local topics=""
@@ -52,10 +59,7 @@ _pick_completions() {
 complete -F _pick_completions pick
 complete -F _pick_completions h
 COMP
-    exit 0
-  fi
-done
-unset _arg
+}
 
 args::parse "$@"
 set -- "${args_cleaned[@]}"
