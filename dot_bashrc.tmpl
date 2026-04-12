@@ -180,6 +180,7 @@ if [ "$__INTERACTIVE" == yes ]; then
   command -v xc &> /dev/null && complete -C xc xc || true
   command -v zoxide &> /dev/null && eval "$(zoxide init bash)" || true
   command -v playbash &> /dev/null && eval "$(playbash --bash-completion)" || true
+  command -v pick &> /dev/null && eval "$(pick --bash-completion)" || true
   [ -s ~/.config/broot/launcher/bash/br ] && \. ~/.config/broot/launcher/bash/br || true
 
   if command -v fzf &> /dev/null; then
