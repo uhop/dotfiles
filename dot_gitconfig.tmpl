@@ -39,10 +39,6 @@
   detailed-commit = "format:%C(bold)commit:%Creset %C(bold yellow)%h%Creset %C(yellow)<%H>%Creset %C(auto)%d%Creset%n%C(bold)date:%Creset   %C(bold green)%cd%Creset %C(green)%cr%Creset%n%C(bold)author:%Creset %C(bold blue)%an%Creset %Cblue<%ae>%Creset%n%n%C(cyan)%s%Creset%n%n%C(auto)%b%Creset"
 [alias]
 	patch = !git --no-pager diff --no-color
-	st = status
-	co = checkout
-	cob = checkout -b
-	cm = commit
 	ls = log --oneline --pretty=better-oneline
 	ll = log --oneline --pretty=better-oneline --numstat
 	lsf = log --oneline --pretty=better-oneline --graph --follow
@@ -62,7 +58,6 @@
 	nuke = reset --hard
 	purge = clean -fd
 	trim = "!f() { git branch | grep -v \"main\" | grep -v \"master\" | grep -v \"^*\" | xargs git branch -D; git remote prune origin; }; f"
-	branches = !git br -a
 	tags = tag
 	remotes = remote -v
 	merge-span = "!f() { echo $(git log -1 $2 --merges --pretty=format:%P | cut -d' ' -f1)$1$(git log -1 $2 --merges --pretty=format:%P | cut -d' ' -f2); }; f"
