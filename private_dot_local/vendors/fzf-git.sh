@@ -333,3 +333,102 @@ __fzf_git_init files branches tags remotes hashes stashes lreflogs each_ref work
 
 # -----------------------------------------------------------------------------
 fi
+e-preview-window(down,70%|hidden|)' \
+    --bind "ctrl-o:execute-silent:bash \"$__fzf_git\" --list {1} {2}" \
+    --bind "alt-e:execute:${EDITOR:-vim} <(git show {2}) < /dev/tty > /dev/tty" \
+    --bind "alt-a:change-border-label(🍀 Every ref)+reload:bash \"$__fzf_git\" --list all-refs" \
+    --bind "alt-enter:become:printf '%s\n' {+2} | sed 's@[^/]*/@@'" \
+    --preview "git log --oneline --graph --date=short --color=$(__fzf_git_color .) --pretty='format:%C(auto)%cd %h%d %s' {2} --" \
+    --accept-nth 2 \
+    "$@"
+}
+
+_fzf_git_worktrees() {
+  _fzf_git_check || return
+  git worktree list | _fzf_git_fzf \
+    --border-label '🌴 Worktrees ' \
+    --header 'CTRL-X (remove worktree)' \
+    --bind 'ctrl-x:reload(git worktree remove {1} > /dev/null; git worktree list)' \
+    --preview "
+      git -c color.status=$(__fzf_git_color .) -C {1} status --short --branch
+      echo
+      git log --oneline --graph --date=short --color=$(__fzf_git_color .) --pretty='format:%C(auto)%cd %h%d %s' {2} --
+    " "$@" |
+  awk '{print $1}'
+}
+
+_fzf_git_list_bindings() {
+  cat <<'EOF'
+
+CTRL-G ? to show this list
+CTRL-G CTRL-F for Files
+CTRL-G CTRL-B for Branches
+CTRL-G CTRL-T for Tags
+CTRL-G CTRL-R for Remotes
+CTRL-G CTRL-H for commit Hashes
+CTRL-G CTRL-S for Stashes
+CTRL-G CTRL-L for reflogs
+CTRL-G CTRL-W for Worktrees
+CTRL-G CTRL-E for Each ref (git for-each-ref)
+EOF
+}
+
+fi # --------------------------------------------------------------------------
+
+if [[ $1 = --run ]]; then
+  shift
+  type=$1
+  shift
+  eval "_fzf_git_$type" "$@"
+
+elif [[ $- =~ i ]]; then # ------------------------------------------------------
+if [[ -n "${BASH_VERSION:-}" ]]; then
+  __fzf_git_init() {
+    bind -m emacs-standard '"\er":  redraw-current-line'
+    bind -m emacs-standard '"\C-z": vi-editing-mode'
+    bind -m vi-command     '"\C-z": emacs-editing-mode'
+    bind -m vi-insert      '"\C-z": emacs-editing-mode'
+
+    local o c
+    for o in "$@"; do
+      c=${o:0:1}
+      if [[ $c == '?' ]]; then
+        bind -x "\"\C-g$c\": _fzf_git_list_bindings"
+        continue
+      fi
+      bind -m emacs-standard '"\C-g\C-'$c'": " \C-u \C-a\C-k`_fzf_git_'$o'`\e\C-e\C-y\C-a\C-y\ey\C-h\C-e\er \C-h"'
+      bind -m vi-command     '"\C-g\C-'$c'": "\C-z\C-g\C-'$c'\C-z"'
+      bind -m vi-insert      '"\C-g\C-'$c'": "\C-z\C-g\C-'$c'\C-z"'
+      bind -m emacs-standard '"\C-g'$c'":    " \C-u \C-a\C-k`_fzf_git_'$o'`\e\C-e\C-y\C-a\C-y\ey\C-h\C-e\er \C-h"'
+      bind -m vi-command     '"\C-g'$c'":    "\C-z\C-g'$c'\C-z"'
+      bind -m vi-insert      '"\C-g'$c'":    "\C-z\C-g'$c'\C-z"'
+    done
+  }
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+  __fzf_git_join() {
+    local item
+    while read -r item; do
+      echo -n -E "${(q)${(Q)item}} "
+    done
+  }
+
+  __fzf_git_init() {
+    setopt localoptions no_glob
+    local m o
+    for o in "$@"; do
+      if [[ ${o[1]} == "?" ]];then
+        eval "fzf-git-$o-widget() { zle -M '$(_fzf_git_list_bindings)' }"
+      else
+        eval "fzf-git-$o-widget() { local result=\$(_fzf_git_$o | __fzf_git_join); zle reset-prompt; LBUFFER+=\$result }"
+      fi
+      eval "zle -N fzf-git-$o-widget"
+      for m in emacs vicmd viins; do
+        eval "bindkey -M $m '^g^${o[1]}' fzf-git-$o-widget"
+        eval "bindkey -M $m '^g${o[1]}' fzf-git-$o-widget"
+      done
+    done
+  }
+fi
+__fzf_git_init files branches tags remotes hashes stashes lreflogs each_ref worktrees '?list_bindings'
+
+fi # --------------------------------------------------------------------------
