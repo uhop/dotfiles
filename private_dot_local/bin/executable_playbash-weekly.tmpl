@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # playbash-weekly — weekly maintenance stack: chezmoi update, dcms, then
-# upd -cy (which runs cln after upd). Same playbash conventions as
+# upd -cry (which runs cln after upd). Same playbash conventions as
 # playbash-daily (sourced helpers, structured events via $PLAYBASH_REPORT).
 
 set -euCo pipefail
@@ -17,8 +17,8 @@ playbash_info "refreshing docker images via dcms"
 dcms
 
 playbash_step "system"
-playbash_info "running upd -cy (with cleanup)"
-upd -cy
+playbash_info "running upd -cry (with cleanup)"
+upd -cry
 
 # upd/cln are now authoritative for reboot/restart/apparmor reporting via
 # maintenance.sh — they write the same events to $PLAYBASH_REPORT that

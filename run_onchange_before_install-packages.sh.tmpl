@@ -66,6 +66,8 @@ if command -v brew &>/dev/null && [ -w "$(brew --cellar)" ]; then
 {{ template "Brewfile.common" . -}}
 {{ if eq .osFamily "darwin" -}}
 {{ template "Brewfile.Darwin" . -}}
+{{- else if eq .pkgManager "dnf" -}}
+{{ template "Brewfile.RedHat" . -}}
 {{- end }}
 EOF
   brew completions link

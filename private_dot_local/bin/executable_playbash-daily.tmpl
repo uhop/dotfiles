@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # playbash-daily — daily maintenance stack: chezmoi update, then dcms,
-# then upd -y. Sources playbash.sh so the runner gets structured events,
+# then upd -ry. Sources playbash.sh so the runner gets structured events,
 # but stays directly runnable by hand (helpers fall back to pretty-print
 # when $PLAYBASH_REPORT is unset).
 
@@ -18,8 +18,8 @@ playbash_info "refreshing docker images via dcms"
 dcms
 
 playbash_step "system"
-playbash_info "running upd -y"
-upd -y
+playbash_info "running upd -ry"
+upd -ry
 
 # upd is now authoritative for reboot/restart/apparmor reporting via
 # maintenance.sh — it writes the same events to $PLAYBASH_REPORT that
