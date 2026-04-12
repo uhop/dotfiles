@@ -36,11 +36,8 @@ Each wiki page should answer: **"I need to do X — what does this project give 
 
 ### Gaps
 
-| Topic | Notes | Priority |
-|-------|-------|----------|
-| **Searching** | `where`, `upfind`, `upfd`, `upsearch`, `gre`, fzf-git.sh. Already documented in Shell-Environment as a reference; could use a workflow section in Workflows: general showing when to reach for each tool. | Medium |
-
-Items previously listed as gaps but already covered:
+No remaining gaps. Items previously listed as gaps but now covered:
+- Searching → now in Workflows: general (Searching section with tool-choice table).
 - Docker workflows → now in Workflows: maintenance.
 - Encrypted notes (`jot`) → documented in Utilities.
 - Image optimization (`imop`) → documented in Utilities.
@@ -54,15 +51,15 @@ Items previously listed as gaps but already covered:
 
 ### Remaining open questions
 
-1. **README vs wiki.** The README still duplicates Platform Notes for Ubuntu/macOS. Consider condensing to the quickstart + link to the wiki.
+1. ~~**README vs wiki.** Condensed — platform sections now link to Setting Up a New Machine and Platform Notes.~~
 
 2. **Partial bootstrap.** What if someone only wants the shell aliases, not the full tool suite? The current `run_onchange_before_` is all-or-nothing. May not be worth solving now.
 
 ## Related dev-docs
 
 - **[bashrc-optimization.md](./done/bashrc-optimization.md)** — plan to gate completions and tool inits behind `__INTERACTIVE` for faster non-interactive shells. ✅ Done.
-- **[bootstrap-plan.md](./done/bootstrap-plan.md)** — automation plan for setting up vanilla machines (SSH hardening, prerequisites, chezmoi init).
-- **[playbash-roadmap.md](./playbash-roadmap.md)** § Future — `playbash doctor`, `playbash bootstrap`, inventory-from-SSH-config, sudo support.
+- **[bootstrap-plan.md](./done/bootstrap-plan.md)** — automation plan for setting up vanilla machines (SSH hardening, prerequisites, chezmoi init). ✅ Done.
+- **[playbash-roadmap.md](./done/playbash-roadmap.md)** — playbash v1–v3 design and implementation. ✅ Done.
 
 ## Tool overlap analysis
 
@@ -90,9 +87,11 @@ The overlap itself is not necessarily a problem — many tools coexist fine. Wha
 
 3. **Consolidate aliases.** The `gre` alias (recursive grep excluding junk dirs) does the same thing `ripgrep` does by default. `where` (find + grep) is slower than `rg`. These could be simplified.
 
-This is a larger effort — start by documenting the intended story, then prune in a follow-up.
+✅ Option 1 done — tool-choice guidance added to Workflows: general (searching, file managers) and Workflows: maintenance (monitors, disk usage, network). Pruning and alias consolidation deferred.
 
 ## Editor choice rationale
+
+✅ Documented in Application Notes (Micro section).
 
 **Micro** was chosen because:
 - Small, TUI-based, available in system repositories (`apt install micro`)
@@ -101,8 +100,6 @@ This is a larger effort — start by documenting the intended story, then prune 
 - Good fit for users coming from GUI editors who prefer non-vim workflows
 
 Vim is also installed (and configured via `run_once_after_install-vim.sh`) as a fallback — it's the universal default on servers and needed for occasional use, but Micro is the daily driver set in `EDITOR` and `VISUAL`.
-
-This rationale should be noted in Application Notes or Workflows: general.
 
 ## Cross-document consistency notes
 
@@ -123,7 +120,7 @@ Audit performed 2026-04-10. Findings addressed:
 6. ~~Document SSH key setup, distribution, client config, and server hardening in Workflows: remote.~~
 7. ~~Create setup page; move one-time SSH/bootstrap content out of Workflows: remote.~~
 8. ~~Implement `bootstrap-remote` and `bootstrap-dotfiles`; update wiki and Utilities.~~
-9. Add a "Searching" section to Workflows: general.
-10. Condense README platform sections to link to wiki.
-10. Document tool overlap story in workflow pages (which tool for which job).
-11. Note Micro editor rationale in Application Notes.
+9. ~~Add a "Searching" section to Workflows: general.~~
+10. ~~Condense README platform sections to link to wiki.~~
+10. ~~Document tool overlap story in workflow pages (which tool for which job).~~
+11. ~~Note Micro editor rationale in Application Notes.~~

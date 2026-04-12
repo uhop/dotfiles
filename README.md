@@ -114,83 +114,9 @@ Check `.bash_aliases` for a list of aliases.
 
 # Platform-specific notes
 
-## Ubuntu (Debian)
+For full step-by-step instructions (prerequisites, brew, SSH keys, server hardening) see **[Setting Up a New Machine](https://github.com/uhop/dotfiles/wiki/Setting-Up-a-New-Machine)** on the wiki. Platform quirks (fonts, video, clipboard, Docker, LXD) are covered in **[Platform Notes](https://github.com/uhop/dotfiles/wiki/Platform-Notes)**.
 
-These instructions assume a newly installed OS. Otherwise, adjust accordingly.
-
-- Install your private ssh keys suitable to access github, if you use them. Otherwise github-based installations will fail.
-- Install prerequisites:
-  ```bash
-  sudo apt install build-essential curl git git-gui gitk micro
-  ```
-- Install `brew`:
-  ```bash
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  ```
-  - The exact installation instructions can change from time to time. Check https://brew.sh/ if you encounter any problems.
-- Restart the session or initialize `brew`:
-  ```bash
-  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-  ```
-- Install `chezmoi`:
-  ```bash
-  brew install chezmoi
-  ```
-- Initialize dotfiles:
-  ```bash
-  chezmoi init --apply uhop
-  ```
-  - The initial script installs various utilities using `apt`. Thus it requires a `sudo` password. Don't be alarmed.
-    Inspect `run_onchange_before_install-packages.sh.tmpl` for more details.
-- Reboot.
-
-## Red Hat-like (Fedora, RHEL, CentOS, Rocky, Alma)
-
-These instructions assume a newly installed OS. Otherwise, adjust accordingly.
-
-- Install your private ssh keys suitable to access github, if you use them. Otherwise github-based installations will fail.
-- Install prerequisites:
-  ```bash
-  sudo dnf install gcc gcc-c++ make curl git git-gui gitk micro unzip
-  ```
-- Install `brew`:
-  ```bash
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  ```
-  - The exact installation instructions can change from time to time. Check https://brew.sh/ if you encounter any problems.
-- Restart the session or initialize `brew`:
-  ```bash
-  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-  ```
-- Install `chezmoi`:
-  ```bash
-  brew install chezmoi
-  ```
-- Initialize dotfiles:
-  ```bash
-  chezmoi init --apply uhop
-  ```
-  - The initial script installs various utilities using `dnf` and enables EPEL (on non-Fedora distros). Thus it requires a `sudo` password. Don't be alarmed.
-    Inspect `run_onchange_before_install-packages.sh.tmpl` for more details.
-- Reboot.
-
-## MacOS
-
-The default shell is `zsh`. I use `bash`. The latter is included but a very old version
-(something related to licensing issues). It is recommended to install the latest version with `brew`:
-
-```bash
-brew install bash
-echo $(brew --prefix)/bin/bash | sudo tee -a /private/etc/shells
-chsh -s $(brew --prefix)/bin/bash
-```
-
-For more info see:
-
-- https://phoenixnap.com/kb/change-zsh-to-bash-mac
-
-Make sure that scripts start with `#!/usr/bin/env bash` instead of `#!/bin/bash`. The former
-is the new `bash`, while the latter is the old one.
+Supported platforms: Ubuntu (Debian), Red Hat-like (Fedora, RHEL, CentOS, Rocky, Alma), and macOS. On macOS, install a modern `bash` via `brew install bash` and switch to it &mdash; the system `/bin/bash` is outdated.
 
 # More information
 
