@@ -259,6 +259,7 @@ function promptPassword() {
     }
     execSync('stty echo', {stdio: [fd, fd, fd]});
     writeSync(fd, '\n');
+    buf.fill(0); // clear password bytes from the read buffer
     return pw;
   } finally {
     try { execSync('stty echo', {stdio: [fd, fd, fd]}); } catch {}
