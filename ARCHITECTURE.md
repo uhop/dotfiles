@@ -94,12 +94,19 @@ executable_upd.tmpl           ← system updater (apt/dnf, snap, flatpak, brew, 
 ```
 playbash (Node entry, ~/.local/bin/playbash)
     ↓
-private_share/playbash/render.js     ← COLOR, Rectangle, StatusBoard, ANSI sanitizer
-private_share/playbash/inventory.js  ← inventory load, group expansion, self detection
-private_share/playbash/sidecar.js    ← JSON-lines parser, per-host summary, cross-host aggregator
-                                       (imports COLOR from render.js)
-private_share/playbash/staging.js    ← SSH helpers (sshRun), file staging for vanilla hosts,
-                                       remote SHA-256 probe, wrapper/playbook upload
+private_share/playbash/runner.js       ← execution pipeline: spawn, tee, sidecar, fan-out
+private_share/playbash/render.js       ← COLOR, Rectangle, StatusBoard, ANSI sanitizer
+private_share/playbash/inventory.js    ← inventory load, group expansion, self detection
+private_share/playbash/sidecar.js      ← JSON-lines parser, per-host summary, cross-host aggregator
+private_share/playbash/staging.js      ← SSH helpers (sshRun), file staging for vanilla hosts
+private_share/playbash/transfer.js     ← put/get file transfer over ssh
+private_share/playbash/commands.js     ← list, hosts, log, __complete-targets, --bash-completion
+private_share/playbash/doctor.js       ← playbash doctor env + per-host diagnostic
+private_share/playbash/errors.js       ← die() — user-facing error exit
+private_share/playbash/paths.js        ← shared path constants (LOG_DIR, PLAYBOOK_DIR, etc.)
+private_share/playbash/shell-escape.js ← shellQuote / shellQuotePath for remote command lines
+private_share/playbash/subprocess.js   ← run(): short-lived subprocess helper (doctor, probes)
+private_share/playbash/ssh-config.js   ← parseHostNames(): walk ~/.ssh/config + Includes
 private_share/playbash/completion.bash ← bash completion (sourced via --bash-completion)
 
 playbash-{daily,weekly,sample,hello}  ← playbook scripts deployed to every host

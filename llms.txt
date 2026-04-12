@@ -58,9 +58,9 @@ Supported formats: `.tar.br`, `.tar.bz2`, `.tar.gz`, `.tar.xz`, `.tar.zst`, `.ta
 
 ### Playbash Server Management
 
-Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansible-based stack. See `dev-docs/playbash-design.md` and `dev-docs/playbash-roadmap.md`.
+Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansible-based stack. See `dev-docs/playbash-design.md` and `dev-docs/done/playbash-roadmap.md`.
 
-**Runner:** Node CLI at `~/.local/bin/playbash` (single entrypoint + four modules under `~/.local/share/playbash/`: `render.js`, `inventory.js`, `sidecar.js`, `staging.js`, plus `completion.bash`). Cross-platform PTY allocation via `~/.local/libs/playbash-wrap.py` (Python). Linux + macOS targets supported end-to-end.
+**Runner:** Node CLI at `~/.local/bin/playbash` (single entrypoint + modules under `~/.local/share/playbash/`: `runner.js`, `render.js`, `inventory.js`, `sidecar.js`, `staging.js`, `transfer.js`, `commands.js`, `doctor.js`, `errors.js`, `paths.js`, `shell-escape.js`, `subprocess.js`, `ssh-config.js`, `completion.bash`). Cross-platform PTY allocation via `~/.local/libs/playbash-wrap.py` (Python, with stdin relay for `--sudo`). Linux + macOS targets supported end-to-end.
 
 **Subcommands** (targets always come first):
 - `playbash run <targets> <playbook>` — run with live rectangle (single target) or status board (multiple targets)
@@ -71,7 +71,7 @@ Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansibl
 - `playbash get <targets> <remote-path> [<local-path>]` — download a file or directory
 - `playbash list` / `playbash hosts` / `playbash log [host] [command]`
 
-**Options:** `-n/--lines N` (rectangle height, default 5; 0 for exec), `-p/--parallel N`, `--self`, `-N/--no-precheck` (skip offline detection).
+**Options:** `-n/--lines N` (rectangle height, default 5; 0 for exec), `-p/--parallel N`, `--self`, `--sudo` (prompt once for a password, inject the same password on every host when sudo/doas asks), `-N/--no-precheck` (skip offline detection).
 
 **Targets:** comma-separated host names, group names, and the implicit `all` group. Resolved from `~/.config/playbash/inventory.json`. Inventory hosts are **managed** (playbooks pre-deployed via chezmoi); bare ssh aliases get the playbook pushed automatically. `put`/`get`/`push` support `{host}` template expansion in paths. Custom script paths (containing `/`) in `run`/`push` always use upload mode.
 

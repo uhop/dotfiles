@@ -59,11 +59,12 @@ dotfiles/                              # chezmoi source directory
 │   ├── libs/
 │   │   ├── bootstrap.sh               # Sources options.bash core modules
 │   │   ├── playbash.sh                # Sidecar/event helpers sourced by playbash playbooks
+│   │   ├── playbash-wrap.py           # Cross-platform PTY wrapper (stdin relay for --sudo)
 │   │   └── maintenance.sh             # report_reboot/warn/action helpers + apt-history scanning
 │   │                                  # (sourced by upd, cln; writes both colored output and
 │   │                                  # JSON-lines events to $PLAYBASH_REPORT when set)
 │   ├── private_share/                 # → ~/.local/share/ (private permissions)
-│   │   ├── playbash/                  # playbash runner modules (render, inventory, sidecar, staging, completion)
+│   │   ├── playbash/                  # playbash runner modules (runner, render, inventory, sidecar, staging, transfer, commands, doctor, errors, paths, shell-escape, subprocess, ssh-config, completion)
 │   │   ├── utils/                     # general Node helpers (comp, semver, nvm)
 │   │   └── private_gnome-shell/       # GNOME shell extensions
 │   └── vendors/
@@ -172,4 +173,4 @@ For the full `options.bash` API see [its wiki](https://github.com/uhop/options.b
 - `sudo` operations check for group membership first (`groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'`).
 - Node.js helper modules live under `private_share/utils/` (general) and `private_share/playbash/` (runner-specific). They deploy to `~/.local/share/utils/` and `~/.local/share/playbash/` respectively. Executables in `bin/` import them via relative paths like `../share/utils/nvm.js`.
 - Maintenance scripts (`upd`, `cln`) source `~/.local/libs/maintenance.sh` for shared `report_reboot` / `report_warn` / `report_action` helpers. Each helper prints a colored message via options.bash AND writes a JSON-lines event to `$PLAYBASH_REPORT` when the script runs under the playbash runner. The helpers do not depend on `playbash.sh`; the JSON writer is inlined.
-- The playbash runner (`~/.local/bin/playbash`) is a multi-host playbook runner (v1–v3 complete). Subcommands: `run`, `push`, `debug`, `exec`, `put`, `get`, `list`, `hosts`, `log`. Targets always come first: `playbash <cmd> <targets> <rest>`. Inventory hosts are managed; bare ssh aliases get playbooks pushed automatically. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management) on the wiki, [`dev-docs/playbash-design.md`](./dev-docs/playbash-design.md) for technical rationale, and [`dev-docs/playbash-roadmap.md`](./dev-docs/playbash-roadmap.md) for the milestone log.
+- The playbash runner (`~/.local/bin/playbash`) is a multi-host playbook runner (v1–v3 complete). Subcommands: `run`, `push`, `debug`, `exec`, `put`, `get`, `list`, `hosts`, `log`, `doctor`. Targets always come first: `playbash <cmd> <targets> <rest>`. Options include `--sudo` (prompt once for a password, inject the same password on every host when sudo/doas asks). Inventory hosts are managed; bare ssh aliases get playbooks pushed automatically. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management) on the wiki, [`dev-docs/playbash-design.md`](./dev-docs/playbash-design.md) for technical rationale, and [`dev-docs/done/playbash-roadmap.md`](./dev-docs/done/playbash-roadmap.md) for the milestone log.
