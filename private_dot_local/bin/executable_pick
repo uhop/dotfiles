@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# pick — interactive command reference.
+# Presents available commands by topic via fzf, shows docs,
+# lets you edit the command, then echoes and runs it.
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+# Source aliases first so commands like rcp, gst, gbr are available.
+# bootstrap.sh is sourced second — its echoRun overrides the simpler
+# version from .bash_aliases.
+[[ -f ~/.bash_aliases ]] && . ~/.bash_aliases
+. ~/.local/libs/bootstrap.sh
+
+script_name=$(basename "$0")
+PICK_DIR="${PICK_DIR:-$HOME/.local/share/pick}"
+
+args::program "$script_name" "1.0.0" "Interactive command reference"
+
+args_program_header="${BOLD}pick${RESET_BOLD} presents available commands by topic via fzf.
+Shows docs, lets you edit the command, then echoes and runs it."
+
+args_program_usage="${BOLD}pick${RESET_BOLD}               list available topics
+${BOLD}pick${RESET_BOLD} git             show git commands
+${BOLD}pick${RESET_BOLD} rsync           show rsync commands
+${BOLD}git pick${RESET_BOLD}            same as pick git"
+
+args_program_footer="Topics are JSON files in \$PICK_DIR ($PICK_DIR).
+See also: ${BOLD}pet${RESET_BOLD} (personal snippet manager), ${BOLD}git pick${RESET_BOLD} (shortcut for pick git)."
+
+args_program_required_command="no"
+
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
+
+# --- require fzf and jq ---
+command -v fzf &>/dev/null || { ansi::err "${ERROR} pick requires fzf ${RESET_ALL}"; exit 1; }
+command -v jq  &>/dev/null || { ansi::err "${ERROR} pick requires jq ${RESET_ALL}"; exit 1; }
+
+# --- list available topics ---
+list_topics() {
+  local topics=""
+  for f in "$PICK_DIR"/*.json; do
+    [[ -f "$f" ]] && topics+="$(basename "$f" .json)"$'\n'
+  done
+  echo -n "$topics" | sort
+}
+
+# --- run a topic ---
+pick_topic() {
+  local topic="$1"
+  local file="$PICK_DIR/$topic.json"
+
+  if [[ ! -f "$file" ]]; then
+    ansi::err "${ERROR} Unknown topic: $topic ${RESET_ALL}"
+    echo "Available: $(list_topics | tr '\n' ' ')" >&2
+    return 1
+  fi
+
+  jq empty "$file" 2>/dev/null || { ansi::err "${ERROR} Invalid JSON: $file ${RESET_ALL}"; return 1; }
+
+  local count
+  count=$(jq 'length' "$file")
+  [[ "$count" -eq 0 ]] && { ansi::err "${ERROR} No entries in $file ${RESET_ALL}"; return 1; }
+
+  # Build fzf input: INDEX<tab>CMD<tab>DESC
+  # fzf displays CMD and DESC (--with-nth=2..); index is hidden but
+  # available as {1} for the preview command.
+  local selected
+  selected=$(
+    jq -r 'to_entries[] | [.key, .value.cmd, .value.desc] | @tsv' "$file" | \
+    fzf --layout=reverse --border \
+      --delimiter=$'\t' \
+      --with-nth='2..' \
+      --tabstop=30 \
+      --prompt="$topic> " \
+      --header="Type to filter · Enter to select · Esc to cancel" \
+      --preview-window=down:6:wrap \
+      --preview="jq -r --argjson i {1} '
+          .[(\$i)] |
+          .cmd,
+          \"\",
+          .desc,
+          (if .doc then \"\n\" + .doc else \"\" end)
+        ' \"$file\""
+  ) || return 0
+
+  local idx cmd args_flag doc
+  idx=$(echo "$selected" | cut -f1)
+  cmd=$(jq -r  --argjson i "$idx" '.[$i].cmd'          "$file")
+  args_flag=$(jq -r --argjson i "$idx" '.[$i].args // true' "$file")
+  doc=$(jq -r  --argjson i "$idx" '.[$i].doc  // empty' "$file")
+
+  if [[ "$args_flag" == "false" ]]; then
+    echoRun "$cmd"
+  else
+    # Show doc above the editable prompt so the user sees available options.
+    [[ -n "$doc" ]] && ansi::out "${TEXT_DIM}${doc}${RESET_ALL}"
+    local edited
+    local prompt
+    printf -v prompt '%b' "${FG_CYAN}>${RESET_ALL} "
+    read -e -r -i "$cmd " -p "$prompt" edited || return 0
+    edited="${edited#"${edited%%[![:space:]]*}"}"
+    edited="${edited%"${edited##*[![:space:]]}"}"
+    if [[ -n "$edited" ]]; then
+      echoRun "$edited"
+    fi
+  fi
+}
+
+# --- main ---
+if [[ -z "${1:-}" ]]; then
+  topics=$(list_topics)
+  [[ -z "$topics" ]] && { ansi::err "${ERROR} No topics found in $PICK_DIR ${RESET_ALL}"; exit 1; }
+  topic=$(echo "$topics" | \
+    fzf --layout=reverse --border \
+      --prompt="Topic> " \
+      --header="Pick a topic") || exit 0
+  pick_topic "$topic"
+else
+  pick_topic "$1"
+fi

@@ -169,7 +169,7 @@ mount() {
 }
 
 ## Command short cuts to save time
-alias h='command history'
+alias h='pick'
 alias j='command jobs -l'
 
 ## set some other defaults

@@ -1,0 +1,218 @@
+[
+  {
+    "cmd": "gst",
+    "desc": "Status",
+    "doc": "git status — shows staged, unstaged, and untracked files",
+    "args": false
+  },
+  {
+    "cmd": "gco",
+    "desc": "Checkout a branch or file",
+    "doc": "gco <branch|file>\ngco -- <file> to discard changes in a file"
+  },
+  {
+    "cmd": "gcob",
+    "desc": "Create and checkout a new branch",
+    "doc": "gcob <new-branch> [<start-point>]"
+  },
+  {
+    "cmd": "gcm",
+    "desc": "Commit",
+    "doc": "gcm -m \"message\" — commit with message\ngcm --amend — amend last commit\ngcm -a — stage all tracked files and commit"
+  },
+  {
+    "cmd": "gbr",
+    "desc": "Branch operations (list, delete, rename)",
+    "doc": "gbr — list local branches\ngbr -a — all branches\ngbr -d <branch> — delete merged branch\ngbr -D <branch> — force-delete\ngbr -m <old> <new> — rename"
+  },
+  {
+    "cmd": "grs",
+    "desc": "Restore files in the working tree",
+    "doc": "grs <file> — discard unstaged changes\ngrs --staged <file> — unstage a file"
+  },
+  {
+    "cmd": "gpull",
+    "desc": "Pull from remote",
+    "args": false
+  },
+  {
+    "cmd": "gpush",
+    "desc": "Push to remote",
+    "doc": "gpush — push current branch\ngpush --tags — push tags\ngpush -u origin <branch> — set upstream"
+  },
+  {
+    "cmd": "gsw",
+    "desc": "Switch branch (defaults to main)",
+    "doc": "gsw — switch to main/master\ngsw <branch> — switch to a named branch"
+  },
+  {
+    "cmd": "gme",
+    "desc": "Merge (defaults to main into current)",
+    "doc": "gme — merge main/master into current branch\ngme <branch> — merge a named branch"
+  },
+  {
+    "cmd": "gls",
+    "desc": "Compact commit log (oneline, decorated)",
+    "doc": "gls [<revision-range>] [-- <path>]\ngll adds numstat, glsf adds graph + follow"
+  },
+  {
+    "cmd": "gll",
+    "desc": "Compact log + changed files (numstat)",
+    "doc": "gll [<revision-range>] [-- <path>]"
+  },
+  {
+    "cmd": "glsf",
+    "desc": "Log with graph, follows renames",
+    "doc": "glsf [<revision-range>] [-- <path>]"
+  },
+  {
+    "cmd": "git tree",
+    "desc": "Full branch graph (all branches)",
+    "args": false
+  },
+  {
+    "cmd": "git sl",
+    "desc": "Detailed log with graph",
+    "doc": "git sl [<revision-range>] [-- <path>]"
+  },
+  {
+    "cmd": "git last",
+    "desc": "Last commit in detail",
+    "args": false
+  },
+  {
+    "cmd": "git br",
+    "desc": "Pretty branch list (subject, date, author)",
+    "doc": "git br — local branches\ngit br -a — all branches\ngit br --remote — remote only"
+  },
+  {
+    "cmd": "git brr",
+    "desc": "Remote branches sorted by date",
+    "args": false
+  },
+  {
+    "cmd": "git bs",
+    "desc": "Branches in table format (date, author, branch, subject)",
+    "doc": "git bs — local branches\ngit bs --all — all branches"
+  },
+  {
+    "cmd": "git mbs",
+    "desc": "Your branches only (filtered from git bs --all)",
+    "args": false
+  },
+  {
+    "cmd": "git del",
+    "desc": "Force-delete a branch",
+    "doc": "git del <branch>"
+  },
+  {
+    "cmd": "git trim",
+    "desc": "Delete all local branches except main/master/current, prune origin",
+    "args": false
+  },
+  {
+    "cmd": "git tags",
+    "desc": "List tags",
+    "args": false
+  },
+  {
+    "cmd": "git remotes",
+    "desc": "List remotes with URLs",
+    "args": false
+  },
+  {
+    "cmd": "git pull-main",
+    "desc": "Auto-detect default branch, checkout, and pull",
+    "args": false
+  },
+  {
+    "cmd": "git force-push",
+    "desc": "Safe force push (--force-with-lease)",
+    "args": false
+  },
+  {
+    "cmd": "git save",
+    "desc": "Quick save-all commit (add -A + commit 'chore: savepoint')",
+    "args": false
+  },
+  {
+    "cmd": "git precommit",
+    "desc": "Review staged changes (ignore whitespace)",
+    "args": false
+  },
+  {
+    "cmd": "git unmerged",
+    "desc": "List unmerged files",
+    "args": false
+  },
+  {
+    "cmd": "git patch",
+    "desc": "Plain-text patch output (no pager, no color)",
+    "doc": "git patch [<commit-range>] [-- <path>]"
+  },
+  {
+    "cmd": "git nuke",
+    "desc": "Hard reset (reset --hard)",
+    "doc": "git nuke [<commit>] — defaults to HEAD"
+  },
+  {
+    "cmd": "git purge",
+    "desc": "Remove untracked files and directories (clean -fd)",
+    "args": false
+  },
+  {
+    "cmd": "git super-clean",
+    "desc": "Hard reset + deep clean (removes gitignored files too)",
+    "args": false
+  },
+  {
+    "cmd": "git merge-log",
+    "desc": "Log of commits in a merge",
+    "doc": "git merge-log <merge-commit>"
+  },
+  {
+    "cmd": "git merge-diff",
+    "desc": "Diff of a merge",
+    "doc": "git merge-diff <merge-commit>"
+  },
+  {
+    "cmd": "git authors-list",
+    "desc": "Authors sorted by commit count (with emails)",
+    "args": false
+  },
+  {
+    "cmd": "git authors-count",
+    "desc": "Authors sorted by commit count (names only)",
+    "args": false
+  },
+  {
+    "cmd": "git aliases",
+    "desc": "List all configured git aliases",
+    "args": false
+  },
+  {
+    "cmd": "gpurr",
+    "desc": "Pull repo + all submodules, update main in each",
+    "args": false
+  },
+  {
+    "cmd": "gpwiki",
+    "desc": "Pull wiki/external_wiki submodules only",
+    "args": false
+  },
+  {
+    "cmd": "gg",
+    "desc": "git-gui — review files, create commits and branches",
+    "args": false
+  },
+  {
+    "cmd": "gk",
+    "desc": "gitk --all — visual commit history and branches",
+    "args": false
+  },
+  {
+    "cmd": "lzg",
+    "desc": "lazygit — TUI for staging, committing, branching",
+    "args": false
+  }
+]
