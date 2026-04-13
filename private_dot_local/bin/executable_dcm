@@ -59,7 +59,7 @@ IS_LINUX=0
 # --- Tool detection ---
 
 if ! command -v docker &>/dev/null; then
-  ansi::err "${ERROR}docker is not installed${RESET_ALL}" || true
+  ansi::warn "${ERROR}docker is not installed${RESET_ALL}"
   exit 1
 fi
 
@@ -137,7 +137,7 @@ run_compose() {
   stderr_text="$(cat "$_RUN_COMPOSE_TEMP_FILE")"
 
   if is_apparmor_error "$stderr_text"; then
-    ansi::err "${WARN}AppArmor conflict detected, clearing stale profiles...${RESET_ALL}"
+    ansi::warn "${WARN}AppArmor conflict detected, clearing stale profiles...${RESET_ALL}"
     sudo aa-remove-unknown || true
 
     # Retry once
@@ -305,7 +305,7 @@ dispatch() {
     echo
     ansi::out "${OK}Results: ${BOLD}$succeeded${RESET_BOLD} succeeded, ${BOLD}$failed${RESET_BOLD} failed${RESET_ALL}"
     if [ "$failed" -gt 0 ]; then
-      ansi::err "${WARN}Failed:${failures}${RESET_ALL}"
+      ansi::warn "${WARN}Failed:${failures}${RESET_ALL}"
     fi
   fi
 }
@@ -335,7 +335,7 @@ case "$cmd" in
   status)  dispatch status "$target_dir" ;;
   prune)   cmd_prune ;;
   *)
-    ansi::err "${ERROR}Unknown command: $cmd${RESET_ALL}" || true
+    ansi::warn "${ERROR}Unknown command: $cmd${RESET_ALL}"
     exit 1
     ;;
 esac

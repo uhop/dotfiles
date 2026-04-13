@@ -47,7 +47,7 @@ KEY_PATH=""
 
 HOST="${1:-}"
 if [ -z "$HOST" ]; then
-  ansi::err "${ERROR}No host specified${RESET_ALL}" || true
+  ansi::warn "${ERROR}No host specified${RESET_ALL}"
   args::try_help
   exit 1
 fi
@@ -140,7 +140,7 @@ harden_ssh() {
   describe "Verify key access works before making changes"
   if [ "$APPLY" -eq 1 ]; then
     if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
-      ansi::err "${ERROR}Key-based access failed. Cannot safely harden SSH.${RESET_ALL}"
+      ansi::warn "${ERROR}Key-based access failed. Cannot safely harden SSH.${RESET_ALL}"
       ansi::err "Run with --skip-harden, or fix key access first."
       exit 1
     fi
@@ -190,11 +190,11 @@ harden_ssh() {
       run_remote_sudo "rm -f /etc/ssh/sshd_config.bak" \
         "Remove backup (hardening succeeded)"
     else
-      ansi::err "${ERROR}Access FAILED after hardening! Rolling back...${RESET_ALL}"
+      ansi::warn "${ERROR}Access FAILED after hardening! Rolling back...${RESET_ALL}"
       # Rollback requires the EXISTING connection (ssh multiplexing keeps it alive)
       ssh -t "$HOST" "sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config && sudo systemctl restart sshd" || true
       if ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
-        ansi::err "${WARN}Rollback succeeded. SSH access restored.${RESET_ALL}"
+        ansi::warn "${WARN}Rollback succeeded. SSH access restored.${RESET_ALL}"
       else
         ansi::err "${ERROR}Rollback may have failed. Use console access to check $HOST.${RESET_ALL}"
       fi

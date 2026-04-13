@@ -125,7 +125,7 @@ Template data is defined in `.chezmoi.toml.tmpl`:
 - 2-space indentation (`.editorconfig`).
 - Shell functions use either `name()` style (aliases, helpers) or `module::name` style (options.bash convention).
 - `echoRun` / `echoRun --bold` for colored command execution with echo.
-- `ansi::out` / `ansi::err` for terminal-aware output (auto-strips ANSI when piped).
+- `ansi::out` / `ansi::err` / `ansi::warn` for terminal-aware output (auto-strips ANSI when piped). Use `ansi::warn` for non-fatal stderr messages (returns 0, safe under `set -e`); `ansi::err` returns 1 (exits under `set -e`).
 - ANSI color globals (`RED`, `BOLD`, `RESET_ALL`, `FG_CYAN`, `BG_RED`, etc.) are available in all utilities that source `bootstrap.sh`.
 
 ## CLI utility pattern

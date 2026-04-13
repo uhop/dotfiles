@@ -20,7 +20,7 @@ set -- "${args_cleaned[@]}"
 
 if ! command -v ollama &> /dev/null; then
   ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
-  ansi::err "${ERROR}ollama is not installed${RESET_ALL}" || exit 1
+  ansi::err "${ERROR}ollama is not installed${RESET_ALL}"
 fi
 
 ollama list | tail -n +2 | awk '{print $1}' | while read -r model; do

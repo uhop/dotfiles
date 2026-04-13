@@ -125,7 +125,7 @@ declare -A WARNED_TOOLS=()
 warn_once() {
   local key="$1" msg="$2"
   if [[ ! -v WARNED_TOOLS["$key"] ]]; then
-    ansi::err "${WARN}$msg${RESET_ALL}"
+    ansi::warn "${WARN}$msg${RESET_ALL}"
     WARNED_TOOLS["$key"]=1
   fi
 }
@@ -645,7 +645,7 @@ case "$cmd" in
     input="${1:-}"
     output="${2:-}"
     if [ -z "$input" ]; then
-      ansi::err "${ERROR}No input file specified${RESET_ALL}" || true
+      ansi::warn "${ERROR}No input file specified${RESET_ALL}"
       exit 1
     fi
     optimize_file "$input" "$output" || exit 1
@@ -654,7 +654,7 @@ case "$cmd" in
     input="${1:-}"
     output="${2:-}"
     if [ -z "$input" ] || [ -z "$output" ]; then
-      ansi::err "${ERROR}Convert requires input and output files${RESET_ALL}" || true
+      ansi::warn "${ERROR}Convert requires input and output files${RESET_ALL}"
       exit 1
     fi
     convert_file "$input" "$output" || exit 1
@@ -663,13 +663,13 @@ case "$cmd" in
     input_dir="${1:-}"
     output_dir="${2:-}"
     if [ -z "$input_dir" ]; then
-      ansi::err "${ERROR}No directory specified${RESET_ALL}" || true
+      ansi::warn "${ERROR}No directory specified${RESET_ALL}"
       exit 1
     fi
     batch_process "$input_dir" "$output_dir" || exit 1
     ;;
   *)
-    ansi::err "${ERROR}Unknown command: $cmd${RESET_ALL}" || true
+    ansi::warn "${ERROR}Unknown command: $cmd${RESET_ALL}"
     exit 1
     ;;
 esac

@@ -34,7 +34,7 @@ GITHUB_USER="${GITHUB_USERNAME:-uhop}"
 
 HOST="${1:-}"
 if [ -z "$HOST" ]; then
-  ansi::err "${ERROR}No host specified${RESET_ALL}" || true
+  ansi::warn "${ERROR}No host specified${RESET_ALL}"
   args::try_help
   exit 1
 fi
@@ -43,7 +43,7 @@ fi
 
 ansi::out "${INFO}Checking SSH access to $HOST...${RESET_ALL}"
 if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
-  ansi::err "${ERROR}Cannot reach $HOST via passwordless SSH.${RESET_ALL}"
+  ansi::warn "${ERROR}Cannot reach $HOST via passwordless SSH.${RESET_ALL}"
   ansi::err "Run ${BOLD}bootstrap-remote $HOST${RESET_ALL} first to set up SSH access."
   exit 1
 fi

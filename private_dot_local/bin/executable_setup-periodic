@@ -143,10 +143,7 @@ if [ $# -lt 2 ]; then
 fi
 
 schedule=$1
-# args_cleaned / getopt round-trips positional arguments through
-# printf '%q' + single-quote wrapping, leaving literal backslash-space
-# sequences in strings that contained spaces. Undo that here.
-task_command="${2//\\ / }"
+task_command=$2
 
 case $schedule in
   daily)  days_desc="Mon-Sat" ;;
@@ -170,9 +167,9 @@ if ! command -v sendmail >/dev/null 2>&1; then
   else
     install_hint="${BOLD}brew install msmtp${RESET_ALL}"
   fi
-  ansi::err "${BOLD}${FG_RED}sendmail not found.${RESET_ALL}
+  ansi::warn "${BOLD}${FG_RED}sendmail not found.${RESET_ALL}
 Notification emails require msmtp. Install it:
-  $install_hint" || true
+  $install_hint"
   exit 1
 fi
 
