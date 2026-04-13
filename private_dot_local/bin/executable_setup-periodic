@@ -1,0 +1,357 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+. ~/.local/libs/bootstrap.sh
+
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0" "Set up periodic scheduled tasks"
+
+args_program_header="${BOLD}setup-periodic${RESET_BOLD} creates systemd timers (Linux) or
+launchd system daemons (macOS) for recurring tasks."
+
+args_program_usage="${BOLD}setup-periodic${RESET_BOLD} daily  ${ITALIC}\"command\"${RESET_ALL}  [options]
+${BOLD}setup-periodic${RESET_BOLD} weekly ${ITALIC}\"command\"${RESET_ALL}  [options]
+${BOLD}setup-periodic${RESET_BOLD} --list
+${BOLD}setup-periodic${RESET_BOLD} --remove daily|weekly"
+
+args::option "--email" "Notification email address" "addr"
+args::option "--time" "Time of day to run (HH:MM, default 04:00)" "time"
+args::option "--list" "List active periodic tasks"
+args::option "--remove" "Remove a periodic task" "name"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+# --- Platform detection ---
+
+OS=$(uname -s)
+case $OS in
+  Linux)  PLATFORM=systemd ;;
+  Darwin) PLATFORM=launchd ;;
+  *)
+    ansi::err "${BOLD}${FG_RED}Unsupported platform: $OS${RESET_ALL}"
+    exit 1
+    ;;
+esac
+
+# --- Resolve notification email ---
+
+email_addr=
+if [[ -v args_options["--email"] ]]; then
+  email_addr=${args_options["--email"]}
+fi
+if [ -z "$email_addr" ]; then
+  if command -v chezmoi >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    email_addr=$(chezmoi data --format json 2>/dev/null | jq -r '.email // empty' 2>/dev/null) || true
+  fi
+fi
+if [ -z "$email_addr" ]; then
+  email_addr=root
+fi
+
+# --- Parse --time ---
+
+run_time="04:00"
+if [[ -v args_options["--time"] ]]; then
+  run_time=${args_options["--time"]}
+fi
+if ! [[ "$run_time" =~ ^[0-9]{1,2}:[0-9]{2}$ ]]; then
+  ansi::err "${BOLD}${FG_RED}Invalid time format: $run_time (expected HH:MM)${RESET_ALL}"
+  exit 1
+fi
+run_hour=${run_time%%:*}
+run_minute=${run_time##*:}
+
+# --- --list ---
+
+if [[ -v args_options["--list"] ]]; then
+  if [ "$PLATFORM" = systemd ]; then
+    found=0
+    for unit in periodic-daily periodic-weekly; do
+      if systemctl --user is-enabled "$unit.timer" >/dev/null 2>&1; then
+        found=1
+        systemctl --user list-timers "$unit.timer" --no-pager 2>/dev/null
+      fi
+    done
+    if [ "$found" -eq 0 ]; then
+      ansi::out "${FG_CYAN}No periodic tasks found.${RESET_ALL}"
+    fi
+  elif [ "$PLATFORM" = launchd ]; then
+    found=0
+    for label in com.periodic.daily com.periodic.weekly; do
+      plist="/Library/LaunchDaemons/${label}.plist"
+      if [ -f "$plist" ]; then
+        found=1
+        ansi::out "${BOLD}$label${RESET_ALL}: $plist"
+        if sudo launchctl list "$label" >/dev/null 2>&1; then
+          ansi::out "  status: loaded"
+        else
+          ansi::out "  status: not loaded"
+        fi
+      fi
+    done
+    if [ "$found" -eq 0 ]; then
+      ansi::out "${FG_CYAN}No periodic tasks found.${RESET_ALL}"
+    fi
+  fi
+  exit 0
+fi
+
+# --- --remove ---
+
+if [[ -v args_options["--remove"] ]]; then
+  task_name=${args_options["--remove"]}
+  if [ "$PLATFORM" = systemd ]; then
+    timer="periodic-${task_name}.timer"
+    service="periodic-${task_name}.service"
+    unit_dir="$HOME/.config/systemd/user"
+    if ! [ -f "$unit_dir/$timer" ]; then
+      ansi::err "${FG_RED}Timer $timer not found in $unit_dir${RESET_ALL}"
+      exit 1
+    fi
+    ansi::out "${FG_CYAN}Disabling and removing $timer ...${RESET_ALL}"
+    echoRun systemctl --user disable --now "$timer"
+    echoRun rm -f "$unit_dir/$timer" "$unit_dir/$service"
+    echoRun systemctl --user daemon-reload
+    ansi::out "${FG_GREEN}Removed $task_name.${RESET_ALL}"
+  elif [ "$PLATFORM" = launchd ]; then
+    label="com.periodic.${task_name}"
+    plist="/Library/LaunchDaemons/${label}.plist"
+    if ! [ -f "$plist" ]; then
+      ansi::err "${FG_RED}Plist $plist not found.${RESET_ALL}"
+      exit 1
+    fi
+    ansi::out "${FG_CYAN}Unloading and removing $label ...${RESET_ALL}"
+    ansi::out "${BOLD}This requires sudo to unload a system daemon.${RESET_ALL}"
+    echoRun sudo launchctl unload "$plist"
+    echoRun sudo rm -f "$plist"
+    ansi::out "${FG_GREEN}Removed $task_name.${RESET_ALL}"
+  fi
+  exit 0
+fi
+
+# --- Create mode: requires schedule + command ---
+
+if [ $# -lt 2 ]; then
+  ansi::err "${FG_RED}Expected: setup-periodic <daily|weekly> \"command\" [options]${RESET_ALL}"
+  exit 1
+fi
+
+schedule=$1
+task_command=$2
+
+case $schedule in
+  daily)  days_desc="Mon-Sat" ;;
+  weekly) days_desc="Sunday" ;;
+  *)
+    ansi::err "${FG_RED}Unknown schedule: $schedule (expected daily or weekly)${RESET_ALL}"
+    exit 1
+    ;;
+esac
+
+# --- Prerequisites ---
+
+if ! command -v sendmail >/dev/null 2>&1; then
+  install_hint="Install msmtp via your package manager."
+  if [ "$PLATFORM" = systemd ]; then
+    if command -v apt >/dev/null 2>&1; then
+      install_hint="${BOLD}sudo apt install msmtp msmtp-mta${RESET_ALL}"
+    elif command -v dnf >/dev/null 2>&1; then
+      install_hint="${BOLD}sudo dnf install msmtp${RESET_ALL}"
+    fi
+  else
+    install_hint="${BOLD}brew install msmtp${RESET_ALL}"
+  fi
+  ansi::err "${BOLD}${FG_RED}sendmail not found.${RESET_ALL}
+Notification emails require msmtp. Install it:
+  $install_hint" || true
+  exit 1
+fi
+
+if ! [ -f "$HOME/.msmtprc" ]; then
+  ansi::out "${BOLD}${FG_YELLOW}Warning: ~/.msmtprc not found. sendmail may not be configured.${RESET_ALL}"
+fi
+
+# --- Determine wrapper ---
+
+wrapper_cmd=
+if [[ "$task_command" == playbash\ * ]]; then
+  wrapper_cmd="notify-playbash ${task_command#playbash }"
+else
+  if [ "$PLATFORM" = systemd ]; then
+    # On systemd, generic tasks use OnFailure= — no wrapper needed.
+    wrapper_cmd=$task_command
+  else
+    wrapper_cmd="notify-on-failure $task_command"
+  fi
+fi
+
+# --- Create: systemd ---
+
+if [ "$PLATFORM" = systemd ]; then
+  unit_dir="$HOME/.config/systemd/user"
+  mkdir -p "$unit_dir"
+
+  service_name="periodic-${schedule}"
+  timer_name="periodic-${schedule}"
+
+  # Build OnCalendar spec.
+  if [ "$schedule" = daily ]; then
+    on_calendar="Mon..Sat *-*-* ${run_hour}:${run_minute}:00"
+  else
+    on_calendar="Sun *-*-* ${run_hour}:${run_minute}:00"
+  fi
+
+  # Service unit.
+  service_file="$unit_dir/${service_name}.service"
+  cat > "$service_file" <<EOF
+[Unit]
+Description=Periodic $schedule task
+EOF
+
+  # Add OnFailure only for non-playbash commands (playbash wrapper
+  # handles its own notification to avoid double emails).
+  if [[ "$task_command" != playbash\ * ]]; then
+    cat >> "$service_file" <<EOF
+OnFailure=email-notify@%n.service
+EOF
+  fi
+
+  cat >> "$service_file" <<EOF
+
+[Service]
+Type=oneshot
+ExecStart=$HOME/.local/bin/$wrapper_cmd
+Environment=NOTIFY_EMAIL=$email_addr
+EOF
+
+  # Timer unit.
+  timer_file="$unit_dir/${timer_name}.timer"
+  cat > "$timer_file" <<EOF
+[Unit]
+Description=Timer for periodic $schedule task
+
+[Timer]
+OnCalendar=$on_calendar
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  # Enable linger so user timers run at boot.
+  if ! [ -f "/var/lib/systemd/linger/$(id -un)" ]; then
+    ansi::out "${FG_CYAN}Enabling linger for $(id -un) (timers run at boot without login)...${RESET_ALL}"
+    echoRun loginctl enable-linger
+  fi
+
+  echoRun systemctl --user daemon-reload
+  echoRun systemctl --user enable --now "${timer_name}.timer"
+
+  ansi::out ""
+  ansi::out "${FG_GREEN}${BOLD}Created periodic $schedule task:${RESET_ALL}"
+  ansi::out "  schedule: $days_desc at $run_time"
+  ansi::out "  command:  $task_command"
+  ansi::out "  wrapper:  $wrapper_cmd"
+  ansi::out "  email:    $email_addr"
+  ansi::out "  service:  $service_file"
+  ansi::out "  timer:    $timer_file"
+  ansi::out ""
+  ansi::out "Verify with: ${BOLD}systemctl --user list-timers${RESET_ALL}"
+fi
+
+# --- Create: launchd ---
+
+if [ "$PLATFORM" = launchd ]; then
+  label="com.periodic.${schedule}"
+  plist_tmp=$(mktemp "${TMPDIR:-/tmp}/setup-periodic.XXXXXX.plist")
+  trap 'rm -f "$plist_tmp"' EXIT
+
+  current_user=$(id -un)
+  log_dir="/var/log/periodic"
+
+  # Build weekday entries for StartCalendarInterval.
+  if [ "$schedule" = daily ]; then
+    weekday_entries=""
+    for day in 1 2 3 4 5 6; do
+      weekday_entries+="    <dict>
+      <key>Weekday</key><integer>$day</integer>
+      <key>Hour</key><integer>$((10#$run_hour))</integer>
+      <key>Minute</key><integer>$((10#$run_minute))</integer>
+    </dict>
+"
+    done
+  else
+    weekday_entries="    <dict>
+      <key>Weekday</key><integer>0</integer>
+      <key>Hour</key><integer>$((10#$run_hour))</integer>
+      <key>Minute</key><integer>$((10#$run_minute))</integer>
+    </dict>
+"
+  fi
+
+  # Split wrapper_cmd into program and args for ProgramArguments.
+  read -ra wrapper_parts <<< "$wrapper_cmd"
+  wrapper_bin=$(command -v "${wrapper_parts[0]}" 2>/dev/null || echo "$HOME/.local/bin/${wrapper_parts[0]}")
+  prog_args=""
+  prog_args+="    <string>$wrapper_bin</string>
+"
+  for ((i = 1; i < ${#wrapper_parts[@]}; i++)); do
+    prog_args+="    <string>${wrapper_parts[i]}</string>
+"
+  done
+
+  cat > "$plist_tmp" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$label</string>
+  <key>UserName</key><string>$current_user</string>
+  <key>ProgramArguments</key>
+  <array>
+$prog_args  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+$weekday_entries  </array>
+  <key>StandardOutPath</key><string>$log_dir/${schedule}.stdout.log</string>
+  <key>StandardErrorPath</key><string>$log_dir/${schedule}.stderr.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NOTIFY_EMAIL</key><string>$email_addr</string>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin</string>
+    <key>HOME</key><string>$HOME</string>
+  </dict>
+</dict>
+</plist>
+EOF
+
+  plist_dest="/Library/LaunchDaemons/${label}.plist"
+
+  ansi::out ""
+  ansi::out "${BOLD}This requires sudo${RESET_ALL} to install a system daemon into"
+  ansi::out "  $plist_dest"
+  ansi::out "and create the log directory $log_dir."
+  ansi::out ""
+
+  echoRun --bold sudo mkdir -p "$log_dir"
+  echoRun --bold sudo cp "$plist_tmp" "$plist_dest"
+  echoRun --bold sudo chown root:wheel "$plist_dest"
+  echoRun --bold sudo chmod 644 "$plist_dest"
+  echoRun --bold sudo launchctl load "$plist_dest"
+
+  ansi::out ""
+  ansi::out "${FG_GREEN}${BOLD}Created periodic $schedule task:${RESET_ALL}"
+  ansi::out "  schedule: $days_desc at $run_time"
+  ansi::out "  command:  $task_command"
+  ansi::out "  wrapper:  $wrapper_cmd"
+  ansi::out "  email:    $email_addr"
+  ansi::out "  plist:    $plist_dest"
+  ansi::out ""
+  ansi::out "Verify with: ${BOLD}sudo launchctl list | grep periodic${RESET_ALL}"
+fi
