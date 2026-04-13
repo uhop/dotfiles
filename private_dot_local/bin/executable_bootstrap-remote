@@ -7,7 +7,7 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0" "Set up SSH access to a remote host"
+args::program "$script_name" "1.0.0" "Set up SSH access to a remote host"
 
 args_program_header="${BOLD}bootstrap-remote${RESET_BOLD} copies your SSH public key to a remote host
 and optionally hardens its SSH daemon configuration.

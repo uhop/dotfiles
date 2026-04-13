@@ -9,7 +9,7 @@ script_name=$(basename "$0")
 
 # --- Program definition ---
 
-args::program "$script_name" "1.0" "Manage Docker Compose setups"
+args::program "$script_name" "1.0.0" "Manage Docker Compose setups"
 
 args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service lifecycles.
 It handles pulling, updating, stopping, and restarting services,

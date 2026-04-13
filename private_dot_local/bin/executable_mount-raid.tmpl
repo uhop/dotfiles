@@ -8,7 +8,7 @@ shopt -s expand_aliases
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0" "Mounts a remote filesystem using NFS as ${BOLD}/media/raid${RESET_ALL}"
+args::program "$script_name" "1.0.0" "Mounts a remote filesystem using NFS as ${BOLD}/media/raid${RESET_ALL}"
 args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset} ${args_help_command_arg}<server-name>${args_help_reset}"
 
 args::option "-v, --version" "Show version"

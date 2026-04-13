@@ -7,7 +7,7 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0" "Prepare a remote host for dotfiles installation"
+args::program "$script_name" "1.0.0" "Prepare a remote host for dotfiles installation"
 
 args_program_header="${BOLD}bootstrap-dotfiles${RESET_BOLD} detects the remote OS, generates a self-contained
 install script, copies it to the remote host, and prints instructions

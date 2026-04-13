@@ -7,7 +7,7 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0" "Set up periodic scheduled tasks"
+args::program "$script_name" "1.0.0" "Set up periodic scheduled tasks"
 
 args_program_header="${BOLD}setup-periodic${RESET_BOLD} creates systemd timers (Linux) or
 launchd system daemons (macOS) for recurring tasks."
