@@ -38,7 +38,7 @@ Three layers of maintenance scripts:
 1. **`upd`** &mdash; updates `apt`/`dnf`, `snap`, `flatpak`, `brew`, `bun`. Detects `docker-ce`/AppArmor upgrades and surfaces reboot recommendations; `upd -r` recovers from a `docker-ce` upgrade by restarting `containerd` + `docker` instead of asking for a full reboot.
 2. **`cln`** &mdash; cleanups for the same package managers, plus old `node` versions. `upd -c` runs `cln` after `upd`.
 3. **`playbash`** &mdash; multi-host playbook runner. Subcommands: `run`, `push`, `debug`, `exec`, `put`, `get`, `list`, `hosts`, `log`, `doctor`. Runs bash playbooks and ad-hoc scripts across an inventory of hosts in parallel, with a per-host live view, aggregated summary, offline detection, and file transfer. The `@self` target runs locally without SSH. `--report` produces a plain-text notification summary. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management).
-4. **`setup-periodic`** &mdash; creates systemd timers (Linux) or launchd daemons (macOS) for recurring tasks. Checks for `msmtp` as a prerequisite. Notification wrappers (`notify-playbash`, `notify-on-failure`) handle failure emails. The primary pattern: `setup-periodic daily "playbash run @self daily --report"`.
+4. **`setup-periodic`** &mdash; creates systemd timers (Linux) or launchd daemons (macOS) for recurring tasks. Subcommands: `add`, `list`, `remove`. Checks for `msmtp` as a prerequisite. Notification wrappers (`notify-playbash`, `notify-on-failure`) handle failure emails. The primary pattern: `setup-periodic add daily "4:00 mo-sa" "playbash run @self daily --report"`.
 
 ## Installed tools
 

@@ -7,23 +7,30 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "2.0.0" "Set up periodic scheduled tasks" "https://github.com/uhop/dotfiles/wiki/Setup-Periodic"
+args::program "$script_name" "3.0.0" "Set up periodic scheduled tasks" "https://github.com/uhop/dotfiles/wiki/Setup-Periodic"
 
 args_program_header="${BOLD}setup-periodic${RESET_BOLD} creates systemd timers (Linux) or
 launchd system daemons (macOS) for recurring tasks."
 
-args_program_usage="${BOLD}setup-periodic${RESET_BOLD} ${ITALIC}name schedule${RESET_ALL} ${ITALIC}\"command\"${RESET_ALL} [options]
-${BOLD}setup-periodic${RESET_BOLD} --list
-${BOLD}setup-periodic${RESET_BOLD} --remove ${ITALIC}name${RESET_ALL}"
+args_program_usage="${BOLD}setup-periodic${RESET_BOLD} add ${ITALIC}name schedule${RESET_ALL} ${ITALIC}\"command\"${RESET_ALL} [options]
+${BOLD}setup-periodic${RESET_BOLD} list
+${BOLD}setup-periodic${RESET_BOLD} remove ${ITALIC}name${RESET_ALL}"
+
+args::option "add, a" "Create a periodic task" "name schedule \"command\""
+args::option "list, ls" "List active periodic tasks"
+args::option "remove, rm" "Remove a periodic task" "name"
 
 args::option "--email" "Notification email address" "addr"
-args::option "--list" "List active periodic tasks"
-args::option "--remove" "Remove a periodic task" "name"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 
 args::parse "$@"
 set -- "${args_cleaned[@]}"
+
+cmd="${args_command:-}"
+if [ -n "$cmd" ]; then
+  shift
+fi
 
 # --- Platform detection ---
 
@@ -316,24 +323,13 @@ describe_schedule() {
   echo "$desc"
 }
 
-# --- Resolve notification email ---
+# --- Command dispatch ---
 
-email_addr=
-if [[ -v args_options["--email"] ]]; then
-  email_addr=${args_options["--email"]}
-fi
-if [ -z "$email_addr" ]; then
-  if command -v chezmoi >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-    email_addr=$(chezmoi data --format json 2>/dev/null | jq -r '.email // empty' 2>/dev/null) || true
-  fi
-fi
-if [ -z "$email_addr" ]; then
-  email_addr=root
-fi
+case "$cmd" in
 
-# --- --list ---
+# --- list ---
 
-if [[ -v args_options["--list"] ]]; then
+list)
   if [ "$PLATFORM" = systemd ]; then
     unit_dir="$HOME/.config/systemd/user"
     found=0
@@ -366,12 +362,17 @@ if [[ -v args_options["--list"] ]]; then
     fi
   fi
   exit 0
-fi
+  ;;
 
-# --- --remove ---
+# --- remove ---
 
-if [[ -v args_options["--remove"] ]]; then
-  task_name=${args_options["--remove"]}
+remove)
+  if [ $# -lt 1 ]; then
+    ansi::warn "${FG_RED}Expected: setup-periodic remove <name>${RESET_ALL}"
+    args::try_help
+    exit 1
+  fi
+  task_name=$1
   if [ "$PLATFORM" = systemd ]; then
     timer="periodic-${task_name}.timer"
     service="periodic-${task_name}.service"
@@ -399,19 +400,33 @@ if [[ -v args_options["--remove"] ]]; then
     ansi::out "${FG_GREEN}Removed $task_name.${RESET_ALL}"
   fi
   exit 0
-fi
+  ;;
 
-# --- Create mode: requires name + schedule + command ---
+# --- add ---
 
-if [ $# -lt 3 ]; then
-  ansi::warn "${FG_RED}Expected: setup-periodic <name> <schedule> \"command\"${RESET_ALL}"
-  args::try_help
-  exit 1
-fi
+add)
+  if [ $# -lt 3 ]; then
+    ansi::warn "${FG_RED}Expected: setup-periodic add <name> <schedule> \"command\"${RESET_ALL}"
+    args::try_help
+    exit 1
+  fi
 
-task_name=$1
-schedule=$2
-task_command=$3
+  task_name=$1
+  schedule=$2
+  task_command=$3
+
+  email_addr=
+  if [[ -v args_options["--email"] ]]; then
+    email_addr=${args_options["--email"]}
+  fi
+  if [ -z "$email_addr" ]; then
+    if command -v chezmoi >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+      email_addr=$(chezmoi data --format json 2>/dev/null | jq -r '.email // empty' 2>/dev/null) || true
+    fi
+  fi
+  if [ -z "$email_addr" ]; then
+    email_addr=root
+  fi
 
 if ! [[ "$task_name" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
   ansi::err "${BOLD}${FG_RED}Invalid name: $task_name (lowercase alphanumeric and hyphens, no leading hyphen)${RESET_ALL}"
@@ -617,3 +632,14 @@ EOF
   ansi::out ""
   ansi::out "Verify with: ${BOLD}sudo launchctl list | grep periodic${RESET_ALL}"
 fi
+  ;;
+
+# --- fallback ---
+
+*)
+  ansi::warn "${FG_RED}Expected a command: add, list, or remove${RESET_ALL}"
+  args::try_help
+  exit 1
+  ;;
+
+esac

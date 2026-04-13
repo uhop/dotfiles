@@ -87,22 +87,21 @@ Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansibl
 
 Set up periodic scheduled tasks. Creates systemd timers (Linux) or launchd system daemons (macOS).
 
-Usage:
-- `setup-periodic daily "playbash run @self daily --report"` — create daily timer
-- `setup-periodic weekly "playbash run @self weekly --report"` — create weekly timer
-- `setup-periodic --list` — show active periodic tasks
-- `setup-periodic --remove daily` — remove a task
+Commands:
+- `setup-periodic add daily "4:00 mo-sa" "playbash run @self daily --report"` — create daily timer
+- `setup-periodic add weekly "4:00 su" "playbash run @self weekly --report"` — create weekly timer
+- `setup-periodic list` — show active periodic tasks
+- `setup-periodic remove daily` — remove a task
+
+Schedule format: `HH:MM`, `Nh`, or `Nm`, optionally followed by day spec (`mo-fr`, `tu,th`, `1,15`).
 
 Options:
-- `--email ADDRESS` — notification email (default: chezmoi-configured email)
-- `--time HH:MM` — time of day (default: 04:00)
-- `--list` — list active tasks
-- `--remove NAME` — remove a task
+- `--email ADDRESS` — notification email (default: chezmoi-configured email; with `add`)
 - `-v, --version`, `-h, --help`
 
 Prerequisites: requires `sendmail` (msmtp). Fails with install instructions if missing.
 
-Fleet-wide setup: `playbash exec all -- setup-periodic daily "playbash run @self daily --report"`
+Fleet-wide setup: `playbash exec all -- setup-periodic add daily "4:00 mo-sa" "playbash run @self daily --report"`
 
 ### Notification wrappers
 
