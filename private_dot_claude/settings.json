@@ -2,5 +2,8 @@
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true
   },
-  "effortLevel": "high"
+  "effortLevel": "high",
+  "env": {
+    "DISABLE_AUTO_COMPACT": "1"
+  }
 }
