@@ -42,7 +42,7 @@ import {runDoctor} from '../share/playbash/doctor.js';
 
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
-const VERSION = '3.3.0';
+const VERSION = '3.4.0';
 
 const USAGE = `usage:
   playbash run    <targets> <playbook> [-n LINES] [-p N] [--self] [--sudo] [--report]
@@ -71,11 +71,12 @@ Options (must come before \`--\` when using exec):
 
 <targets> is one positional that may be a single host name, a comma-
 separated list, a group name, or the implicit "all" group — and any
-combination ("db1,web,prod"). Names are looked up in
-~/.config/playbash/inventory.json. Unknown names are passed verbatim to
-ssh, so any ~/.ssh/config alias works. A single resolved target uses
-the live rectangle; multiple targets switch to a status board with
-parallel runs and a focused-host live view.
+combination ("db1,web,prod"). The special name \`@self\` resolves to the
+local hostname and implies --self (no need to pass the flag). Names are
+looked up in ~/.config/playbash/inventory.json. Unknown names are passed
+verbatim to ssh, so any ~/.ssh/config alias works. A single resolved
+target uses the live rectangle; multiple targets switch to a status board
+with parallel runs and a focused-host live view.
 
 \`run\` treats hosts in the inventory as managed — playbooks are expected
 at ~/.local/bin/playbash-<playbook> on the target. Hosts not in the
@@ -219,15 +220,19 @@ async function resolveAndValidate(targetArg) {
 
   const offlineNames = new Set();
   if (!values['no-precheck']) {
-    const {offline} = await probeConnectivity(targets);
-    for (const t of offline) offlineNames.add(t.name);
-    if (offlineNames.size > 0) {
-      process.stderr.write(
-        `${COLOR.dim}· offline: ${[...offlineNames].join(', ')}${COLOR.reset}\n`
-      );
+    // @self targets run locally — skip the SSH connectivity check for them.
+    const remoteTargets = targets.filter(t => !t.isSelf);
+    if (remoteTargets.length > 0) {
+      const {offline} = await probeConnectivity(remoteTargets);
+      for (const t of offline) offlineNames.add(t.name);
+      if (offlineNames.size > 0) {
+        process.stderr.write(
+          `${COLOR.dim}· offline: ${[...offlineNames].join(', ')}${COLOR.reset}\n`
+        );
+      }
+      if (offlineNames.size === remoteTargets.length && !targets.some(t => t.isSelf))
+        die('all targets are unreachable');
     }
-    if (offlineNames.size === targets.length)
-      die('all targets are unreachable');
   }
 
   const parallelLimit = parseInt(values.parallel, 10);

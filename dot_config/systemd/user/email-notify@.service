@@ -1,0 +1,6 @@
+[Unit]
+Description=Email notification for %i
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/notify-systemd-failure %i

@@ -13,3 +13,6 @@ llms.txt
 .windsurfrules
 dev-docs
 external_wiki
+{{ if ne .osFamily "linux" }}
+.config/systemd
+{{ end }}

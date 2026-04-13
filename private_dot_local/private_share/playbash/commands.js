@@ -185,6 +185,7 @@ export function cmdCompleteTargets() {
   // emit alphabetically. Plain strings, no descriptions — see
   // dev-docs/bash-rich-completion.md if we ever want richer suggestions.
   const names = new Set();
+  names.add('@self');
   const inv = loadInventory();
   if (inv.present) {
     names.add('all');

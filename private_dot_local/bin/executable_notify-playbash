@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# notify-playbash — run a playbash command with --report and email if actionable.
+#
+# Wraps any `playbash run` or `playbash push` invocation. Appends --report
+# to capture the plain-text summary on stdout. If the exit code is non-zero
+# OR the report is non-empty (actionable events on a successful run), sends
+# the report via sendmail. Silent on clean success.
+#
+# Usage:
+#   notify-playbash [PLAYBASH-ARGS...]
+#
+# Examples:
+#   notify-playbash run @self daily
+#   notify-playbash push unmanaged-hosts daily-script
+#   notify-playbash run @self weekly --sudo
+#
+# Environment:
+#   NOTIFY_EMAIL — recipient (default: chezmoi-configured email or root)
+
+set -uCo pipefail
+shopt -s expand_aliases
+
+if [ $# -eq 0 ]; then
+  echo "usage: notify-playbash [PLAYBASH-ARGS...]" >&2
+  exit 1
+fi
+
+host=$(hostname)
+
+# Resolve email recipient.
+email=${NOTIFY_EMAIL:-}
+if [ -z "$email" ]; then
+  if command -v chezmoi >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    email=$(chezmoi data --format json 2>/dev/null | jq -r '.email // empty' 2>/dev/null)
+  fi
+  email=${email:-root}
+fi
+
+# Run playbash with --report. Terminal UI goes to stderr (visible in
+# journal/logs). The report (actionable events) goes to stdout.
+report=$(playbash "$@" --report 2>/dev/null) || true
+code=${PIPESTATUS[0]:-$?}
+
+# Nothing to report: clean exit and no actionable events.
+if [ "$code" -eq 0 ] && [ -z "$report" ]; then
+  exit 0
+fi
+
+if ! command -v sendmail >/dev/null 2>&1; then
+  echo "notify-playbash: sendmail not found; cannot send notification" >&2
+  if [ -n "$report" ]; then
+    echo "$report" >&2
+  fi
+  exit "$code"
+fi
+
+# Build the subject line from the playbash arguments.
+# e.g., "run @self daily" → "[think] playbash: run @self daily"
+subject="[$host] playbash: $*"
+
+{
+  echo "Subject: $subject"
+  echo "To: $email"
+  echo ""
+  if [ -n "$report" ]; then
+    echo "$report"
+  else
+    echo "playbash exited with code $code but produced no report."
+    echo "Check the journal on $host for details."
+  fi
+} | sendmail -i "$email"
+
+exit "$code"

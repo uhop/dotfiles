@@ -6,7 +6,7 @@
 // belong on stderr regardless of which call site triggers them.
 
 import {existsSync, readFileSync} from 'node:fs';
-import {homedir, networkInterfaces} from 'node:os';
+import {homedir, hostname, networkInterfaces} from 'node:os';
 import {join} from 'node:path';
 import {lookup as dnsLookup} from 'node:dns/promises';
 
@@ -76,14 +76,22 @@ export function resolveHost(name, inventory) {
 export function resolveTargets(arg, inventory) {
   const tokens = arg.split(',').map(t => t.trim()).filter(Boolean);
   if (tokens.length === 0) die('empty target list (pass a host name, group name, or "all")');
+  // When @self appears anywhere in the token list, the local hostname
+  // gets isSelf: true — even if the same name was also added by `all`
+  // or a group. Pre-scan so ordering doesn't matter.
+  const selfName = tokens.includes('@self') ? hostname() : null;
   const out = [];
   const seen = new Set();
   const push = (name, address) => {
     if (seen.has(name)) return;
     seen.add(name);
-    out.push({name, address});
+    out.push({name, address, ...(name === selfName && {isSelf: true})});
   };
   for (const tok of tokens) {
+    if (tok === '@self') {
+      push(selfName, 'localhost');
+      continue;
+    }
     if (tok === 'all') {
       const names = [...inventory.hosts.keys()].sort();
       for (const n of names) push(n, inventory.hosts.get(n).address);
@@ -119,7 +127,8 @@ export async function filterSelf(targets, keepSelf) {
   const kept = [];
   const skipped = [];
   for (let i = 0; i < targets.length; i++) {
-    if (flags[i]) skipped.push(targets[i].name);
+    // @self entries (isSelf flag) are never filtered — they imply --self.
+    if (flags[i] && !targets[i].isSelf) skipped.push(targets[i].name);
     else kept.push(targets[i]);
   }
   return {targets: kept, skipped};

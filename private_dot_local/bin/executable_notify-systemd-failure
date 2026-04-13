@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# notify-systemd-failure — systemd OnFailure= handler.
+#
+# Called by the email-notify@.service template unit when a user service
+# fails. Reads recent journal output for the failed unit and sends a
+# one-shot email via sendmail.
+#
+# Usage (from the unit file):
+#   ExecStart=%h/.local/bin/notify-systemd-failure %i
+#
+# %i expands to the failed unit name (e.g., "playbash-daily.service").
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+unit=${1:?usage: notify-systemd-failure <unit-name>}
+host=$(hostname)
+subject="[$host] systemd failure: $unit"
+
+if ! command -v sendmail >/dev/null 2>&1; then
+  echo "notify-systemd-failure: sendmail not found; skipping notification for $unit" >&2
+  exit 0
+fi
+
+# Read the email recipient from chezmoi data if available, fall back to root.
+email=root
+if command -v chezmoi >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  cm_email=$(chezmoi data --format json 2>/dev/null | jq -r '.email // empty' 2>/dev/null)
+  if [ -n "$cm_email" ]; then
+    email=$cm_email
+  fi
+fi
+
+{
+  echo "Subject: $subject"
+  echo "To: $email"
+  echo ""
+  echo "Unit: $unit"
+  echo "Host: $host"
+  echo "Time: $(date -Iseconds 2>/dev/null || date)"
+  echo ""
+  echo "--- systemctl status ---"
+  systemctl --user status --full -l -n 20 "$unit" 2>&1 || true
+  echo ""
+  echo "--- journal (last 50 lines) ---"
+  journalctl --user-unit="$unit" -n 50 --no-pager 2>&1 || true
+} | sendmail -i "$email"

@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# notify-on-failure — run a command and email on failure.
+#
+# For launchd/cron where there is no built-in OnFailure= mechanism.
+# Captures stdout+stderr to a temp file. On non-zero exit, sends the
+# output via sendmail. On success, silent — temp file removed.
+#
+# Usage:
+#   notify-on-failure COMMAND [ARGS...]
+#
+# Environment:
+#   NOTIFY_EMAIL — recipient (default: chezmoi-configured email or root)
+
+set -uCo pipefail
+shopt -s expand_aliases
+
+if [ $# -eq 0 ]; then
+  echo "usage: notify-on-failure COMMAND [ARGS...]" >&2
+  exit 1
+fi
+
+host=$(hostname)
+
+# Resolve email recipient.
+email=${NOTIFY_EMAIL:-}
+if [ -z "$email" ]; then
+  if command -v chezmoi >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    email=$(chezmoi data --format json 2>/dev/null | jq -r '.email // empty' 2>/dev/null)
+  fi
+  email=${email:-root}
+fi
+
+tmpfile=$(mktemp "${TMPDIR:-/tmp}/notify-on-failure.XXXXXX")
+trap 'rm -f "$tmpfile"' EXIT
+
+"$@" >"$tmpfile" 2>&1
+code=$?
+
+if [ "$code" -eq 0 ]; then
+  exit 0
+fi
+
+if ! command -v sendmail >/dev/null 2>&1; then
+  echo "notify-on-failure: sendmail not found; cannot notify about failure of: $*" >&2
+  # Still exit with the original code so the scheduler sees the failure.
+  exit "$code"
+fi
+
+{
+  echo "Subject: [$host] task failed: $1"
+  echo "To: $email"
+  echo ""
+  echo "Command: $*"
+  echo "Exit code: $code"
+  echo "Host: $host"
+  echo "Time: $(date -Iseconds 2>/dev/null || date)"
+  echo ""
+  echo "--- output (last 200 lines) ---"
+  tail -200 "$tmpfile"
+} | sendmail -i "$email"
+
+exit "$code"
