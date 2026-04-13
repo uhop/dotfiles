@@ -181,7 +181,7 @@ export async function cmdPut(validated, localPathTemplate, remotePathArg, sudoPa
   const hasLocalTemplate = localPathTemplate.includes('{host}');
   if (!hasLocalTemplate && !existsSync(localPathTemplate))
     die(`local path not found: ${localPathTemplate}`);
-  const {targets, offlineNames, parallelLimit} = validated;
+  const {targets, offlineNames, offlineReasons, parallelLimit} = validated;
 
   const doPut = async (hostName, address) => {
     const lp = expandTemplate(localPathTemplate, {host: hostName});
@@ -207,6 +207,7 @@ export async function cmdPut(validated, localPathTemplate, remotePathArg, sudoPa
       targets,
       parallelLimit,
       offlineNames,
+      offlineReasons,
       transfer: {
         label: 'put',
         fn: async (hostName, address) => {
@@ -223,7 +224,7 @@ export async function cmdGet(validated, remoteTemplateArg, localPathArg, sudoPas
   // Normalize the operator-side home prefix so the remote shell does the
   // home resolution per-target (see normalizeRemotePath).
   const remoteTemplate = normalizeRemotePath(remoteTemplateArg);
-  const {targets, offlineNames, parallelLimit} = validated;
+  const {targets, offlineNames, offlineReasons, parallelLimit} = validated;
   const remoteBase = basename(remoteTemplate);
   const defaultLocal =
     targets.length === 1 ? remoteBase : `{host}-${remoteBase}`;
@@ -257,6 +258,7 @@ export async function cmdGet(validated, remoteTemplateArg, localPathArg, sudoPas
       targets,
       parallelLimit,
       offlineNames,
+      offlineReasons,
       transfer: {label: 'get', fn: doGet}
     });
   }

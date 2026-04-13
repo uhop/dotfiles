@@ -201,8 +201,26 @@ async function cleanupAndExit(remoteEntries) {
 
 // --- preflight connectivity check ---
 
+// Classify ssh stderr into a short human-readable reason.
+// Mirrors the categorisation in doctor.js but returns a single word/phrase
+// suitable for the status board and the preflight notice line.
+function classifySshFailure(stderr, timedOut) {
+  if (timedOut) return 'timeout';
+  const s = stderr.toLowerCase();
+  if (s.includes('host key verification failed')) return 'host key';
+  if (s.includes('permission denied'))            return 'auth denied';
+  if (s.includes('connection timed out'))          return 'timeout';
+  if (s.includes('connection refused'))            return 'refused';
+  if (s.includes('no route to host'))              return 'no route';
+  if (s.includes('could not resolve hostname') || s.includes('name or service not known'))
+    return 'unknown host';
+  if (s.includes('kex_exchange_identification'))   return 'connection drop';
+  return 'offline';
+}
+
 // Pre-flight connectivity check. Parallel `ssh -o ConnectTimeout=2 true`
-// for every target. Returns {online, offline} arrays of {name, address}.
+// for every target. Returns {online, offline} arrays of {name, address}
+// and a `reasons` Map<name, string> for offline hosts.
 export async function probeConnectivity(targets) {
   const results = await Promise.all(
     targets.map(async ({name, address}) => {
@@ -211,12 +229,19 @@ export async function probeConnectivity(targets) {
         '-o', 'ConnectTimeout=2',
         address, '--', 'true'
       ]);
-      return {name, address, online: r.code === 0};
+      return {
+        name, address,
+        online: r.code === 0,
+        reason: r.code === 0 ? null : classifySshFailure(r.stderr, r.timedOut),
+      };
     })
   );
+  const reasons = new Map();
+  for (const r of results) if (!r.online) reasons.set(r.name, r.reason);
   return {
     online: results.filter(r => r.online).map(({name, address}) => ({name, address})),
-    offline: results.filter(r => !r.online).map(({name, address}) => ({name, address}))
+    offline: results.filter(r => !r.online).map(({name, address}) => ({name, address})),
+    reasons,
   };
 }
 
@@ -957,7 +982,7 @@ function renderFanoutSummary(slots, {logLabel, verbose, showCapturedOutput}) {
   let offlineCount = 0;
   let skippedCount = 0;
   for (const slot of slots) {
-    if (slot.statusWord === 'offline') offlineCount++;
+    if (slot.isOffline) offlineCount++;
     else if (slot.statusWord === 'skipped') skippedCount++;
     else if (slot.state === 'ok') okCount++;
     else failCount++;
@@ -980,7 +1005,7 @@ function renderFanoutSummary(slots, {logLabel, verbose, showCapturedOutput}) {
       }
       if (
         slot.state !== 'ok' &&
-        slot.statusWord !== 'offline' &&
+        !slot.isOffline &&
         slot.statusWord !== 'skipped'
       ) {
         if (slot.logPath) {
@@ -1000,7 +1025,7 @@ function renderFanoutSummary(slots, {logLabel, verbose, showCapturedOutput}) {
 
   // Footer line + cross-host aggregation.
   const ranSlots = slots.filter(
-    s => s.statusWord !== 'offline' && s.statusWord !== 'skipped'
+    s => !s.isOffline && s.statusWord !== 'skipped'
   );
   const totalElapsed =
     ranSlots.length > 0
@@ -1040,6 +1065,7 @@ export async function runFanout({
   inventory,
   push,
   offlineNames,
+  offlineReasons,
   transfer,
   sudoPassword
 }) {
@@ -1051,8 +1077,10 @@ export async function runFanout({
 
   const launchOne = async slot => {
     if (offlineNames.has(slot.name)) {
+      const reason = offlineReasons?.get(slot.name) || 'offline';
       board.hostFinished(slot.name, {
-        ok: false, statusWord: 'offline', events: [], logPath: '', elapsedMs: 0
+        ok: false, statusWord: reason, isOffline: true,
+        events: [], logPath: '', elapsedMs: 0
       });
       return;
     }

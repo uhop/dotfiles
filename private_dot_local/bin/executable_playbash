@@ -158,15 +158,21 @@ async function resolveAndValidate(targetArg) {
   }
 
   const offlineNames = new Set();
+  const offlineReasons = new Map();   // name → short reason from ssh stderr
   if (!values['no-precheck']) {
     // @self targets run locally — skip the SSH connectivity check for them.
     const remoteTargets = targets.filter(t => !t.isSelf);
     if (remoteTargets.length > 0) {
-      const {offline} = await probeConnectivity(remoteTargets);
+      const {offline, reasons} = await probeConnectivity(remoteTargets);
       for (const t of offline) offlineNames.add(t.name);
+      for (const [name, reason] of reasons) offlineReasons.set(name, reason);
       if (offlineNames.size > 0) {
+        const labels = [...offlineNames].map(n => {
+          const r = offlineReasons.get(n);
+          return r && r !== 'offline' ? `${n} (${r})` : n;
+        });
         process.stderr.write(
-          `${COLOR.dim}· offline: ${[...offlineNames].join(', ')}${COLOR.reset}\n`
+          `${COLOR.dim}· offline: ${labels.join(', ')}${COLOR.reset}\n`
         );
       }
       if (offlineNames.size === remoteTargets.length && !targets.some(t => t.isSelf))
@@ -179,7 +185,7 @@ async function resolveAndValidate(targetArg) {
     die(`--parallel must be a non-negative integer (0 = unlimited)`);
   }
 
-  return {inventory, resolved, targets, offlineNames, parallelLimit};
+  return {inventory, resolved, targets, offlineNames, offlineReasons, parallelLimit};
 }
 
 // Prompt the operator for a password with echo disabled. Reads from
@@ -280,6 +286,7 @@ async function dispatch({job, targetArg, rectHeight, verbose, report, push, sudo
     inventory: inv,
     push,
     offlineNames,
+    offlineReasons,
     sudoPassword
   });
 }

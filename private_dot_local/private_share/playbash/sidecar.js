@@ -165,7 +165,7 @@ export function formatPlainFanoutReport(slots, {playbook}) {
   // Collect hosts that have actionable events or failed.
   const reportable = [];
   for (const slot of slots) {
-    if (slot.statusWord === 'offline' || slot.statusWord === 'skipped') continue;
+    if (slot.isOffline || slot.statusWord === 'skipped') continue;
     const notable = actionableEvents(slot.events || []);
     if (notable.length > 0 || slot.state !== 'ok') {
       reportable.push({slot, notable});
@@ -176,7 +176,7 @@ export function formatPlainFanoutReport(slots, {playbook}) {
 
   const okCount = slots.filter(s => s.state === 'ok').length;
   const failCount = slots.filter(s =>
-    s.state !== 'ok' && s.statusWord !== 'offline' && s.statusWord !== 'skipped'
+    s.state !== 'ok' && !s.isOffline && s.statusWord !== 'skipped'
   ).length;
 
   const lines = [];

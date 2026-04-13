@@ -214,7 +214,8 @@ export class HostSlot {
     this.committed = [];
     this.current = '';
     this.pendingCR = false;
-    this.statusWord = '';     // 'exit N' or 'signal X' once finished
+    this.statusWord = '';     // 'exit N', 'signal X', or offline reason
+    this.isOffline = false;   // true when skipped due to preflight probe
     this.events = [];
     this.logPath = '';
     this.elapsedMs = 0;
@@ -323,6 +324,7 @@ export class StatusBoard {
     slot.state = summary.ok ? 'ok' : 'failed';
     slot.finishedAt = Date.now();
     slot.statusWord = summary.statusWord;
+    if (summary.isOffline) slot.isOffline = true;
     slot.events = summary.events;
     slot.logPath = summary.logPath;
     slot.elapsedMs = summary.elapsedMs;
