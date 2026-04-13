@@ -1,6 +1,6 @@
 # Periodic tasks — implementation plan
 
-See [periodic-tasks-design.md](./periodic-tasks-design.md) for problem
+See [periodic-tasks-design.md](../periodic-tasks-design.md) for problem
 statement, constraints, scheduler research, and rationale.
 
 ## Language
