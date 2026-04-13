@@ -44,7 +44,11 @@ import {runDoctor} from '../share/playbash/doctor.js';
 // for the versioning policy and bump rules.
 const VERSION = '3.4.0';
 
-const USAGE = `usage:
+const WIKI = 'https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management';
+
+const USAGE = `Multi-host playbook runner for system maintenance.
+
+usage:
   playbash run    <targets> <playbook> [-n LINES] [-p N] [--self] [--sudo] [--report]
   playbash push   <targets> <script-path> [-n LINES] [-p N] [--self] [--sudo] [--report]
   playbash debug  <targets> <playbook> [--self] [--sudo]
@@ -58,80 +62,15 @@ const USAGE = `usage:
   playbash -v, --version            # print version and exit
   playbash --bash-completion        # print bash completion script
 
-Options (must come before \`--\` when using exec):
-  -n, --lines N    height of the live output rectangle for run/push (default 5).
-                   exec defaults to 0; pass -n N to enable.
-                   pass 0 to disable the rectangle and stream output raw
-  -p, --parallel N max concurrent hosts in fan-out (default 0 = unlimited)
-  --self           allow running on the local host (default: refuse)
-  --sudo           prompt for a password and inject it when sudo/doas asks
-  --report         write a plain-text summary of actionable events to stdout
-                   (for run/push only). Empty output if nothing to report.
-  -N, --no-precheck  skip the ssh connectivity pre-flight check
+options:
+  -n, --lines N      live output rectangle height (default 5; exec defaults to 0)
+  -p, --parallel N   max concurrent hosts (default 0 = unlimited)
+  --self             allow running on the local host
+  --sudo             prompt for a password and inject on sudo/doas prompts
+  --report           plain-text summary of actionable events to stdout (run/push)
+  -N, --no-precheck  skip ssh connectivity pre-flight check
 
-<targets> is one positional that may be a single host name, a comma-
-separated list, a group name, or the implicit "all" group — and any
-combination ("db1,web,prod"). The special name \`@self\` resolves to the
-local hostname and implies --self (no need to pass the flag). Names are
-looked up in ~/.config/playbash/inventory.json. Unknown names are passed
-verbatim to ssh, so any ~/.ssh/config alias works. A single resolved
-target uses the live rectangle; multiple targets switch to a status board
-with parallel runs and a focused-host live view.
-
-\`run\` treats hosts in the inventory as managed — playbooks are expected
-at ~/.local/bin/playbash-<playbook> on the target. Hosts not in the
-inventory (bare ssh aliases) are automatically pushed (see below).
-
-\`push\` uploads a local script and its helper library to the target and
-runs it — like \`put\` but with execution. Takes <targets> <script-path>
-(targets first, mirroring \`put\` and \`exec\`). \`run\` with a file path
-(containing /) automatically uses push mode. Only self-contained scripts
-work — scripts that depend on chezmoi-managed tools will not.
-
-  Directory playbooks: <script-path> may also be a directory. The directory
-  must contain an executable \`main.sh\` entry point; the whole tree is tar'd
-  and uploaded into ~/.cache/playbash-staging/<dirname>/. Helpers in the
-  directory are reachable from main.sh via \$(dirname "\$0"); the playbash
-  helper library is sourced via \$PLAYBASH_LIBS/playbash.sh as usual.
-
-\`exec\` runs an arbitrary command through the same wrapper / rectangle /
-fan-out pipeline as \`run\`, without a playbook. Use \`--\` before the
-command when it contains flags that might conflict with playbash options
-(e.g. \`playbash exec web1 -- ls -p\`). No sidecar events are collected.
-
-\`debug\` is equivalent to \`run\` with the rectangle disabled and info
-events surfaced in the summary — for when you want to see everything.
-
-\`put\` uploads a local file or directory to targets. If no remote path is
-given, it defaults to the local path. A trailing / on the remote path
-means "put the file inside this directory". Directories are transferred
-recursively via tar. Paths may contain {host} which expands per-target.
-
-\`get\` downloads a remote file or directory. For multiple targets, the
-local path must contain {host} to avoid overwrites. If no local path is
-given, the remote file's basename is used (single target) or
-{host}-<basename> (multiple targets). Directories are detected and
-transferred recursively via tar.
-
-Path resolution: local paths are relative to cwd, remote paths are
-relative to the remote user's home directory (ssh default).
-
-Self detection is by IP: if the target's resolved address is bound to a
-local interface, the run is refused unless --self is passed. With --self,
-the playbook runs locally as a child process (no ssh) using the same
-sidecar/summary pipeline.
-
-\`playbash log\` prints a per-run log file with terminal-hostile escape
-sequences stripped — safe to view in any terminal. With no args, picks
-the most recent log across all hosts. With a host name, picks the most
-recent log for that host. With host + command, narrows further. A path
-containing / is read directly (backward compat).
-
-\`playbash doctor\` runs a diagnostic checklist over the operator
-environment (~/.ssh/config, keys, agent, inventory, local playbooks,
-helper library, PTY wrapper, python3) and per-host connectivity for
-every inventory host. Output is a green/orange/red checklist with
-remediation hints under failures. Exits 1 if any check fails.`;
+For more information visit: ${WIKI}`;
 
 // Runner machinery (signal handlers, child registry, runHost,
 // runHostSingle, runRemote, runLocally, runFanout, probeConnectivity,

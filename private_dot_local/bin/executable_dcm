@@ -9,14 +9,12 @@ script_name=$(basename "$0")
 
 # --- Program definition ---
 
-args::program "$script_name" "1.0.0" "Manage Docker Compose setups"
+args::program "$script_name" "1.0.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
 
-args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service lifecycles.
-It handles pulling, updating, stopping, and restarting services,
+args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service lifecycles
 with automatic AppArmor recovery on Linux."
 
 args_program_usage="${BOLD}dcm${RESET_BOLD}                          # Update current dir (pull + up)
-${BOLD}dcm${RESET_BOLD} update                   # Same as above
 ${BOLD}dcm${RESET_BOLD} update ~/servers/monitor # Update specific setup
 ${BOLD}dcm${RESET_BOLD} status ~/servers         # Status for all setups under ~/servers
 ${BOLD}dcm${RESET_BOLD} prune                    # Prune unused Docker images globally"

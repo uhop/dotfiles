@@ -22,11 +22,10 @@ Shows docs, lets you edit the command, then echoes and runs it."
 
 args_program_usage="${BOLD}pick${RESET_BOLD}               list available topics
 ${BOLD}pick${RESET_BOLD} git             show git commands
-${BOLD}pick${RESET_BOLD} rsync           show rsync commands
 ${BOLD}git pick${RESET_BOLD}            same as pick git"
 
 args_program_footer="Topics are JSON files in \$PICK_DIR ($PICK_DIR).
-See also: ${BOLD}pet${RESET_BOLD} (personal snippet manager), ${BOLD}git pick${RESET_BOLD} (shortcut for pick git)."
+See also: ${BOLD}pet${RESET_BOLD} (personal snippet manager)."
 
 args_program_required_command="no"
 

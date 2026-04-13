@@ -7,32 +7,15 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Optimize and convert images for the web"
+args::program "$script_name" "1.0.0" "Optimize and convert images for the web" "https://github.com/uhop/dotfiles/wiki/Imop"
 
 args_program_header="${BOLD}imop${RESET_BOLD} optimizes and converts images for web use.
-It selects the best available tool for each format automatically."
+Supports JPEG, PNG, WebP, AVIF with automatic tool selection."
 
 args_program_usage="${BOLD}imop${RESET_BOLD} photo.jpg                # Optimize in place
-${BOLD}imop${RESET_BOLD} photo.jpg out.jpg        # Optimize to new file
 ${BOLD}imop${RESET_BOLD} photo.jpg photo.webp     # Convert to WebP
 ${BOLD}imop${RESET_BOLD} images/                  # Batch optimize in place
-${BOLD}imop${RESET_BOLD} images/ output/           # Batch to output dir
 ${BOLD}imop${RESET_BOLD} --to webp images/         # Batch convert to WebP"
-
-args_program_footer="Supported formats: ${BOLD}JPEG${RESET_BOLD}, ${BOLD}PNG${RESET_BOLD}, ${BOLD}WebP${RESET_BOLD}, ${BOLD}AVIF${RESET_BOLD}
-
-Tools (preference order):
-  JPEG lossless: jpegoptim
-  JPEG lossy:    mozjpeg (cjpeg) > jpegoptim
-  JPEG best:     guetzli (very slow, quality >= 84)
-  PNG lossless:  oxipng > optipng
-  PNG lossy:     pngquant + oxipng > pngquant + optipng
-  PNG best:      zopflipng (very slow)
-  WebP:          cwebp
-  AVIF:          avifenc
-
-Install: ${BOLD}brew install jpegoptim mozjpeg oxipng pngquant webp libavif${RESET_BOLD}
-Slow:    ${BOLD}brew install guetzli zopfli${RESET_BOLD}"
 
 args_program_required_command="no"
 

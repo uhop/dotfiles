@@ -7,26 +7,14 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "2.0.0" "Set up periodic scheduled tasks"
+args::program "$script_name" "2.0.0" "Set up periodic scheduled tasks" "https://github.com/uhop/dotfiles/wiki/Setup-Periodic"
 
 args_program_header="${BOLD}setup-periodic${RESET_BOLD} creates systemd timers (Linux) or
-launchd system daemons (macOS) for recurring tasks.
-
-Schedule format: ${ITALIC}<when> [<days>]${RESET_ALL}
-  ${BOLD}when${RESET_BOLD}:  HH:MM (time of day), Nh (every N hours), Nm (every N minutes)
-  ${BOLD}days${RESET_BOLD}:  mo-fr (range), mo,we,fr (list), sa-mo (wrap-around), 1,15 (day of month)
-  Day names: mo tu we th fr sa su (3-char aliases accepted)"
+launchd system daemons (macOS) for recurring tasks."
 
 args_program_usage="${BOLD}setup-periodic${RESET_BOLD} ${ITALIC}name schedule${RESET_ALL} ${ITALIC}\"command\"${RESET_ALL} [options]
 ${BOLD}setup-periodic${RESET_BOLD} --list
-${BOLD}setup-periodic${RESET_BOLD} --remove ${ITALIC}name${RESET_ALL}
-
-Examples:
-  setup-periodic maint \"4:00 mo-sa\" \"playbash run @self daily --report\"
-  setup-periodic weekly \"4:00 su\" \"playbash run @self weekly --report\"
-  setup-periodic backup 4h \"/path/to/backup\"
-  setup-periodic health 15m \"health-check\"
-  setup-periodic report \"6:00 1,15\" \"generate-report\""
+${BOLD}setup-periodic${RESET_BOLD} --remove ${ITALIC}name${RESET_ALL}"
 
 args::option "--email" "Notification email address" "addr"
 args::option "--list" "List active periodic tasks"
