@@ -38,6 +38,8 @@ import {
 import {isSelfAddress} from './inventory.js';
 import {
   aggregateEvents,
+  formatPlainFanoutReport,
+  formatPlainReport,
   parseSidecar,
   renderAggregated,
   renderSummary,
@@ -561,6 +563,28 @@ async function runHost({
     );
   }
 
+  // Emit a sidecar event for stuck-process detection so the notification
+  // summary (--report) has a single source of truth for all actionable
+  // events. The sidecar file on the remote host won't contain this (the
+  // process was killed), so we inject it into the parsed events array.
+  if (stuckReason) {
+    const stuckEvent = {
+      ts: new Date().toISOString(),
+      level: 'action',
+    };
+    if (stuckReason === 'sudo') {
+      stuckEvent.kind = 'needs-sudo';
+      stuckEvent.msg = 'playbook prompted for password';
+    } else if (stuckReason === 'wrong password') {
+      stuckEvent.kind = 'wrong-password';
+      stuckEvent.msg = 'sudo password rejected';
+    } else {
+      stuckEvent.kind = 'stuck-idle';
+      stuckEvent.msg = `no output for ${Math.round(idleTimeoutMs / 1000)}s`;
+    }
+    events.push(stuckEvent);
+  }
+
   const elapsedMs = Date.now() - start;
   // A stuck run is treated as a failure regardless of how it exited
   // (the kill we delivered may show as `signal SIGTERM` or as a
@@ -599,6 +623,7 @@ async function runHostSingle({
   label,
   rectHeight,
   verbose,
+  report,
   sudoPassword,
   makeChild,
   getSidecarText
@@ -646,6 +671,19 @@ async function runHostSingle({
     // for the log; when it failed, you do. `playbash log` finds any past
     // run regardless.
     process.stderr.write(`  ${COLOR.dim}↳ ${summary.logPath}${COLOR.reset}\n`);
+  }
+
+  if (report) {
+    const text = formatPlainReport({
+      hostName,
+      playbook,
+      ok: summary.ok,
+      statusWord: summary.statusWord,
+      events: summary.events,
+      logPath: summary.logPath,
+      elapsedMs: summary.elapsedMs
+    });
+    if (text) process.stdout.write(text);
   }
 
   // Skip if a signal handler is already cleaning up — its async cleanup
@@ -853,6 +891,7 @@ export async function runRemote({
   address,
   rectHeight,
   verbose,
+  report,
   managed,
   sudoPassword
 }) {
@@ -869,6 +908,7 @@ export async function runRemote({
     hostName,
     rectHeight,
     verbose,
+    report,
     sudoPassword,
     label: null,
     makeChild: ({cols, rows}) => {
@@ -881,7 +921,7 @@ export async function runRemote({
   });
 }
 
-export async function runLocally({playbook, command, hostName, rectHeight, verbose, sudoPassword}) {
+export async function runLocally({playbook, command, hostName, rectHeight, verbose, report, sudoPassword}) {
   let job;
   try {
     job = prepareLocalJob({playbook, command, hostName, sudoPassword});
@@ -893,6 +933,7 @@ export async function runLocally({playbook, command, hostName, rectHeight, verbo
     hostName,
     rectHeight,
     verbose,
+    report,
     sudoPassword,
     label: '(local)',
     makeChild: job.makeChild,
@@ -994,6 +1035,7 @@ export async function runFanout({
   targets,
   rectHeight,
   verbose,
+  report,
   parallelLimit,
   inventory,
   push,
@@ -1135,6 +1177,11 @@ export async function runFanout({
     verbose,
     showCapturedOutput: !!(transfer || command)
   });
+
+  if (report) {
+    const text = formatPlainFanoutReport(slots, {playbook: logLabel});
+    if (text) process.stdout.write(text);
+  }
 
   // Skip if a signal handler is already cleaning up — see runHostSingle.
   if (!cleaningUp) process.exit(failCount > 0 ? 1 : 0);

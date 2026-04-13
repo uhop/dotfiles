@@ -108,3 +108,112 @@ export function renderAggregated(aggregated) {
     }
   }
 }
+
+// --- Plain-text report for --report flag ---
+//
+// Produces a plain-text (no ANSI) summary of actionable events suitable
+// for piping to sendmail or other notification channels. Returns an empty
+// string when there is nothing to report (clean run, no actionable events).
+
+// Filter events to only actionable levels (action, error, and optionally warn).
+function actionableEvents(events) {
+  return events.filter(ev => ev.level === 'action' || ev.level === 'error');
+}
+
+// Format a single host's actionable events as plain-text lines.
+function formatHostEvents(events) {
+  const lines = [];
+  for (const ev of events) {
+    if (ev.level === 'action') {
+      const kind = ev.kind || 'unknown';
+      const target = ev.target ? ` [${ev.target}]` : '';
+      lines.push(`  ${kind}${target} - ${ev.msg}`);
+    } else if (ev.level === 'error') {
+      const target = ev.target ? ` [${ev.target}]` : '';
+      lines.push(`  error${target} - ${ev.msg}`);
+    }
+  }
+  return lines;
+}
+
+// Single-host plain-text report.
+export function formatPlainReport({hostName, playbook, ok, statusWord, events, logPath, elapsedMs}) {
+  const notable = actionableEvents(events);
+  if (notable.length === 0 && ok) return '';
+
+  const lines = [];
+  const elapsed = (elapsedMs / 1000).toFixed(1);
+  const status = ok ? 'ok' : statusWord;
+  lines.push(`${playbook} - ${hostName} - ${status} (${elapsed}s)`);
+  lines.push('');
+
+  const eventLines = formatHostEvents(notable);
+  if (eventLines.length > 0) lines.push(...eventLines);
+
+  if (!ok && logPath) {
+    lines.push(`  log: ${logPath}`);
+  }
+
+  lines.push('');
+  return lines.join('\n');
+}
+
+// Fan-out plain-text report.
+export function formatPlainFanoutReport(slots, {playbook}) {
+  const ts = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
+
+  // Collect hosts that have actionable events or failed.
+  const reportable = [];
+  for (const slot of slots) {
+    if (slot.statusWord === 'offline' || slot.statusWord === 'skipped') continue;
+    const notable = actionableEvents(slot.events || []);
+    if (notable.length > 0 || slot.state !== 'ok') {
+      reportable.push({slot, notable});
+    }
+  }
+
+  if (reportable.length === 0) return '';
+
+  const okCount = slots.filter(s => s.state === 'ok').length;
+  const failCount = slots.filter(s =>
+    s.state !== 'ok' && s.statusWord !== 'offline' && s.statusWord !== 'skipped'
+  ).length;
+
+  const lines = [];
+  const counts = [];
+  if (okCount > 0) counts.push(`${okCount} ok`);
+  if (failCount > 0) counts.push(`${failCount} failed`);
+  lines.push(`${playbook} - ${ts} - ${counts.join(', ')}`);
+  lines.push('');
+
+  for (const {slot, notable} of reportable) {
+    const elapsed = (slot.elapsedMs / 1000).toFixed(1);
+    const status = slot.state === 'ok' ? 'ok' : slot.statusWord;
+    lines.push(`${slot.name} - ${status} (${elapsed}s)`);
+    const eventLines = formatHostEvents(notable);
+    if (eventLines.length > 0) lines.push(...eventLines);
+    if (slot.state !== 'ok' && slot.logPath) {
+      lines.push(`  log: ${slot.logPath}`);
+    }
+  }
+
+  // Cross-host aggregation
+  const aggregated = aggregateEvents(slots);
+  if (aggregated.length > 0) {
+    lines.push('');
+    for (const g of aggregated) {
+      const hostList = g.hosts.join(', ');
+      if (g.level === 'action') {
+        const kind = g.kind || 'unknown';
+        const target = g.target ? ` [${g.target}]` : '';
+        lines.push(`${kind}${target} - ${g.hosts.length} hosts: ${hostList}`);
+      } else {
+        const target = g.target ? `${g.target} - ` : '';
+        lines.push(`${target}${g.hosts.length} hosts: ${hostList}`);
+      }
+    }
+  }
+
+  lines.push('');
+  return lines.join('\n');
+}

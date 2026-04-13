@@ -20,8 +20,6 @@ have to remember to run `upd` on six machines every day.
   Node (already required by playbash), or bash.
 - **Manual opt-in.** No automatic timer setup via chezmoi `run_once_*`.
   A setup utility the user runs explicitly.
-- `playbash-daily` / `playbash-weekly` are natural first candidates, but
-  the scheduler setup is intentionally generic — any script works.
 
 ## Dependencies
 
@@ -51,6 +49,83 @@ No other external dependencies.
    structured sidecar events and can produce a plain-text notification
    summary. This layer only adds value where the system can't know what
    happened (e.g., "all playbooks exited 0 but a host needs a reboot").
+
+---
+
+## Deployment patterns
+
+### Managed hosts: local timers (primary)
+
+Each managed host runs its own timer. The scheduled command is:
+
+```
+playbash run @self daily --report
+```
+
+This is self-contained: the host's own timer, its own msmtp, its own
+notifications. No dependence on an operator machine being up.
+
+`@self` is a built-in pseudo-host that resolves to the local hostname and
+implies `--self`. It avoids hardcoding the hostname in timer configs,
+making the same command work on every host.
+
+Fleet-wide setup via playbash:
+```bash
+playbash exec all --sudo -- setup-periodic daily \
+  "playbash run @self daily --report"
+```
+
+This works because `setup-periodic` is chezmoi-managed (deployed to
+`~/.local/bin/` on every host).
+
+**macOS caveat:** `setup-periodic` needs `sudo` on macOS to install system
+daemons. When run via `playbash exec --sudo`, the sudo password injection
+handles the outer `playbash exec` layer, but `setup-periodic` calling
+`sudo` internally creates a nesting issue. Research/test whether the
+injected password propagates. If not, set up macOS hosts manually via
+SSH. Document this.
+
+### Unmanaged hosts: operator fan-out
+
+Unmanaged hosts (not in inventory, no chezmoi) don't have local timers.
+An operator machine runs a timer that fans out to them:
+
+```
+playbash push unmanaged-hosts daily-script --report
+```
+
+This requires the operator machine to be available at run time — a single
+point of failure, but acceptable for a handful of unmanaged hosts.
+
+The fan-out report (cross-host aggregation) is needed for this pattern.
+
+### Running playbooks directly (without the runner)
+
+Running `playbash-daily` directly (instead of `playbash run @self daily`)
+is possible, but loses:
+
+- `--report` notification summary
+- Stuck-process detection (sudo prompts, idle timeout)
+- Sidecar event collection
+- Log file capture and timing
+
+For scheduled tasks, always use the `playbash run` form. Document in the
+wiki that direct execution is possible but produces no enhanced reporting.
+
+---
+
+## `@self` pseudo-host
+
+A built-in target name that resolves to the current host. Supported by
+all subcommands (`run`, `push`, `debug`, `exec`, `put`, `get`).
+
+Behavior:
+- Resolves to the actual system hostname for display (reports and status
+  lines show "think", not "@self").
+- Implies `--self` — no need to pass the flag.
+- Works in mixed target lists: `playbash run @self,host2 daily` runs
+  locally on `@self` and remotely on `host2`.
+- Implemented in the target resolver (core), not per-command.
 
 ---
 
@@ -144,6 +219,19 @@ logout. There is no macOS equivalent of `enable-linger`.
 ## Notification architecture
 
 ```
+  Managed host (local timer, single-host):
+  ─────────────────────────────────────────
+  playbash run @self daily --report
+  → playbash wrapper checks exit code AND report
+  → sendmail if anything actionable
+
+  Unmanaged hosts (operator fan-out):
+  ────────────────────────────────────
+  playbash push unmanaged-hosts daily-script --report
+  → playbash wrapper checks exit code AND report
+  → fan-out report with cross-host aggregation
+  → sendmail if anything actionable
+
   Generic task on systemd (Linux):
   ────────────────────────────────
   OnFailure=email-notify@%n.service
@@ -155,14 +243,6 @@ logout. There is no macOS equivalent of `enable-linger`.
   notify-on-failure wrapper
   → runs command → checks $? → captures output → sendmail
   Fills the gap the system doesn't cover.
-
-  Playbash task (all platforms):
-  ──────────────────────────────
-  playbash wrapper
-  → runs playbash --report → checks exit code AND report
-  → sendmail if anything actionable
-  Replaces OnFailure= for playbash services (avoids double
-  notification).
 ```
 
 ### What the scheduler can't know (playbash)
@@ -196,7 +276,8 @@ Silent when:
 Answers: "what do I need to do, and on which hosts?"
 
 - Per-host actionable events (reboot, stuck, errors)
-- Cross-host aggregation ("reboot needed: host-a, host-b")
+- Cross-host aggregation ("reboot needed: host-a, host-b") — needed for
+  the unmanaged-hosts fan-out pattern
 - Timestamp, playbook name, pass/fail count
 - Log paths for failed hosts
 
@@ -273,6 +354,17 @@ removed," Healthchecks.io-style dead-man's switches are the right tool.
    if it's uninstalled later, wrappers warn to journal but notifications
    go silent. Healthchecks.io ping-on-success is the real solution.
 
+7. **macOS fleet setup via `playbash exec`.** `setup-periodic` on macOS
+   needs sudo internally for `launchctl load`. When invoked via
+   `playbash exec --sudo`, the injected password may not propagate to
+   nested sudo calls. Needs testing. If gnarly, document manual SSH setup
+   for macOS hosts as the recommended path.
+
+8. **Unmanaged hosts depend on operator uptime.** The operator fan-out
+   pattern (`playbash push unmanaged-hosts ...`) requires the operator
+   machine to be up at run time. Acceptable for a small number of
+   unmanaged hosts.
+
 ---
 
 ## Decisions made
@@ -304,3 +396,13 @@ removed," Healthchecks.io-style dead-man's switches are the right tool.
   fails with install instructions if missing.
 - **Schedule:** Mon-Sat daily, Sunday weekly. Default time 04:00 CST.
   Configurable via `setup-periodic` options/prompts (days and time).
+- **`@self` pseudo-host.** Resolves to actual hostname for display, implies
+  `--self`, works with all subcommands. Implemented in the target resolver.
+- **Local timers as primary path.** Each managed host runs
+  `playbash run @self daily --report` via its own timer. Self-contained.
+- **Operator fan-out for unmanaged hosts.** Timer on operator machine runs
+  `playbash push unmanaged-hosts daily-script --report`. Fan-out report
+  with cross-host aggregation needed for this.
+- **Always use `playbash run` form for scheduled tasks.** Direct
+  `playbash-daily` execution is possible but lacks reporting. Document
+  the trade-off in the wiki.

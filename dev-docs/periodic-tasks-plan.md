@@ -9,42 +9,41 @@ statement, constraints, scheduler research, and rationale.
 |-------|----------|-----|
 | Sidecar events for stuck detection | Node | Already in `runner.js` |
 | Notification summary formatter | Node | Reuses `sidecar.js` primitives |
+| `@self` pseudo-host | Node | Target resolver in `inventory.js` / `runner.js` |
 | Generic notification wrapper | Bash | Leaf script |
 | Playbash notification wrapper | Bash | Leaf script |
 | `setup-periodic` utility | Bash | Creates platform-specific config |
 | systemd units / launchd plists | Declarative config | Chezmoi templates |
 
+## Status
+
+- Phase 1a (sidecar events): **done** — `runner.js` emits action-level
+  events for needs-sudo, wrong-password, stuck-idle.
+- Phase 1b (`--report` flag): **done** — plain-text formatters in
+  `sidecar.js`, threaded through runner and entry point, completions
+  updated.
+
 ---
 
-## Phase 1: playbash sidecar + report (Node)
+## Phase 1c: `@self` pseudo-host (Node)
 
-### 1a. Emit sidecar events for stuck-process detection
+A built-in target name that resolves to the current host. Implemented in
+the target resolver so all subcommands get it automatically.
 
-The runner detects stuck processes (`stuckReason: 'sudo'`,
-`'wrong password'`, `'idle'`) and sets `statusWord`, but does not write
-sidecar events. Emit `action`-level events:
+Behavior:
+- `@self` in the target list resolves to a synthetic target with the
+  actual system hostname (`os.hostname()`) and a local address.
+- Implies `--self` — `filterSelf` never removes `@self` entries.
+- Works in mixed lists: `playbash run @self,host2 daily`.
+- Display uses the real hostname, not `@self`.
 
-- `{level: "action", kind: "needs-sudo", msg: "…"}`
-- `{level: "action", kind: "wrong-password", msg: "…"}`
-- `{level: "action", kind: "stuck-idle", msg: "…"}`
-
-Where: `runner.js`, around line 570 where `stuckReason` is set. The runner
-already has access to `_playbash_emit`-equivalent logic (sidecar write).
-
-### 1b. `--report` flag for plain-text notification summary
-
-A `--report` flag on `playbash run` that writes a plain-text summary of
-actionable events to stdout after the run completes. The terminal status
-board already goes to stderr.
-
-- If nothing actionable → empty stdout (no output).
-- Exit code unchanged — wrapper checks report content to detect
-  "succeeded but actionable" (no special exit code 2).
-- Content: per-host actionable events, cross-host aggregation, pass/fail
-  count, log paths.
-- Reuses `parseSidecar`, `aggregateEvents` from `sidecar.js`. New
-  plain-text renderer (no ANSI) alongside existing `renderSummary` /
-  `renderAggregated`.
+Where to implement:
+- `inventory.js` `resolveTargets()` — detect `@self` in the target
+  string, produce a synthetic `{name: hostname, address: 'localhost'}`
+  entry with an `isSelf` flag.
+- `runner.js` `filterSelf()` — respect the `isSelf` flag (never filter).
+- Entry point USAGE text — document `@self`.
+- `completion.bash` — add `@self` to target completions.
 
 ---
 
@@ -101,6 +100,7 @@ For playbash tasks on all platforms:
 - If exit non-zero OR report non-empty → sends email
 - On clean success → silent
 - Replaces `OnFailure=` for playbash services (the wrapper handles it)
+- Works for both local (`@self`) and fan-out targets
 
 ---
 
@@ -121,10 +121,10 @@ Before creating any scheduler config, `setup-periodic` checks:
 ### Interface sketch
 
 ```bash
-setup-periodic daily "playbash run all daily"
-setup-periodic weekly "playbash run all weekly"
+setup-periodic daily "playbash run @self daily --report"
+setup-periodic weekly "playbash run @self weekly --report"
+setup-periodic daily "playbash push unmanaged daily-script --report"
 setup-periodic daily "/path/to/backup-script" --email ops@example.com
-setup-periodic daily "playbash run all daily" --time 04:00
 setup-periodic --remove daily
 setup-periodic --list
 ```
@@ -141,6 +141,20 @@ Options:
 Default schedule for playbash maintenance:
 - daily: Mon-Sat at 04:00 CST
 - weekly: Sun at 04:00 CST
+
+### Fleet-wide setup
+
+On managed Linux hosts (no sudo needed):
+```bash
+playbash exec all -- setup-periodic daily \
+  "playbash run @self daily --report"
+```
+
+On macOS hosts: `setup-periodic` needs sudo for system daemons. The sudo
+nesting with `playbash exec --sudo` needs testing. If problematic, set up
+macOS hosts manually via SSH. Document this.
+
+Unmanaged hosts don't get local timers — use operator fan-out instead.
 
 ### Logic
 
@@ -170,6 +184,8 @@ Default schedule for playbash maintenance:
 ## Phase 4: documentation
 
 Wiki page covering:
+- How local timers work (the primary pattern)
+- How operator fan-out works (for unmanaged hosts)
 - Manual systemd timer setup (for those who prefer hand-editing)
 - Manual launchd system daemon setup
 - Manual cron setup (fallback)
@@ -177,18 +193,21 @@ Wiki page covering:
 - Other notification channels (ntfy, Slack, Pushover, Healthchecks.io)
 - How the notification wrappers work
 - `setup-periodic` usage
+- Running `playbash-daily` directly: possible but no enhanced reporting
+- macOS fleet setup limitations (sudo nesting)
 
 ---
 
 ## Phase ordering and dependencies
 
 ```
-Phase 1a (sidecar events)  ──┐
-                              ├── Phase 2c (playbash wrapper) ──┐
-Phase 1b (--report flag)   ──┘                                  │
-                                                                ├── Phase 3 (setup-periodic)
-Phase 2a (email-notify@)   ────────────────────────────────────┤
-Phase 2b (notify-on-failure) ──────────────────────────────────┘
+Phase 1a (sidecar events)  ── done
+Phase 1b (--report flag)   ── done
+                                    ├── Phase 2c (playbash wrapper) ──┐
+Phase 1c (@self)           ────────┘                                  │
+                                                                      ├── Phase 3 (setup-periodic)
+Phase 2a (email-notify@)   ──────────────────────────────────────────┤
+Phase 2b (notify-on-failure) ────────────────────────────────────────┘
 
 Phase 4 (docs) can proceed in parallel with any phase.
 ```

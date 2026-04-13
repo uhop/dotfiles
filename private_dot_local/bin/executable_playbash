@@ -45,8 +45,8 @@ import {runDoctor} from '../share/playbash/doctor.js';
 const VERSION = '3.3.0';
 
 const USAGE = `usage:
-  playbash run    <targets> <playbook> [-n LINES] [-p N] [--self] [--sudo]
-  playbash push   <targets> <script-path> [-n LINES] [-p N] [--self] [--sudo]
+  playbash run    <targets> <playbook> [-n LINES] [-p N] [--self] [--sudo] [--report]
+  playbash push   <targets> <script-path> [-n LINES] [-p N] [--self] [--sudo] [--report]
   playbash debug  <targets> <playbook> [--self] [--sudo]
   playbash exec   <targets> [--] <command...> [-n LINES] [-p N] [--self] [-N] [--sudo]
   playbash put    <targets> <local-path> [<remote-path>] [-p N] [--self] [--sudo] [-N]
@@ -65,6 +65,8 @@ Options (must come before \`--\` when using exec):
   -p, --parallel N max concurrent hosts in fan-out (default 0 = unlimited)
   --self           allow running on the local host (default: refuse)
   --sudo           prompt for a password and inject it when sudo/doas asks
+  --report         write a plain-text summary of actionable events to stdout
+                   (for run/push only). Empty output if nothing to report.
   -N, --no-precheck  skip the ssh connectivity pre-flight check
 
 <targets> is one positional that may be a single host name, a comma-
@@ -142,6 +144,7 @@ const {values, positionals} = parseArgs({
     lines: {type: 'string', short: 'n'},
     self: {type: 'boolean', default: false},
     sudo: {type: 'boolean', default: false},
+    report: {type: 'boolean', default: false},
     'no-precheck': {type: 'boolean', short: 'N', default: false},
     parallel: {type: 'string', short: 'p', default: '0'},
     'bash-completion': {type: 'boolean', default: false},
@@ -268,7 +271,7 @@ function promptPassword() {
 }
 
 // Shared dispatcher for `run`, `push`, `debug`, and `exec`.
-async function dispatch({job, targetArg, rectHeight, verbose, push, sudoPassword}) {
+async function dispatch({job, targetArg, rectHeight, verbose, report, push, sudoPassword}) {
   const {
     inventory: inv,
     targets,
@@ -290,7 +293,7 @@ async function dispatch({job, targetArg, rectHeight, verbose, push, sudoPassword
     // with "all targets resolved to self" before dispatch runs.
     const isSelf = await isSelfAddress(only.address);
     if (isSelf) {
-      await runLocally({...job, hostName: only.name, rectHeight, verbose, sudoPassword});
+      await runLocally({...job, hostName: only.name, rectHeight, verbose, report, sudoPassword});
     } else {
       const managed = !push && inv.hosts.has(only.name);
       if (!push && job.playbook && !managed) {
@@ -304,6 +307,7 @@ async function dispatch({job, targetArg, rectHeight, verbose, push, sudoPassword
         address: only.address,
         rectHeight,
         verbose,
+        report,
         managed,
         sudoPassword
       });
@@ -327,6 +331,7 @@ async function dispatch({job, targetArg, rectHeight, verbose, push, sudoPassword
     targets,
     rectHeight,
     verbose,
+    report,
     parallelLimit,
     inventory: inv,
     push,
@@ -408,6 +413,7 @@ switch (command) {
       targetArg,
       rectHeight,
       verbose,
+      report: values.report,
       push: isCustomPath,
       sudoPassword
     });
@@ -432,6 +438,7 @@ switch (command) {
       targetArg,
       rectHeight,
       verbose: false,
+      report: values.report,
       push: true,
       sudoPassword
     });
