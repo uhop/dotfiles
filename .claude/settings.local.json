@@ -38,7 +38,8 @@
       "WebFetch(domain:dev.to)",
       "WebFetch(domain:docs.github.com)",
       "WebFetch(domain:apscheduler.readthedocs.io)",
-      "WebFetch(domain:schedule.readthedocs.io)"
+      "WebFetch(domain:schedule.readthedocs.io)",
+      "Bash(echo \"status: $?\")"
     ]
   }
 }
