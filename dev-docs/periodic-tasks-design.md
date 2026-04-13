@@ -367,6 +367,182 @@ removed," Healthchecks.io-style dead-man's switches are the right tool.
 
 ---
 
+## Schedule syntax
+
+The original `setup-periodic` interface used `daily` and `weekly` as
+mandatory schedule commands with hardcoded day mappings (Mon-Sat and Sun).
+This was too rigid — it couldn't express intervals like "every 4 hours",
+arbitrary day sets like "Mon, Wed, Fri", or day-of-month schedules.
+
+The new interface uses a compact schedule string with two parts: **when**
+(required) and **days** (optional, defaults to every day).
+
+### CLI structure
+
+```
+setup-periodic <name> <schedule> "command" [options]
+setup-periodic --list
+setup-periodic --remove <name>
+```
+
+The first positional is the task name — used for the service/plist filename
+and for `--remove`. The second is the schedule string (quoted if it
+contains a day spec). The third is the command to run.
+
+The `--time` option is removed — time is part of the schedule string.
+`--email` is retained.
+
+### When (required, first word of schedule)
+
+| Format | Meaning | Examples |
+|--------|---------|---------|
+| `HH:MM` | Specific time of day | `4:00`, `04:00`, `23:30` |
+| `Nh` | Every N hours | `4h`, `12h`, `1h` |
+| `Nm` | Every N minutes | `15m`, `30m` |
+
+Leading zero optional: `4:00` = `04:00`.
+
+When no time is given (days-only schedule is not valid — `<when>` is
+always required). When an interval is used without days, the default
+time of day for alignment is determined by the scheduler: systemd uses
+`0/N` (aligned to midnight), launchd enumerates from hour 0.
+
+### Days (optional, second word of schedule)
+
+Defaults to every day when omitted.
+
+**Day names** — canonical 2-character, lowercase:
+
+| `mo` | `tu` | `we` | `th` | `fr` | `sa` | `su` |
+|------|------|------|------|------|------|------|
+
+3-character aliases accepted: `mon`, `tue`, `wed`, `thu`, `fri`, `sat`,
+`sun`. Canonical output always uses 2-char form.
+
+**Day-of-week combinators:**
+
+| Format | Meaning | Example |
+|--------|---------|---------|
+| `mo` | Single day | Monday |
+| `mo-fr` | Range (inclusive) | Monday through Friday |
+| `mo,we,fr` | List | Monday, Wednesday, Friday |
+| `mo-we,fr` | Mixed | Mon-Wed and Friday |
+| `sa-mo` | Wrap-around range | Sat, Sun, Mon |
+
+Wrap-around ranges are detected when the start day index exceeds the end
+day index (sa=6 > mo=1). Expanded as: start through Sunday, then Monday
+through end.
+
+**Day-of-month:**
+
+| Format | Meaning |
+|--------|---------|
+| `1` | 1st of month |
+| `15` | 15th of month |
+| `1,15` | 1st and 15th |
+
+Numbers 1-31 in the day spec are interpreted as days of month. Context
+is unambiguous: day names are always letters, days of month are always
+bare numbers.
+
+Day-of-week and day-of-month **can be mixed** (`1,mo-fr`) but the user
+should understand the semantics: both schedulers fire independently, so
+if the 1st falls on a weekday, the task runs twice. The utility prints
+a warning when week and month days are mixed.
+
+**Deferred:** `last` (last day of month). Neither systemd nor launchd
+supports this natively — would require a wrapper that checks `date` at
+runtime. Not worth the complexity for now.
+
+### Examples
+
+```bash
+# Maintenance: Mon-Sat at 04:00
+setup-periodic maint "4:00 mo-sa" "playbash run @self daily --report"
+
+# Weekly: Sunday at 04:00
+setup-periodic weekly "4:00 su" "playbash run @self weekly --report"
+
+# Backup every 4 hours
+setup-periodic backup 4h "/path/to/backup"
+
+# Health check every 15 minutes
+setup-periodic health 15m "health-check"
+
+# Report on 1st and 15th at 06:00
+setup-periodic report "6:00 1,15" "generate-report"
+
+# Workdays only at 08:30
+setup-periodic notify "8:30 mo-fr" "morning-summary"
+
+# Weekend + Wednesday at 04:00
+setup-periodic odd "4:00 we,sa-su" "odd-schedule-task"
+```
+
+### Backend mapping
+
+**systemd (OnCalendar):**
+
+| Schedule | OnCalendar value |
+|----------|-----------------|
+| `4:00` | `*-*-* 04:00:00` |
+| `4:00 mo-sa` | `Mon..Sat *-*-* 04:00:00` |
+| `4:00 su` | `Sun *-*-* 04:00:00` |
+| `4h` | `*-*-* 0/4:00:00` |
+| `4h mo-fr` | `Mon..Fri *-*-* 0/4:00:00` |
+| `15m` | `*-*-* *:0/15:00` |
+| `4:00 1,15` | `*-*-01,15 04:00:00` |
+| `4:00 mo-fr` + `1` | Two `OnCalendar=` lines (multiple supported) |
+
+**launchd (StartCalendarInterval / StartInterval):**
+
+| Schedule | Mechanism |
+|----------|-----------|
+| `4:00 mo-sa` | 6 dicts: Weekday 1-6, Hour 4, Minute 0 |
+| `4h` | 6 dicts: Hour 0/4/8/12/16/20, Minute 0 |
+| `4h mo-fr` | 30 dicts: 5 days x 6 hours |
+| `15m` | `StartInterval=900` (not calendar-aligned) |
+| `4:00 1` | 1 dict: Day 1, Hour 4, Minute 0 |
+| Mixed week+month | Separate dicts for each type |
+
+**Sub-hour intervals with day filter on macOS:** Rejected. Sub-hour
+intervals (`Nm` where N < 60) cannot combine with day-of-week on
+launchd — `StartInterval` has no day awareness and enumerating
+`StartCalendarInterval` dicts is impractical (e.g. `15m mo-fr` = 480
+dicts). The utility rejects this combination on macOS with a clear
+error. Sub-hour intervals without a day filter use `StartInterval`.
+Hourly and above always use `StartCalendarInterval`.
+
+### Naming convention
+
+The task name becomes the unit/plist identifier:
+
+- **systemd:** `periodic-<name>.service` + `periodic-<name>.timer`
+- **launchd:** `com.periodic.<name>.plist`
+
+Names should be short, lowercase, alphanumeric with hyphens. The utility
+validates the name format.
+
+### Migration from daily/weekly
+
+The old `setup-periodic daily "cmd"` / `setup-periodic weekly "cmd"`
+form is replaced by:
+
+```bash
+# Old
+setup-periodic daily "playbash run @self daily --report"
+setup-periodic weekly "playbash run @self weekly --report"
+
+# New
+setup-periodic maint "4:00 mo-sa" "playbash run @self daily --report"
+setup-periodic weekly "4:00 su" "playbash run @self weekly --report"
+```
+
+The `--remove` interface stays the same but uses the explicit name:
+`setup-periodic --remove maint`.
+
+---
+
 ## Decisions made
 
 - **Schedulers:** systemd (Linux), launchd (macOS), cron (documented
@@ -394,8 +570,15 @@ removed," Healthchecks.io-style dead-man's switches are the right tool.
   Not a playbash subcommand (it handles generic tasks too).
 - **msmtp is a prerequisite.** `setup-periodic` checks for `sendmail` and
   fails with install instructions if missing.
-- **Schedule:** Mon-Sat daily, Sunday weekly. Default time 04:00 CST.
-  Configurable via `setup-periodic` options/prompts (days and time).
+- **Schedule syntax:** compact `<when> [<days>]` string. 2-char day names
+  (`mo`-`su`), 3-char aliases accepted. Ranges (`mo-fr`), lists
+  (`mo,we,fr`), wrap-around ranges (`sa-mo`), day-of-month (`1`, `15`).
+  No predefined day groups. Default time 04:00.
+- **Sub-hour + day filter on macOS:** rejected — launchd can't do it
+  cleanly. Sub-hour without day filter uses `StartInterval`.
+- **Mixed week/month days:** allowed but warns. Schedulers fire
+  independently (possible double-run on overlap).
+- **`last` day of month:** deferred — no native backend support.
 - **`@self` pseudo-host.** Resolves to actual hostname for display, implies
   `--self`, works with all subcommands. Implemented in the target resolver.
 - **Local timers as primary path.** Each managed host runs

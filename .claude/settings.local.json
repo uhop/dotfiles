@@ -35,7 +35,10 @@
       "WebFetch(domain:man7.org)",
       "WebFetch(domain:launchd.info)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:dev.to)"
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:docs.github.com)",
+      "WebFetch(domain:apscheduler.readthedocs.io)",
+      "WebFetch(domain:schedule.readthedocs.io)"
     ]
   }
 }
