@@ -143,7 +143,10 @@ if [ $# -lt 2 ]; then
 fi
 
 schedule=$1
-task_command=$2
+# args_cleaned / getopt round-trips positional arguments through
+# printf '%q' + single-quote wrapping, leaving literal backslash-space
+# sequences in strings that contained spaces. Undo that here.
+task_command="${2//\\ / }"
 
 case $schedule in
   daily)  days_desc="Mon-Sat" ;;
@@ -178,16 +181,25 @@ if ! [ -f "$HOME/.msmtprc" ]; then
 fi
 
 # --- Determine wrapper ---
+#
+# wrapper_cmd: the command to run.
+# wrapper_is_local: whether the command lives in ~/.local/bin/ (our wrappers).
+#   When true, ExecStart prefixes with $HOME/.local/bin/.
+#   When false, ExecStart uses the command as-is (it's on PATH or absolute).
 
 wrapper_cmd=
 if [[ "$task_command" == playbash\ * ]]; then
-  wrapper_cmd="notify-playbash ${task_command#playbash }"
+  wrapper_cmd="$HOME/.local/bin/notify-playbash ${task_command#playbash }"
 else
   if [ "$PLATFORM" = systemd ]; then
     # On systemd, generic tasks use OnFailure= — no wrapper needed.
-    wrapper_cmd=$task_command
+    # Resolve the executable to an absolute path (systemd requires it).
+    read -ra cmd_parts <<< "$task_command"
+    abs_bin=$(command -v "${cmd_parts[0]}" 2>/dev/null || echo "${cmd_parts[0]}")
+    cmd_parts[0]=$abs_bin
+    wrapper_cmd="${cmd_parts[*]}"
   else
-    wrapper_cmd="notify-on-failure $task_command"
+    wrapper_cmd="$HOME/.local/bin/notify-on-failure $task_command"
   fi
 fi
 
@@ -226,7 +238,7 @@ EOF
 
 [Service]
 Type=oneshot
-ExecStart=$HOME/.local/bin/$wrapper_cmd
+ExecStart=$wrapper_cmd
 Environment=NOTIFY_EMAIL=$email_addr
 EOF
 
