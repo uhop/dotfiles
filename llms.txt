@@ -71,9 +71,9 @@ Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansibl
 - `playbash get <targets> <remote-path> [<local-path>]` — download a file or directory
 - `playbash list` / `playbash hosts` / `playbash log [host] [command]`
 
-**Options:** `-n/--lines N` (rectangle height, default 5; 0 for exec), `-p/--parallel N`, `--self`, `--sudo` (prompt once for a password; for run/exec/push/debug injects via PTY stdin relay; for put/get wraps remote commands with `sudo -S` and prepends the password to stdin), `-N/--no-precheck` (skip offline detection).
+**Options:** `-n/--lines N` (rectangle height, default 5; 0 for exec), `-p/--parallel N`, `--self`, `--sudo` (prompt once for a password; for run/exec/push/debug injects via PTY stdin relay; for put/get wraps remote commands with `sudo -S` and prepends the password to stdin), `--report` (write plain-text summary of actionable events to stdout; for run/push only), `-N/--no-precheck` (skip offline detection).
 
-**Targets:** comma-separated host names, group names, and the implicit `all` group. Resolved from `~/.config/playbash/inventory.json`. Inventory hosts are **managed** (playbooks pre-deployed via chezmoi); bare ssh aliases get the playbook pushed automatically. `put`/`get`/`push` support `{host}` template expansion in paths. Custom script paths (containing `/`) in `run`/`push` always use upload mode.
+**Targets:** comma-separated host names, group names, the implicit `all` group, and the special `@self` pseudo-host (resolves to local hostname, implies `--self`). Resolved from `~/.config/playbash/inventory.json`. Inventory hosts are **managed** (playbooks pre-deployed via chezmoi); bare ssh aliases get the playbook pushed automatically. `put`/`get`/`push` support `{host}` template expansion in paths. Custom script paths (containing `/`) in `run`/`push` always use upload mode.
 
 **Offline detection:** pre-flight `ssh -o ConnectTimeout=2 true` parallelized across all targets. Offline hosts get a distinct status, excluded from failure counts. `-N` to skip.
 
@@ -81,11 +81,38 @@ Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansibl
 
 **Logs:** at `~/.cache/playbash/runs/<host>/<command>/<timestamp>.log`. `playbash log [host] [command]` finds the most recent.
 
-**Cron:** typical entries (falls back to plain output without a tty):
-```cron
-0 3 * * * /home/eugene/.local/bin/playbash run all daily
-0 4 * * 0 /home/eugene/.local/bin/playbash run all weekly
-```
+**Periodic tasks:** each managed host runs its own timer via `setup-periodic`. The primary scheduled command is `playbash run @self daily --report` (local run, no SSH). Notification wrappers handle failure emails. See `dev-docs/periodic-tasks-design.md`.
+
+### setup-periodic
+
+Set up periodic scheduled tasks. Creates systemd timers (Linux) or launchd system daemons (macOS).
+
+Usage:
+- `setup-periodic daily "playbash run @self daily --report"` — create daily timer
+- `setup-periodic weekly "playbash run @self weekly --report"` — create weekly timer
+- `setup-periodic --list` — show active periodic tasks
+- `setup-periodic --remove daily` — remove a task
+
+Options:
+- `--email ADDRESS` — notification email (default: chezmoi-configured email)
+- `--time HH:MM` — time of day (default: 04:00)
+- `--list` — list active tasks
+- `--remove NAME` — remove a task
+- `-v, --version`, `-h, --help`
+
+Prerequisites: requires `sendmail` (msmtp). Fails with install instructions if missing.
+
+Fleet-wide setup: `playbash exec all -- setup-periodic daily "playbash run @self daily --report"`
+
+### Notification wrappers
+
+**notify-playbash** — runs `playbash <args> --report`, emails if exit non-zero OR report non-empty. Silent on clean success. Used by `setup-periodic` for playbash tasks.
+
+**notify-on-failure** — generic wrapper for launchd/cron. Runs a command, captures output, emails on non-zero exit. Silent on success.
+
+**notify-systemd-failure** — systemd `OnFailure=` handler. Called by `email-notify@.service` template unit. Reads `journalctl --user-unit` for the failed unit and emails via `sendmail`.
+
+**email-notify@.service** — systemd template unit at `~/.config/systemd/user/`. Wired via `OnFailure=email-notify@%n.service` on generic task services. Linux only.
 
 ### upd
 

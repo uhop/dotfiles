@@ -38,6 +38,8 @@ dotfiles/                              # chezmoi source directory
 │   ├── kitty/
 │   ├── micro/
 │   ├── nano/
+│   ├── systemd/user/                  # → ~/.config/systemd/user/ (Linux only)
+│   │   └── email-notify@.service      # OnFailure= template for generic task failure emails
 │   └── tmux/
 ├── private_dot_local/
 │   ├── bin/                           # → ~/.local/bin/ (CLI utilities)
@@ -61,6 +63,10 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── executable_trim-node-versions.js    # Trim old node versions
 │   │   ├── executable_update-node-versions.js  # Update node major versions
 │   │   ├── executable_git-*           # Git helper scripts (incl. git-pick → pick git)
+│   │   ├── executable_notify-on-failure   # Generic failure wrapper (launchd/cron)
+│   │   ├── executable_notify-playbash     # Playbash notification wrapper (all platforms)
+│   │   ├── executable_notify-systemd-failure  # systemd OnFailure= email handler
+│   │   ├── executable_setup-periodic      # Periodic task scheduler setup utility
 │   │   ├── executable_playbash        # Multi-host playbook runner (Node)
 │   │   └── executable_playbash-{daily,weekly,hello,sample}  # playbash playbooks
 │   ├── libs/
@@ -190,4 +196,5 @@ The `dev-docs/` directory holds planning documents. Completed plans move to `dev
 - `sudo` operations check for group membership first (`groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'`).
 - Node.js helper modules live under `private_share/utils/` (general) and `private_share/playbash/` (runner-specific). They deploy to `~/.local/share/utils/` and `~/.local/share/playbash/` respectively. Executables in `bin/` import them via relative paths like `../share/utils/nvm.js`.
 - Maintenance scripts (`upd`, `cln`) source `~/.local/libs/maintenance.sh` for shared `report_reboot` / `report_warn` / `report_action` helpers. Each helper prints a colored message via options.bash AND writes a JSON-lines event to `$PLAYBASH_REPORT` when the script runs under the playbash runner. The helpers do not depend on `playbash.sh`; the JSON writer is inlined.
-- The playbash runner (`~/.local/bin/playbash`) is a multi-host playbook runner (v1–v3 complete). Subcommands: `run`, `push`, `debug`, `exec`, `put`, `get`, `list`, `hosts`, `log`, `doctor`. Targets always come first: `playbash <cmd> <targets> <rest>`. Options include `--sudo` (prompt once for a password; for run/exec/push/debug injects via PTY stdin relay; for put/get wraps remote commands with `sudo -S` and prepends the password to stdin). Inventory hosts are managed; bare ssh aliases get playbooks pushed automatically. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management) on the wiki, [`dev-docs/playbash-design.md`](./dev-docs/playbash-design.md) for technical rationale, and [`dev-docs/done/playbash-roadmap.md`](./dev-docs/done/playbash-roadmap.md) for the milestone log.
+- The playbash runner (`~/.local/bin/playbash`) is a multi-host playbook runner (v1–v3 complete, v3.4+). Subcommands: `run`, `push`, `debug`, `exec`, `put`, `get`, `list`, `hosts`, `log`, `doctor`. Targets always come first: `playbash <cmd> <targets> <rest>`. The special target `@self` resolves to the local hostname and implies `--self` — used for scheduled local runs. Options include `--sudo` (prompt once for a password; for run/exec/push/debug injects via PTY stdin relay; for put/get wraps remote commands with `sudo -S` and prepends the password to stdin) and `--report` (writes a plain-text summary of actionable events to stdout for notification wrappers). Inventory hosts are managed; bare ssh aliases get playbooks pushed automatically. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management) on the wiki, [`dev-docs/playbash-design.md`](./dev-docs/playbash-design.md) for technical rationale, and [`dev-docs/done/playbash-roadmap.md`](./dev-docs/done/playbash-roadmap.md) for the milestone log.
+- Periodic task scheduling uses `setup-periodic` to create systemd timers (Linux) or launchd system daemons (macOS). The primary pattern is `playbash run @self daily --report` on each managed host. Notification wrappers (`notify-playbash`, `notify-on-failure`, `notify-systemd-failure`) handle failure emails via msmtp/sendmail. See [`dev-docs/periodic-tasks-design.md`](./dev-docs/periodic-tasks-design.md) for rationale.

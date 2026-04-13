@@ -28,6 +28,8 @@ dotfiles/                                          # chezmoi source directory
 │   ├── kitty/private_kitty.conf.tmpl              # terminal config (templated)
 │   ├── micro/{bindings,settings,plugins}.json     # editor config
 │   ├── nano/private_nanorc                        # editor config
+│   ├── systemd/user/                              # → ~/.config/systemd/user/ (Linux only)
+│   │   └── email-notify@.service                  # OnFailure= template: email on unit failure
 │   └── tmux/tmux.conf                             # tmux config
 │
 ├── private_dot_local/
@@ -52,6 +54,10 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_trim-node-versions.js       # trim old node versions
 │   │   ├── executable_update-node-versions.js     # update node major versions
 │   │   ├── executable_git-{br,brr,bs,mbs,pick,pull-main,super-clean}  # git helpers
+│   │   ├── executable_notify-on-failure           # generic failure email wrapper (launchd/cron)
+│   │   ├── executable_notify-playbash             # playbash notification wrapper (all platforms)
+│   │   ├── executable_notify-systemd-failure      # systemd OnFailure= email handler (Linux)
+│   │   ├── executable_setup-periodic              # periodic task scheduler setup utility
 │   │   ├── executable_playbash                    # multi-host playbook runner (Node)
 │   │   └── executable_playbash-{daily,weekly,hello,sample}  # playbash playbooks
 │   ├── libs/                                      # → ~/.local/libs/
@@ -130,6 +136,25 @@ upd, cln (deployed to every host)
 maintenance.sh (sourced)              ← report_reboot/warn/action + maintenance::check_apt_since
                                        + apparmor marker file + recovery on script start
                                        (writes both colored output AND $PLAYBASH_REPORT events)
+```
+
+```
+Periodic task scheduling:
+
+setup-periodic (bash, options.bash)
+    ↓
+├── systemd: creates ~/.config/systemd/user/*.{service,timer}, enables linger
+├── launchd: creates /Library/LaunchDaemons/*.plist (sudo)
+└── checks sendmail/msmtp prerequisite
+
+email-notify@.service (systemd template unit)
+    ↓
+notify-systemd-failure              ← reads journalctl, sends email via sendmail
+
+notify-on-failure                   ← generic wrapper: run command, email on non-zero exit
+notify-playbash                     ← playbash wrapper: run playbash --report, email if actionable
+    ↓
+sendmail (provided by msmtp)
 ```
 
 ```

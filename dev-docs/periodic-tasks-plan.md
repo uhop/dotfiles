@@ -22,6 +22,19 @@ statement, constraints, scheduler research, and rationale.
 - Phase 1b (`--report` flag): **done** — plain-text formatters in
   `sidecar.js`, threaded through runner and entry point, completions
   updated.
+- Phase 1c (`@self`): **done** — resolves to local hostname in
+  `inventory.js`, survives `filterSelf`, skips SSH precheck, works in
+  mixed target lists. Version bumped to 3.4.0.
+- Phase 2a (email-notify@): **done** — `email-notify@.service` template
+  unit + `notify-systemd-failure` script. `.chezmoiignore` skips on macOS.
+- Phase 2b (notify-on-failure): **done** — generic wrapper for
+  launchd/cron.
+- Phase 2c (notify-playbash): **done** — playbash wrapper, emails if
+  actionable.
+- Phase 3 (setup-periodic): **done** — options.bash utility, creates
+  systemd timers / launchd plists, prerequisite checks, --list/--remove.
+- Phase 4 (docs): **done** — AGENTS.md, ARCHITECTURE.md, llms.txt,
+  README.md, wiki page updated.
 
 ---
 
