@@ -5,5 +5,10 @@
   "effortLevel": "high",
   "env": {
     "DISABLE_AUTO_COMPACT": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(curl*croc.lan:8089*)"
+    ]
   }
 }
