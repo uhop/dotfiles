@@ -19,7 +19,6 @@ args::parse "$@"
 set -- "${args_cleaned[@]}"
 
 if ! command -v ollama &> /dev/null; then
-  ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
   ansi::err "${ERROR}ollama is not installed${RESET_ALL}"
 fi
 

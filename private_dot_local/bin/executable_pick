@@ -63,8 +63,6 @@ COMP
 args::parse "$@"
 set -- "${args_cleaned[@]}"
 
-ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
-
 # --- require fzf and jq ---
 command -v fzf &>/dev/null || { ansi::err "${ERROR} pick requires fzf ${RESET_ALL}"; exit 1; }
 command -v jq  &>/dev/null || { ansi::err "${ERROR} pick requires jq ${RESET_ALL}"; exit 1; }

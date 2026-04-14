@@ -40,11 +40,6 @@ set -- "${args_cleaned[@]}"
 
 # --- Defaults and option extraction ---
 
-ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
-INFO="$FG_CYAN"
-WARN="$BOLD$FG_YELLOW"
-OK="$BOLD$FG_GREEN"
-
 QUALITY=80
 [[ -v args_options["-q"] ]] && QUALITY="${args_options["-q"]}"
 

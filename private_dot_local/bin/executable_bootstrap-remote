@@ -27,10 +27,6 @@ args::option "--bash-completion" "Show bash completion"
 args::parse "$@"
 set -- "${args_cleaned[@]}"
 
-ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
-INFO="$FG_CYAN"
-WARN="$BOLD$FG_YELLOW"
-OK="$BOLD$FG_GREEN"
 DIM="$FG_WHITE"
 
 APPLY=0

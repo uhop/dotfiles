@@ -13,7 +13,7 @@ args::program "$script_name" "1.0.0" "Encrypted notes editor using S3" "https://
 args_program_header="${BOLD}Jot${RESET_BOLD} reads and writes notes as text files using S3 as storage.
 Files are decoded by extension (e.g. ${BOLD}.gz.age${RESET_BOLD} is decrypted then decompressed)."
 
-args_program_required_command="no"
+args_program_default_command="edit"
 
 args::option "edit, e" "Edit file" "file_name"
 args::option "list, l" "List available files" "prefix"
@@ -31,8 +31,6 @@ args::option "--bash-completion" "Show bash completion"
 
 args::parse "$@"
 set -- "${args_cleaned[@]}"
-
-ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf -- "$TMPDIR"' EXIT
@@ -63,9 +61,8 @@ if [ -z "${1:-}" ] || [[ "$args_command" == "list" ]]; then
   exit 0
 fi
 
-if [ -z "$args_command" ]; then
-  args_command="edit"
-else
+# Skip explicit command word from positional args
+if [[ -n "${1:-}" && -v "args_aliases[${1}]" && "${1:-}" != -* ]]; then
   shift
 fi
 

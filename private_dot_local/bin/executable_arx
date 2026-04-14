@@ -16,9 +16,9 @@ Handles compression and archive formats automatically."
 args_program_usage="${BOLD}arx${RESET_BOLD} archive.tar.gz          # List contents
 ${BOLD}arx${RESET_BOLD} x archive.tar.gz ./dir  # Extract to a specific directory"
 
-args_program_required_command="no"
+args_program_default_command="list"
 
-args::option "list, l" "List available files (default)" "file-name"
+args::option "list, l" "List available files" "file-name"
 args::option "extract, x" "Extract all files" "file-name [path-to]"
 
 args::option "-v, --version" "Show version"
@@ -28,18 +28,15 @@ args::option "--bash-completion" "Show bash completion"
 args::parse "$@"
 set -- "${args_cleaned[@]}"
 
-ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
-
 if [ -z "${1:-}" ]; then
   args::option::help
 fi
 
-if [ -z "${args_command:-}" ]; then
-  args_command="list"
-  file_name="${1:-}"
-else
-  file_name="${2:-}"
+# Skip explicit command word from positional args
+if [[ -n "${1:-}" && -v "args_aliases[${1}]" && "${1:-}" != -* ]]; then
+  shift
 fi
+file_name="${1:-}"
 
 if [ -z "${file_name:-}" ]; then
   ansi::err "${ERROR}No file name is specified.${RESET_ALL}"
@@ -47,7 +44,7 @@ if [ -z "${file_name:-}" ]; then
 fi
 
 if [[ "$args_command" == "extract" ]]; then
-  path_to="${3:-}"
+  path_to="${2:-}"
 fi
 
 requiresDir () { # usage: requiresDir <file>

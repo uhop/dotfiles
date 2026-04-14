@@ -26,9 +26,6 @@ else
   hasSudo=1
 fi
 
-WARN="${BOLD}${BRIGHT_WHITE}${BG_BLUE}"
-PROMPT="${BOLD}${FG_CYAN}"
-
 ASSUME_YES=''
 if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 
@@ -64,8 +61,8 @@ if command -v docker &> /dev/null; then
 fi
 
 . "$(brew --prefix nvm)/nvm.sh"
-ansi::out "${PROMPT}Update major node versions...${RESET_ALL}"
+ansi::out "${INFO}Update major node versions...${RESET_ALL}"
 update-node-versions.js
-ansi::out "${PROMPT}Trim minor node versions...${RESET_ALL}"
+ansi::out "${INFO}Trim minor node versions...${RESET_ALL}"
 trim-node-versions.js
 

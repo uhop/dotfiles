@@ -28,9 +28,6 @@ else
   hasSudo=1
 fi
 
-WARN="${BOLD}${BRIGHT_WHITE}${BG_BLUE}"
-PROMPT="${BOLD}${FG_CYAN}"
-
 ASSUME_YES=''
 if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 
@@ -79,7 +76,7 @@ echoRun --bold brew upgrade
 
 if command -v tmux &> /dev/null; then
   if [ -f "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" ]; then
-    ansi::out "${PROMPT}Update tmux plugins...${RESET_ALL}"
+    ansi::out "${INFO}Update tmux plugins...${RESET_ALL}"
     "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" all
   fi
 fi
@@ -94,6 +91,6 @@ if command -v pet &> /dev/null; then
 fi
 
 if [[ -v args_options["-c"] ]]; then
-  ansi::out "\n${PROMPT}Clean up...${RESET_ALL}\n"
+  ansi::out "\n${INFO}Clean up...${RESET_ALL}\n"
   cln $ASSUME_YES
 fi

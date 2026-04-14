@@ -11,6 +11,7 @@ command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull --no-recu
 
 # core modules
 . ~/.local/share/libs/scripts/ansi.sh
+. ~/.local/share/libs/scripts/ansi-semantic.sh
 . ~/.local/share/libs/scripts/args.sh
 . ~/.local/share/libs/scripts/args-version.sh
 . ~/.local/share/libs/scripts/args-help.sh

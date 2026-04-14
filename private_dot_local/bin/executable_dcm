@@ -19,7 +19,7 @@ ${BOLD}dcm${RESET_BOLD} update ~/servers/monitor # Update specific setup
 ${BOLD}dcm${RESET_BOLD} status ~/servers         # Status for all setups under ~/servers
 ${BOLD}dcm${RESET_BOLD} prune                    # Prune unused Docker images globally"
 
-args_program_required_command="no"
+args_program_default_command="update"
 
 args::option "update, u" "Pull images, recreate changed containers" "dir" "opt"
 args::option "down, d" "Compose down (stop and remove)" "dir" "opt"
@@ -39,11 +39,6 @@ args::parse "$@"
 set -- "${args_cleaned[@]}"
 
 # --- Defaults and option extraction ---
-
-ERROR="$BOLD$BRIGHT_WHITE$BG_RED"
-INFO="$FG_CYAN"
-WARN="$BOLD$FG_YELLOW"
-OK="$BOLD$FG_GREEN"
 
 DRY_RUN=0
 [[ -v args_options["-n"] ]] && DRY_RUN=1
@@ -310,15 +305,11 @@ dispatch() {
 
 # --- Main ---
 
-cmd="${args_command:-}"
+cmd="$args_command"
 
-if [ -n "$cmd" ]; then
+# Skip explicit command word from positional args
+if [[ -n "${1:-}" && -v "args_aliases[${1}]" && "${1:-}" != -* ]]; then
   shift
-fi
-
-# Default command: update
-if [ -z "$cmd" ]; then
-  cmd="update"
 fi
 
 # Resolve target directory from remaining args
