@@ -7,15 +7,18 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Prepare a remote host for dotfiles installation"
+args::program "$script_name" "1.1.0" "Prepare a remote host (or this host) for dotfiles installation"
 
-args_program_header="${BOLD}bootstrap-dotfiles${RESET_BOLD} detects the remote OS, generates a self-contained
-install script, copies it to the remote host, and prints instructions
-for the user to run it interactively."
+args_program_header="${BOLD}bootstrap-dotfiles${RESET_BOLD} detects the target OS and generates a self-contained
+install script. Default: SSH to a remote ${BOLD}<host>${RESET_BOLD} and upload the script.
+With ${BOLD}--from-jot <prefix>${RESET_BOLD}: self-bootstrap the local machine and pull
+system files from S3 via ${BOLD}jot-deploy${RESET_BOLD} when chezmoi finishes."
 
-args_program_usage="${BOLD}bootstrap-dotfiles${RESET_BOLD} <host> [options]"
+args_program_usage="${BOLD}bootstrap-dotfiles${RESET_BOLD} <host> [options]
+       ${BOLD}bootstrap-dotfiles${RESET_BOLD} --from-jot <s3-prefix> [options]"
 
 args::option "--github-user" "GitHub username for chezmoi (default: \$GITHUB_USERNAME or uhop)" "name"
+args::option "--from-jot" "Self-bootstrap on this host; pull system files from <prefix> via jot-deploy" "prefix"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 args::option "--bash-completion" "Show bash completion"
@@ -28,32 +31,68 @@ DIM="$FG_WHITE"
 GITHUB_USER="${GITHUB_USERNAME:-uhop}"
 [[ -v args_options["--github-user"] ]] && GITHUB_USER="${args_options["--github-user"]}"
 
+FROM_JOT=""
+if [[ -v args_options["--from-jot"] ]]; then
+  FROM_JOT="${args_options["--from-jot"]}"
+fi
+
 HOST="${1:-}"
-if [ -z "$HOST" ]; then
-  ansi::warn "${ERROR}No host specified${RESET_ALL}"
-  args::try_help
-  exit 1
+
+if [[ -n "$FROM_JOT" ]]; then
+  # --- Self-bootstrap mode ---
+  if [[ -n "$HOST" ]]; then
+    ansi::warn "${ERROR}--from-jot ignores the <host> argument (always operates locally).${RESET_ALL}"
+  fi
+
+  # Chicken-and-egg pre-flight: the bundle is encrypted, so we need both
+  # AWS credentials and the decryption key locally before this can do anything.
+  missing=()
+  [[ ! -f "$HOME/.env" ]] && missing+=("~/.env (AWS credentials)")
+  [[ ! -f "$HOME/.ssh/age.key" && ! -f "$HOME/.ssh/id_rsa" ]] && missing+=("~/.ssh/age.key or ~/.ssh/id_rsa (decryption key)")
+  if (( ${#missing[@]} > 0 )); then
+    ansi::warn "${ERROR}--from-jot pre-flight failed. Missing files:${RESET_ALL}"
+    for m in "${missing[@]}"; do
+      ansi::warn "  - $m"
+    done
+    ansi::warn ""
+    ansi::warn "These secrets must arrive out-of-band (USB, password manager, scp from another machine)"
+    ansi::warn "before --from-jot can pull anything from S3. See:"
+    ansi::warn "  ${BOLD}https://github.com/uhop/dotfiles/wiki/Jot#bootstrap-sequence${RESET_ALL}"
+    exit 1
+  fi
+
+  ansi::out "${INFO}Detecting local OS...${RESET_ALL}"
+  REMOTE_OS=$(uname -s)
+  REMOTE_ID="unknown"
+  if [ "$REMOTE_OS" = "Linux" ] && [ -r /etc/os-release ]; then
+    REMOTE_ID=$(. /etc/os-release && echo "${ID:-linux}")
+  fi
+  ansi::out "${OK}Local: $REMOTE_OS ($REMOTE_ID)${RESET_ALL}"
+  ansi::out "${INFO}Bundle: ${BOLD}$FROM_JOT${RESET_ALL}"
+else
+  # --- Remote-operator mode (original) ---
+  if [ -z "$HOST" ]; then
+    ansi::warn "${ERROR}No host specified${RESET_ALL}"
+    args::try_help
+    exit 1
+  fi
+
+  ansi::out "${INFO}Checking SSH access to $HOST...${RESET_ALL}"
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
+    ansi::warn "${ERROR}Cannot reach $HOST via passwordless SSH.${RESET_ALL}"
+    ansi::err "Run ${BOLD}bootstrap-remote $HOST${RESET_ALL} first to set up SSH access."
+    exit 1
+  fi
+  ansi::out "${OK}SSH access OK${RESET_ALL}"
+
+  ansi::out "${INFO}Detecting remote OS...${RESET_ALL}"
+  REMOTE_OS=$(ssh "$HOST" "uname -s" 2>/dev/null)
+  REMOTE_ID="unknown"
+  if [ "$REMOTE_OS" = "Linux" ]; then
+    REMOTE_ID=$(ssh "$HOST" ". /etc/os-release 2>/dev/null && echo \$ID" 2>/dev/null || echo "linux")
+  fi
+  ansi::out "${OK}Remote: $REMOTE_OS ($REMOTE_ID)${RESET_ALL}"
 fi
-
-# --- Verify connectivity ---
-
-ansi::out "${INFO}Checking SSH access to $HOST...${RESET_ALL}"
-if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
-  ansi::warn "${ERROR}Cannot reach $HOST via passwordless SSH.${RESET_ALL}"
-  ansi::err "Run ${BOLD}bootstrap-remote $HOST${RESET_ALL} first to set up SSH access."
-  exit 1
-fi
-ansi::out "${OK}SSH access OK${RESET_ALL}"
-
-# --- Detect remote OS ---
-
-ansi::out "${INFO}Detecting remote OS...${RESET_ALL}"
-REMOTE_OS=$(ssh "$HOST" "uname -s" 2>/dev/null)
-REMOTE_ID="unknown"
-if [ "$REMOTE_OS" = "Linux" ]; then
-  REMOTE_ID=$(ssh "$HOST" ". /etc/os-release 2>/dev/null && echo \$ID" 2>/dev/null || echo "linux")
-fi
-ansi::out "${OK}Remote: $REMOTE_OS ($REMOTE_ID)${RESET_ALL}"
 
 # --- Generate install script ---
 
@@ -232,6 +271,37 @@ step "Done!"
 info "The dotfiles are installed. A reboot is recommended."
 SCRIPT_CHEZMOI
 
+  if [[ -n "$FROM_JOT" ]]; then
+    cat <<SCRIPT_JOT_DEPLOY
+
+step "Deploying system files from jot bundle"
+info "Pulling ${FROM_JOT} from S3 and installing per its embedded manifest."
+# chezmoi added ~/.local/bin (jot, jot-deploy) and brew added aws to PATH, but
+# those changes only take effect in new shells. Source them into this one.
+export PATH="\$HOME/.local/bin:\$PATH"
+if [ -s "\$HOME/.bashrc" ]; then
+  # shellcheck disable=SC1091
+  . "\$HOME/.bashrc" 2>/dev/null || true
+fi
+
+if ! command -v jot-deploy >/dev/null 2>&1; then
+  warn "jot-deploy not found — chezmoi may not have finished installing it."
+  warn "Run manually after dotfiles install completes:"
+  warn "  jot-deploy ${FROM_JOT}            # report-only (default)"
+  warn "  jot-deploy ${FROM_JOT} --apply    # install"
+else
+  info "Report (dry-run) first:"
+  run jot-deploy "${FROM_JOT}"
+  echo
+  if ask_yn "Apply these changes?"; then
+    run jot-deploy "${FROM_JOT}" --apply
+  else
+    info "Skipped --apply. Re-run manually when ready: jot-deploy ${FROM_JOT} --apply"
+  fi
+fi
+SCRIPT_JOT_DEPLOY
+  fi
+
   cat <<'SCRIPT_REBOOT'
 echo
 if ask_yn "Reboot now?"; then
@@ -242,27 +312,58 @@ fi
 SCRIPT_REBOOT
 }
 
-# --- Upload and instruct ---
+# --- Generate, upload (or write locally), instruct ---
 
 ansi::out "${INFO}Generating install script...${RESET_ALL}"
 SCRIPT_CONTENT=$(generate_script)
 
-ansi::out "${INFO}Uploading to $HOST:$REMOTE_SCRIPT ...${RESET_ALL}"
-echo "$SCRIPT_CONTENT" | ssh "$HOST" "cat > $REMOTE_SCRIPT && chmod +x $REMOTE_SCRIPT"
-ansi::out "${OK}Uploaded${RESET_ALL}"
+if [[ -n "$FROM_JOT" ]]; then
+  ansi::out "${INFO}Writing $REMOTE_SCRIPT...${RESET_ALL}"
+  echo "$SCRIPT_CONTENT" > "$REMOTE_SCRIPT"
+  chmod +x "$REMOTE_SCRIPT"
+  ansi::out "${OK}Written${RESET_ALL}"
 
-echo
-ansi::out "${OK}=================================================${RESET_ALL}"
-ansi::out "${OK} Install script is ready on $HOST${RESET_ALL}"
-ansi::out "${OK}=================================================${RESET_ALL}"
-echo
-ansi::out "Open another terminal and run:"
-echo
-ansi::out "  ${BOLD}ssht $HOST${RESET_ALL}"
-ansi::out "  ${BOLD}$REMOTE_SCRIPT${RESET_ALL}"
-echo
-ansi::out "${DIM}What to expect (~5-15 min depending on network):${RESET_ALL}"
-ansi::out "${DIM}  - one sudo password prompt early (for Homebrew's installer)${RESET_ALL}"
-ansi::out "${DIM}  - four chezmoi questions: hasGui (y/n), Full name, Email, GitHub username${RESET_ALL}"
-ansi::out "${DIM}    (defaults are fine if you're $GITHUB_USER)${RESET_ALL}"
-ansi::out "${DIM}  - a final 'Reboot now?' prompt (default yes)${RESET_ALL}"
+  echo
+  ansi::out "${OK}=================================================${RESET_ALL}"
+  ansi::out "${OK} Install script is ready: $REMOTE_SCRIPT${RESET_ALL}"
+  ansi::out "${OK}=================================================${RESET_ALL}"
+  echo
+  ansi::out "${DIM}What to expect (~5-15 min depending on network):${RESET_ALL}"
+  ansi::out "${DIM}  - one sudo password prompt early (for Homebrew's installer)${RESET_ALL}"
+  ansi::out "${DIM}  - four chezmoi questions: hasGui (y/n), Full name, Email, GitHub username${RESET_ALL}"
+  ansi::out "${DIM}    (defaults are fine if you're $GITHUB_USER)${RESET_ALL}"
+  ansi::out "${DIM}  - jot-deploy report, then 'Apply these changes?' prompt for $FROM_JOT${RESET_ALL}"
+  ansi::out "${DIM}  - a final 'Reboot now?' prompt (default yes)${RESET_ALL}"
+  echo
+
+  ansi::prompt "Run ${BOLD}$REMOTE_SCRIPT${RESET_ALL} now? [Y/n] "
+  read -r response
+  case "${response^^}" in
+    N|NO|NOPE)
+      ansi::out "Run it manually when ready: ${BOLD}$REMOTE_SCRIPT${RESET_ALL}"
+      ;;
+    *)
+      exec "$REMOTE_SCRIPT"
+      ;;
+  esac
+else
+  ansi::out "${INFO}Uploading to $HOST:$REMOTE_SCRIPT ...${RESET_ALL}"
+  echo "$SCRIPT_CONTENT" | ssh "$HOST" "cat > $REMOTE_SCRIPT && chmod +x $REMOTE_SCRIPT"
+  ansi::out "${OK}Uploaded${RESET_ALL}"
+
+  echo
+  ansi::out "${OK}=================================================${RESET_ALL}"
+  ansi::out "${OK} Install script is ready on $HOST${RESET_ALL}"
+  ansi::out "${OK}=================================================${RESET_ALL}"
+  echo
+  ansi::out "Open another terminal and run:"
+  echo
+  ansi::out "  ${BOLD}ssht $HOST${RESET_ALL}"
+  ansi::out "  ${BOLD}$REMOTE_SCRIPT${RESET_ALL}"
+  echo
+  ansi::out "${DIM}What to expect (~5-15 min depending on network):${RESET_ALL}"
+  ansi::out "${DIM}  - one sudo password prompt early (for Homebrew's installer)${RESET_ALL}"
+  ansi::out "${DIM}  - four chezmoi questions: hasGui (y/n), Full name, Email, GitHub username${RESET_ALL}"
+  ansi::out "${DIM}    (defaults are fine if you're $GITHUB_USER)${RESET_ALL}"
+  ansi::out "${DIM}  - a final 'Reboot now?' prompt (default yes)${RESET_ALL}"
+fi
