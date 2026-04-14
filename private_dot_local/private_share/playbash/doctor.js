@@ -180,7 +180,7 @@ async function checkEnv() {
   } else {
     checks.push(result(
       'ssh-agent', 'warn', 'cannot connect to agent',
-      'start an agent (`eval $(ssh-agent)`) or rely on macOS keychain',
+      'check `systemctl --user status ssh-agent` on Linux; macOS keychain is fine',
     ));
   }
 

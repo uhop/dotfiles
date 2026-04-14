@@ -145,6 +145,12 @@ export FORCE_COLOR=3
 # chezmoi-managed non-secret shell env (~/.env sourcing below can override)
 export GITHUB_USERNAME={{ .githubUsername | quote }}
 {{ end -}}
+{{ if eq .osFamily "linux" -}}
+# ssh-agent runs as a systemd user service (see ~/.config/systemd/user/ssh-agent.service)
+if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+  export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent.socket"
+fi
+{{ end -}}
 if [ -s ~/.env ]; then
   set -a
   \. ~/.env

@@ -1,0 +1,26 @@
+{{- if eq .osFamily "linux" -}}
+#!/bin/bash
+set -euCo pipefail
+
+# Enable the user ssh-agent socket + service. Our unit files override any
+# distro-provided /usr/lib/systemd/user/ssh-agent.{service,socket} to unify
+# on a single socket path (%t/ssh-agent.socket) and to publish SSH_AUTH_SOCK
+# into the systemd user environment so GUI/systemd-launched apps pick it up.
+#
+# No-op if user systemd is unavailable (bare containers, non-systemd distros).
+
+if ! command -v systemctl >/dev/null 2>&1; then
+  exit 0
+fi
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+  exit 0
+fi
+
+systemctl --user daemon-reload
+
+# Stop any already-running agent so it picks up the new config.
+systemctl --user stop ssh-agent.service 2>/dev/null || true
+
+systemctl --user enable --now ssh-agent.socket
+systemctl --user enable ssh-agent.service
+{{- end }}
