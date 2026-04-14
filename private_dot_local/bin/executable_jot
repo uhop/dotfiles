@@ -8,7 +8,7 @@ shopt -s expand_aliases
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Encrypted notes editor using S3" "https://github.com/uhop/dotfiles/wiki/Jot"
+args::program "$script_name" "1.1.0" "Encrypted notes editor using S3" "https://github.com/uhop/dotfiles/wiki/Jot"
 
 args_program_header="${BOLD}Jot${RESET_BOLD} reads and writes notes as text files using S3 as storage.
 Files are decoded by extension (e.g. ${BOLD}.gz.age${RESET_BOLD} is decrypted then decompressed)."
@@ -25,6 +25,7 @@ args::option "rename, mv, r" "Rename file in the S3 bucket" "from_name to_name"
 args::option "-x, --exact" "Exact file name match"
 args::option "-y, --yes" "Create new file without confirmation"
 args::option "-n, --no" "Don't create new file"
+args::option "-a, --as" "Codec chain to apply on put (e.g. gz.age); tar auto-prepended for directories" "chain"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 args::option "--bash-completion" "Show bash completion"
@@ -78,6 +79,50 @@ fi
 if [ -z "$asset" ]; then
     ansi::err "${ERROR}No file name is specified for file operations.${RESET_ALL}"
   exit 1
+fi
+
+# --- put: directory detection + --as chain handling ---
+# Decide the final asset name BEFORE the decode loop builds the extensions list,
+# so directories and --as chains both flow through the standard codec pipeline.
+
+clean_chain() {
+  # Lenient parsing of a codec chain: strip leading/trailing dots, collapse runs.
+  local s="$1"
+  s="$(echo "$s" | sed -E 's/^\.+//; s/\.+$//; s/\.{2,}/./g')"
+  echo "$s"
+}
+
+asset_has_extension() {
+  # Returns 0 if the given extension appears anywhere in the dotted asset name.
+  local name="$1"
+  local target="$2"
+  while [[ "$name" == *.* ]]; do
+    [[ "${name##*.}" == "$target" ]] && return 0
+    name="${name%.*}"
+  done
+  return 1
+}
+
+if [[ "$args_command" == "put" ]]; then
+  is_dir=no
+  if [[ -d "$local_file_name" ]]; then
+    is_dir=yes
+  fi
+
+  if [[ -v args_options["-a"] ]]; then
+    chain="$(clean_chain "${args_options["-a"]}")"
+    if [[ -z "$chain" ]]; then
+      ansi::err "${ERROR}--as value is empty after stripping dots.${RESET_ALL}"
+      exit 1
+    fi
+    if [[ "$is_dir" == yes ]] && [[ "${chain%%.*}" != "tar" ]]; then
+      chain="tar.${chain}"
+    fi
+    asset="${asset}.${chain}"
+  elif [[ "$is_dir" == yes ]] && ! asset_has_extension "$asset" "tar"; then
+    ansi::warn "Source is a directory; appending ${BOLD}.tar${RESET_BOLD} to the asset name."
+    asset="${asset}.tar"
+  fi
 fi
 
 # check if the asset exists
@@ -242,6 +287,25 @@ do_command() {
         zstd --ultra --rm "$TMPDIR/$file_short"
       fi
       ;;
+    "tar")
+      if [[ "$command" == "d" ]]; then
+        # decode: extract archive into the parent of file_short
+        ansi::out "Extracting tar archive..."
+        local target_parent
+        target_parent="$(dirname -- "$TMPDIR/$file_short")"
+        [ -d "$target_parent" ] || mkdir -p -- "$target_parent"
+        tar xf "$TMPDIR/$file_long" -C "$target_parent"
+        rm -- "$TMPDIR/$file_long"
+      elif [[ "$command" == "e" ]]; then
+        # encode: tar the directory at file_short into file_long
+        ansi::out "Creating tar archive..."
+        local source_parent source_name
+        source_parent="$(dirname -- "$TMPDIR/$file_short")"
+        source_name="$(basename -- "$TMPDIR/$file_short")"
+        tar cf "$TMPDIR/$file_long" -C "$source_parent" "$source_name"
+        rm -rf -- "$TMPDIR/$file_short"
+      fi
+      ;;
     *)
       return 1
       ;;
@@ -323,17 +387,31 @@ done
 
 if [[ "$args_command" == "get" ]]; then
   local_file_name=$(basename "$TMPDIR/$file_name")
-  ansi::out "Copying ${BOLD}${asset}${RESET_BOLD} to ${BOLD}${local_file_name}${RESET_BOLD}..."
-  cp -i "$TMPDIR/$file_name" "${local_file_name}"
+  if [[ -d "$TMPDIR/$file_name" ]]; then
+    if [[ -e "${local_file_name}" ]]; then
+      ansi::err "${ERROR}Local path ${BOLD}${local_file_name}${RESET_BOLD} already exists; refusing to overwrite a directory.${RESET_ALL}"
+      exit 1
+    fi
+    ansi::out "Copying directory ${BOLD}${asset}${RESET_BOLD} to ${BOLD}${local_file_name}/${RESET_BOLD}..."
+    cp -r "$TMPDIR/$file_name" "${local_file_name}"
+  else
+    ansi::out "Copying ${BOLD}${asset}${RESET_BOLD} to ${BOLD}${local_file_name}${RESET_BOLD}..."
+    cp -i "$TMPDIR/$file_name" "${local_file_name}"
+  fi
   exit 0
 fi
 
 if [[ "$args_command" == "put" ]]; then
-  if [[ -f "$local_file_name" ]]; then
+  parent_dir="$(dirname -- "$TMPDIR/$file_name")"
+  [ -d "$parent_dir" ] || mkdir -p -- "$parent_dir"
+  if [[ -d "$local_file_name" ]]; then
+    ansi::out "Copying directory ${BOLD}${local_file_name}${RESET_BOLD} to ${BOLD}${file_name}/${RESET_BOLD}..."
+    cp -r "$local_file_name" "$TMPDIR/$file_name"
+  elif [[ -f "$local_file_name" ]]; then
     ansi::out "Copying ${BOLD}${local_file_name}${RESET_BOLD} to ${BOLD}${file_name}${RESET_BOLD}..."
     cp "$local_file_name" "$TMPDIR/$file_name"
   else
-    ansi::err "${ERROR}Local file ${BOLD}${local_file_name}${RESET_BOLD} not found.${RESET_ALL}"
+    ansi::err "${ERROR}Local path ${BOLD}${local_file_name}${RESET_BOLD} not found.${RESET_ALL}"
     exit 1
   fi
   if ! [[ -v args_options["-y"] ]]; then
@@ -364,6 +442,10 @@ fi
 # edit the file
 
 if [[ "$args_command" == "edit" ]]; then
+  if [[ -d "$TMPDIR/$file_name" ]]; then
+    ansi::err "${ERROR}Cannot edit directory archive ${BOLD}${asset}${RESET_BOLD}. Use ${BOLD}jot get${RESET_BOLD}/${BOLD}put${RESET_BOLD} for tar archives.${RESET_ALL}"
+    exit 1
+  fi
   editor="${VISUAL:-${EDITOR:-nano}}"
   ansi::out "Opening ${BOLD}${asset}${RESET_BOLD} in ${BOLD}${editor}${RESET_BOLD}..."
   cp "$TMPDIR/$file_name" "$TMPDIR/${file_name}.bak"
