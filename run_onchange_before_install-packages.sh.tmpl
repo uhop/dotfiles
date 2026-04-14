@@ -32,7 +32,11 @@ fi
 {{- else if eq .pkgManager "dnf" -}}
 if [ "$hasSudo" -eq 0 ]; then
   echo "${WARN}dnf requires sudo: expect asking for the sudo password.${RESET}"
-{{ if ne .osIdLike "linux-fedora" -}}
+{{/* Enable EPEL + CRB on RHEL clones. Check .osId (not .osIdLike) so clones
+     whose ID_LIKE happens to start with or equal "fedora" (e.g., Oracle Linux's
+     ID_LIKE="fedora") still get EPEL enabled. Real Fedora has .osId=linux-fedora
+     and doesnt need EPEL. */ -}}
+{{ if ne .osId "linux-fedora" -}}
   if ! dnf repolist --enabled | grep -q epel; then
     echo "${PROMPT}Enabling EPEL repository...${RESET}"
     sudo dnf install -y epel-release
