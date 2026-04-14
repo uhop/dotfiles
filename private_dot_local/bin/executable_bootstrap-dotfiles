@@ -111,11 +111,12 @@ SCRIPT_HEADER
 
 step "Installing prerequisites"
 info "These packages are needed to build tools from source and run chezmoi."
-run sudo apt update
-run sudo apt install -y build-essential curl git git-gui gitk micro
+run sudo env DEBIAN_FRONTEND=noninteractive apt update
+run sudo env DEBIAN_FRONTEND=noninteractive apt install -y build-essential curl git git-gui gitk micro
 
 step "Installing Homebrew"
 info "Homebrew manages CLI tools across Linux and macOS."
+info "(chezmoi will manage your shell init; ignore Homebrew's 'Next steps' output.)"
 if command -v brew &>/dev/null; then
   info "Homebrew is already installed, skipping."
 else
@@ -134,6 +135,7 @@ run sudo dnf install -y procps-ng util-linux
 
 step "Installing Homebrew"
 info "Homebrew manages CLI tools across Linux and macOS."
+info "(chezmoi will manage your shell init; ignore Homebrew's 'Next steps' output.)"
 if command -v brew &>/dev/null; then
   info "Homebrew is already installed, skipping."
 else
@@ -147,7 +149,11 @@ SCRIPT_RHEL
 
 step "Installing prerequisites"
 warn "Unsupported Linux distribution: $REMOTE_ID"
-warn "Install these packages manually: build-essential curl git git-gui gitk micro"
+warn "Install your distro's equivalents of:"
+warn "  - a C/C++ toolchain and make (Debian: build-essential, Arch: base-devel, Alpine: build-base)"
+warn "  - git, plus git's GUI/viewer if you want them (git-gui, gitk)"
+warn "  - curl"
+warn "  - a modern terminal editor (this project uses micro; nano/vim also fine)"
 warn "Then install Homebrew: https://brew.sh/"
 info "Press Enter to continue after installing prerequisites, or Ctrl+C to abort."
 read -r
@@ -255,5 +261,8 @@ echo
 ansi::out "  ${BOLD}ssht $HOST${RESET_ALL}"
 ansi::out "  ${BOLD}$REMOTE_SCRIPT${RESET_ALL}"
 echo
-ansi::out "${DIM}The script will ask for sudo password and chezmoi configuration.${RESET_ALL}"
-ansi::out "${DIM}After it finishes, it will offer to reboot.${RESET_ALL}"
+ansi::out "${DIM}What to expect (~5-15 min depending on network):${RESET_ALL}"
+ansi::out "${DIM}  - one sudo password prompt early (for Homebrew's installer)${RESET_ALL}"
+ansi::out "${DIM}  - four chezmoi questions: hasGui (y/n), Full name, Email, GitHub username${RESET_ALL}"
+ansi::out "${DIM}    (defaults are fine if you're $GITHUB_USER)${RESET_ALL}"
+ansi::out "${DIM}  - a final 'Reboot now?' prompt (default yes)${RESET_ALL}"
