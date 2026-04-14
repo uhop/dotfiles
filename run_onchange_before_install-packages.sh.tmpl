@@ -41,7 +41,7 @@ if [ "$hasSudo" -eq 0 ]; then
 {{- end }}
   echo "${PROMPT}Installing command line apps: sudo dnf install...${RESET}"
   sudo dnf install -y gcc gcc-c++ make bash-completion unzip wget curl git tmux jq \
-    python3 golang rust cargo net-tools
+    python3 golang rust cargo net-tools vim-enhanced
   sudo dnf install -y --skip-broken micro mosh dialog bat ncdu \
     the_silver_searcher tig htop parallel tree brotli mc ripgrep \
     nginx ShellCheck clang-tools-extra git-lfs etckeeper \
