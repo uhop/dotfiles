@@ -10,15 +10,26 @@ Persistent knowledge base in an Obsidian vault, accessed via REST API. The LLM w
 
 ## Connection
 
-- **API**: `http://croc.lan:8089`
-- **Auth**: `Authorization: Bearer b9b230c622feec5f8d64172651f8de8de2de0b0e8a677b9ba0e511637c622201`
-- **Read**: `GET /vault/{path}` (returns markdown body)
-- **Write**: `PUT /vault/{path}` with `Content-Type: text/markdown` body
-- **List**: `GET /vault/{path}/` (trailing slash = list children, returns JSON `{"files": [...]}`)
-- **Delete**: `DELETE /vault/{path}`
-- **Search**: `POST /search/simple/` with `Content-Type: application/json` body `{"query": "search terms"}` (returns JSON array of matches with context)
+Requires two environment variables (set in `~/.env`, which is sourced by `.bashrc`):
 
-All calls via `curl` in Bash tool.
+- `VAULT_API_URL` — base URL of the Obsidian Local REST API (e.g., `http://host:8089`)
+- `VAULT_API_TOKEN` — bearer token for authentication
+
+Before any vault operation, verify both are set:
+
+```bash
+[[ -z "${VAULT_API_URL:-}" || -z "${VAULT_API_TOKEN:-}" ]] && { echo "Error: VAULT_API_URL and VAULT_API_TOKEN must be set in ~/.env"; exit 1; }
+```
+
+API endpoints (all via `curl` in Bash tool):
+
+- **Read**: `GET $VAULT_API_URL/vault/{path}` (returns markdown body)
+- **Write**: `PUT $VAULT_API_URL/vault/{path}` with `Content-Type: text/markdown` body
+- **List**: `GET $VAULT_API_URL/vault/{path}/` (trailing slash = list children, returns JSON `{"files": [...]}`)
+- **Delete**: `DELETE $VAULT_API_URL/vault/{path}`
+- **Search**: `POST $VAULT_API_URL/search/simple/` with `Content-Type: application/json` body `{"query": "search terms"}`
+
+All `curl` calls use `-H "Authorization: Bearer $VAULT_API_TOKEN"`.
 
 ## Vault structure
 

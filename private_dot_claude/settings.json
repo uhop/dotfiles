@@ -4,6 +4,6 @@
   },
   "effortLevel": "high",
   "permissions": {
-    "allow": ["Bash(curl*croc.lan:8089*)"]
+    "allow": ["Bash(curl*$VAULT_API_URL*)"]
   }
 }
