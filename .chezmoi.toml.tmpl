@@ -9,9 +9,10 @@
 {{- $osFamily := .chezmoi.os -}}
 {{- $pkgManager := "brew-only" -}}
 {{- if eq $osFamily "linux" -}}
-{{-   if or (eq $osIdLike "linux-debian") (contains "debian" ($osIdLike)) -}}
+{{-   $osInfo := printf "%s %s" (get .chezmoi.osRelease "id" | default "") (get .chezmoi.osRelease "idLike" | default "") -}}
+{{-   if or (contains "debian" $osInfo) (contains "ubuntu" $osInfo) -}}
 {{-     $pkgManager = "apt" -}}
-{{-   else if or (eq $osIdLike "linux-rhel") (eq $osIdLike "linux-fedora") -}}
+{{-   else if or (contains "rhel" $osInfo) (contains "fedora" $osInfo) -}}
 {{-     $pkgManager = "dnf" -}}
 {{-   end -}}
 {{- end -}}

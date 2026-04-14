@@ -64,7 +64,7 @@ managed_rules=$(cat <<'RULES'
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf autoremove -y
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf clean all
 {{- end }}
-{{ if eq .osFamily "linux" -}}
+{{ if and (eq .osFamily "linux") (ne $sudoGroup "") -}}
 # Linux system services
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart docker
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart containerd
