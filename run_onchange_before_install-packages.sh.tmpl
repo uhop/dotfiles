@@ -39,12 +39,20 @@ if [ "$hasSudo" -eq 0 ]; then
 {{ if ne .osId "linux-fedora" -}}
   if ! dnf repolist --enabled | grep -q epel; then
     echo "${PROMPT}Enabling EPEL repository...${RESET}"
-    sudo dnf install -y epel-release
+    # Best-effort: Amazon Linux 2023 and some minimal RHEL rebuilds don't ship
+    # `epel-release` in their default repos. Users on those distros will miss
+    # EPEL-gated tools (bat, mc, tig, rg, ag, ncdu) — `--skip-broken` in the
+    # install list handles that silently. On Rocky/Alma/Oracle/CentOS this just
+    # installs cleanly.
+    sudo dnf install -y epel-release || true
     sudo dnf config-manager --set-enabled crb 2>/dev/null || sudo dnf config-manager --set-enabled powertools 2>/dev/null || true
   fi
 {{- end }}
   echo "${PROMPT}Installing command line apps: sudo dnf install...${RESET}"
-  sudo dnf install -y gcc gcc-c++ make bash-completion unzip wget curl git tmux jq \
+  # curl intentionally omitted: Amazon Linux 2023 ships curl-minimal which provides
+  # curl and conflicts with the full curl package. All RHEL-family installs have a
+  # curl binary available; the explicit install is unnecessary and breaks AL2023.
+  sudo dnf install -y gcc gcc-c++ make bash-completion unzip wget git tmux jq \
     python3 golang rust cargo net-tools vim-enhanced
   sudo dnf install -y --skip-broken micro mosh dialog bat ncdu \
     the_silver_searcher tig htop parallel tree brotli mc ripgrep \

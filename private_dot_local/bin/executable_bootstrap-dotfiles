@@ -164,7 +164,7 @@ else
 fi
 SCRIPT_DEBIAN
           ;;
-        fedora|rhel|centos|rocky|almalinux|ol)
+        fedora|rhel|centos|rocky|almalinux|ol|amzn)
           cat <<'SCRIPT_RHEL'
 
 step "Installing prerequisites"
@@ -173,7 +173,10 @@ info "These packages are needed to build tools from source and run chezmoi."
 #   gcc/g++/make + curl + git + file + ca-certificates.
 # Minimal RHEL container images skip POSIX basics (tar/bzip2/xz) that Homebrew
 # needs to extract bottles; add them explicitly here so bootstrap works from any base.
-run sudo dnf install -y gcc gcc-c++ make curl git git-gui gitk \
+# Note: curl is NOT listed — Amazon Linux 2023 ships curl-minimal which provides curl
+# and conflicts with the full curl package. All RHEL-family minimal installs have
+# curl (via curl-minimal or the full package) already.
+run sudo dnf install -y gcc gcc-c++ make git git-gui gitk \
   file ca-certificates tar gzip bzip2 xz unzip \
   procps-ng util-linux
 
