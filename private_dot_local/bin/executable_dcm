@@ -21,7 +21,7 @@ fi
 
 # --- Program definition ---
 
-args::program "$script_name" "1.1.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
+args::program "$script_name" "1.2.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
 
 args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service lifecycles
 with automatic AppArmor recovery on Linux."
@@ -204,11 +204,15 @@ report_changes() {
   fi
 }
 
-# Show a compact one-line-per-service status summary.
+# Show a compact one-line-per-service status summary. Includes stopped/exited
+# services (-a) so a fully-down stack is visible as ✗ lines instead of silence.
+# Uses ASCII Unit Separator (\x1f) instead of \t because bash's `read` collapses
+# consecutive whitespace IFS chars, which would shift fields when Health is empty.
 report_status() {
-  local service state health status
-  while IFS=$'\t' read -r service state health status; do
+  local service state health status printed=0
+  while IFS=$'\x1f' read -r service state health status; do
     [[ -z "$service" ]] && continue
+    printed=1
     case "$state" in
       running)
         if [[ "$health" == "unhealthy" ]]; then
@@ -223,8 +227,12 @@ report_status() {
         ansi::out "  ${ERROR}✗${RESET_ALL} $service: $label — $status"
         ;;
     esac
-  done < <(docker compose ps --format json 2>/dev/null \
-    | jq -r '"\(.Service)\t\(.State)\t\(.Health // "")\t\(.Status)"')
+  done < <(docker compose ps -a --format json 2>/dev/null \
+    | jq -r '"\(.Service)\u001f\(.State)\u001f\(.Health // "")\u001f\(.Status)"')
+
+  if [[ "$printed" -eq 0 ]]; then
+    ansi::out "  ${INFO}(no services)${RESET_ALL}"
+  fi
 }
 
 # --- Commands ---
@@ -305,7 +313,7 @@ cmd_status() (
   dir_name="$(basename "$(pwd)")"
 
   ansi::out "\n${INFO}Status: ${BOLD}$dir_name${RESET_ALL}"
-  run_compose ps || return $?
+  report_status
 )
 
 cmd_prune() {
