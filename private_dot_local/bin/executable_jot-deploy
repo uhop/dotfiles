@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+. ~/.local/libs/bootstrap.sh
+
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0.0" "Download a jot-bundle and install files per its embedded manifest" "https://github.com/uhop/dotfiles/wiki/Jot#bundle-helpers"
+
+args_program_header="${BOLD}jot-deploy${RESET_BOLD} downloads a bundle uploaded by ${BOLD}jot-bundle${RESET_BOLD},
+reads the embedded manifest, and either reports the diff (default) or installs
+files to their target locations (${BOLD}--apply${RESET_BOLD})."
+
+args::option "--apply" "Actually install files (default: report only)"
+args::option "-y, --yes" "Skip overwrite confirmation when --apply is set"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+# --- Tool detection ---
+
+for cmd in jot tar; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    ansi::err "${ERROR}${REVERSE}${cmd}${RESET_REVERSE} is required but not installed.${RESET_ALL}"
+    exit 1
+  fi
+done
+
+# --- Args ---
+
+s3_prefix="${1:-}"
+if [[ -z "$s3_prefix" ]]; then
+  ansi::err "${ERROR}Missing required argument: <s3-prefix>.${RESET_ALL}"
+  ansi::err "Usage: ${BOLD}${script_name} [options] <s3-prefix>${RESET_BOLD}"
+  exit 1
+fi
+
+apply=no
+[[ -v args_options["--apply"] ]] && apply=yes
+yes=no
+[[ -v args_options["-y"] ]] && yes=yes
+
+# --- Download ---
+
+work=$(mktemp -d)
+trap 'rm -rf -- "$work"' EXIT
+
+ansi::out "Downloading bundle ${BOLD}${s3_prefix}${RESET_BOLD}..."
+pushd "$work" >/dev/null
+echoRun jot get "$s3_prefix"
+popd >/dev/null
+
+# Find the extracted directory. jot get unpacks to the basename of the resolved
+# asset (after stripping all known codec extensions), so look for a single dir.
+shopt -s nullglob
+extracted_dirs=("$work"/*/)
+shopt -u nullglob
+if (( ${#extracted_dirs[@]} != 1 )); then
+  ansi::err "${ERROR}Expected exactly one extracted directory under ${REVERSE}${work}${RESET_REVERSE}; found ${#extracted_dirs[@]}.${RESET_ALL}"
+  ls -la "$work" >&2 || true
+  exit 1
+fi
+bundle_dir="${extracted_dirs[0]%/}"
+ansi::out "Bundle dir: ${BOLD}${bundle_dir}${RESET_BOLD}"
+
+manifest_path="$bundle_dir/.jot-manifest"
+if [[ ! -f "$manifest_path" ]]; then
+  ansi::err "${ERROR}Embedded manifest ${REVERSE}.jot-manifest${RESET_REVERSE} not found in bundle.${RESET_ALL}"
+  exit 1
+fi
+
+# --- Walk manifest, compare/install ---
+
+if [[ "$apply" == yes ]]; then
+  ansi::out "Mode: ${BOLD}${FG_RED}APPLY${RESET_ALL} — files will be written."
+else
+  ansi::out "Mode: ${BOLD}REPORT${RESET_BOLD} (default). Re-run with ${BOLD}--apply${RESET_BOLD} to install."
+fi
+echo
+
+stat_install=0
+stat_overwrite=0
+stat_unchanged=0
+stat_missing=0
+stat_skipped=0
+sudo_files=()
+
+# Helper: compare two paths, treating dirs structurally.
+files_match() {
+  local a="$1" b="$2"
+  if [[ -d "$a" && -d "$b" ]]; then
+    diff -rq "$a" "$b" >/dev/null 2>&1
+  elif [[ -f "$a" && -f "$b" ]]; then
+    cmp -s -- "$a" "$b"
+  else
+    return 1
+  fi
+}
+
+# Helper: prompt for overwrite confirmation. The manifest loop reads via FD 3
+# so the script's real stdin is free here (interactive terminal or piped input).
+confirm() {
+  local prompt="$1"
+  [[ "$yes" == yes ]] && return 0
+  ansi::prompt "$prompt [Y/n] "
+  local response=""
+  read response || true
+  case "${response^^}" in
+    N|NO|NOPE) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Read the manifest via FD 3 so prompts (which read from /dev/tty) work
+# without colliding with the loop's stdin.
+exec 3< "$manifest_path"
+while IFS= read -r line <&3 || [[ -n "$line" ]]; do
+  line="${line%"${line##*[![:space:]]}"}"
+  [[ -z "$line" ]] && continue
+  [[ "$line" == \#* ]] && continue
+
+  read -r path mode owner _ <<< "$line"
+  [[ -z "$path" || -z "$mode" ]] && continue
+
+  is_dir=no
+  [[ "$path" == */ ]] && is_dir=yes
+  clean_path="${path%/}"
+
+  if [[ "$clean_path" == /* ]]; then
+    src_in_bundle="$bundle_dir/root/${clean_path#/}"
+    target="$clean_path"
+  else
+    src_in_bundle="$bundle_dir/home/$clean_path"
+    target="$HOME/$clean_path"
+  fi
+
+  if [[ ! -e "$src_in_bundle" ]]; then
+    ansi::warn "  ${BOLD}-${RESET_BOLD} ${path} — missing in bundle (was skipped on collect)"
+    stat_missing=$((stat_missing+1))
+    continue
+  fi
+
+  needs_sudo=no
+  if [[ -n "$owner" && "$owner" != "$(id -un):$(id -gn)" ]]; then
+    needs_sudo=yes
+  fi
+
+  parent=$(dirname -- "$target")
+  if [[ ! -d "$parent" ]]; then
+    if [[ "$apply" == yes ]]; then
+      if [[ "$needs_sudo" == yes ]]; then
+        sudo mkdir -p -- "$parent"
+        sudo_files+=("$path (mkdir parent)")
+      else
+        mkdir -p -- "$parent"
+      fi
+    fi
+  fi
+
+  if [[ ! -e "$target" ]]; then
+    if [[ "$apply" == yes ]]; then
+      if [[ "$is_dir" == yes ]]; then
+        if [[ "$needs_sudo" == yes ]]; then
+          sudo cp -a -- "$src_in_bundle" "$target"
+          sudo chmod "$mode" -- "$target"
+          [[ -n "$owner" ]] && sudo chown -R "$owner" -- "$target"
+          sudo_files+=("$path")
+        else
+          cp -a -- "$src_in_bundle" "$target"
+          chmod "$mode" -- "$target"
+        fi
+      else
+        if [[ "$needs_sudo" == yes ]]; then
+          sudo cp -- "$src_in_bundle" "$target"
+          sudo chmod "$mode" -- "$target"
+          [[ -n "$owner" ]] && sudo chown "$owner" -- "$target"
+          sudo_files+=("$path")
+        else
+          cp -- "$src_in_bundle" "$target"
+          chmod "$mode" -- "$target"
+        fi
+      fi
+      ansi::out "  ${BOLD}+${RESET_BOLD} installed ${path} (mode ${mode}${owner:+, owner ${owner}})"
+    else
+      ansi::out "  ${BOLD}+${RESET_BOLD} would install ${path} (mode ${mode}${owner:+, owner ${owner}})"
+    fi
+    stat_install=$((stat_install+1))
+    continue
+  fi
+
+  if files_match "$src_in_bundle" "$target"; then
+    ansi::out "    ${path} — unchanged"
+    stat_unchanged=$((stat_unchanged+1))
+    continue
+  fi
+
+  if [[ "$apply" == yes ]]; then
+    if ! confirm "Overwrite ${BOLD}${target}${RESET_BOLD}?"; then
+      ansi::out "  ${BOLD}~${RESET_BOLD} skipped ${path}"
+      stat_skipped=$((stat_skipped+1))
+      continue
+    fi
+    if [[ "$is_dir" == yes ]]; then
+      if [[ "$needs_sudo" == yes ]]; then
+        sudo rm -rf -- "$target"
+        sudo cp -a -- "$src_in_bundle" "$target"
+        sudo chmod "$mode" -- "$target"
+        [[ -n "$owner" ]] && sudo chown -R "$owner" -- "$target"
+        sudo_files+=("$path")
+      else
+        rm -rf -- "$target"
+        cp -a -- "$src_in_bundle" "$target"
+        chmod "$mode" -- "$target"
+      fi
+    else
+      if [[ "$needs_sudo" == yes ]]; then
+        sudo cp -- "$src_in_bundle" "$target"
+        sudo chmod "$mode" -- "$target"
+        [[ -n "$owner" ]] && sudo chown "$owner" -- "$target"
+        sudo_files+=("$path")
+      else
+        cp -- "$src_in_bundle" "$target"
+        chmod "$mode" -- "$target"
+      fi
+    fi
+    ansi::out "  ${BOLD}*${RESET_BOLD} overwrote ${path}"
+  else
+    ansi::out "  ${BOLD}*${RESET_BOLD} would overwrite ${path} (differs from bundle)"
+  fi
+  stat_overwrite=$((stat_overwrite+1))
+done
+exec 3<&-
+
+echo
+ansi::out "Summary: ${BOLD}${stat_install}${RESET_BOLD} install, ${BOLD}${stat_overwrite}${RESET_BOLD} overwrite, ${BOLD}${stat_unchanged}${RESET_BOLD} unchanged, ${BOLD}${stat_skipped}${RESET_BOLD} skipped, ${BOLD}${stat_missing}${RESET_BOLD} missing in bundle"
+if [[ "$apply" != yes ]] && (( stat_install + stat_overwrite > 0 )); then
+  ansi::out "Re-run with ${BOLD}--apply${RESET_BOLD} to write changes."
+fi
+if (( ${#sudo_files[@]} > 0 )); then
+  ansi::out "Used ${BOLD}sudo${RESET_BOLD} for: ${sudo_files[*]}"
+fi

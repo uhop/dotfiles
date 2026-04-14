@@ -40,7 +40,9 @@
       "WebFetch(domain:apscheduler.readthedocs.io)",
       "WebFetch(domain:schedule.readthedocs.io)",
       "Bash(echo \"status: $?\")",
-      "Bash(git --no-pager diff --stat)"
+      "Bash(git --no-pager diff --stat)",
+      "Read(//home/eugene/.local/share/libs/**)",
+      "Read(//home/eugene/.local/share/libs/scripts/**)"
     ]
   }
 }

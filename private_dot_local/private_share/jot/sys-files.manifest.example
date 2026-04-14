@@ -1,0 +1,26 @@
+# jot-bundle / jot-deploy manifest
+#
+# One entry per line, three columns:
+#
+#   path                 mode   [owner:group]
+#
+#   - path without leading "/" is HOME-relative (~/path)
+#   - path with leading "/" is absolute, used as-is
+#   - trailing "/" marks a directory (recursively bundled / installed)
+#   - blank lines and "#" comments are ignored
+#   - owner column is optional; when present, jot-bundle and jot-deploy use
+#     sudo to read or write
+#
+# Copy this file to ~/.local/share/jot/sys-files.manifest, edit, then:
+#   jot-bundle sys/<host>          # gather + upload
+#   jot-deploy sys/<host>          # report-only diff
+#   jot-deploy sys/<host> --apply  # actually install on a new machine
+
+# Per-user secrets and config
+.env                       600
+.msmtprc                   600
+.ssh/age.key               600
+.ssh/config.d/             700
+
+# System files (require sudo)
+# /etc/ssl/local.pem       644    root:root

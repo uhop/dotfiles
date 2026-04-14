@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+. ~/.local/libs/bootstrap.sh
+
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0.0" "Bundle system files per a manifest and upload via jot" "https://github.com/uhop/dotfiles/wiki/Jot#bundle-helpers"
+
+args_program_header="${BOLD}jot-bundle${RESET_BOLD} gathers files listed in a manifest, packs them
+into a tarball under a two-tier ${BOLD}home/${RESET_BOLD} + ${BOLD}root/${RESET_BOLD} layout,
+embeds the manifest, and uploads via ${BOLD}jot put -a tar.gz.age${RESET_BOLD}."
+
+args::option "-m, --manifest" "Manifest path (default: \$JOT_MANIFEST or ~/.local/share/jot/sys-files.manifest)" "path"
+args::option "-f, --for" "Encrypt to named recipients (passed to jot put)" "names"
+args::option "-y, --yes" "Skip overwrite confirmation"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+# --- Tool detection ---
+
+for cmd in jot tar; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    ansi::err "${ERROR}${REVERSE}${cmd}${RESET_REVERSE} is required but not installed.${RESET_ALL}"
+    exit 1
+  fi
+done
+
+# --- Args ---
+
+s3_prefix="${1:-}"
+if [[ -z "$s3_prefix" ]]; then
+  ansi::err "${ERROR}Missing required argument: <s3-prefix>.${RESET_ALL}"
+  ansi::err "Usage: ${BOLD}${script_name} [options] <s3-prefix>${RESET_BOLD}"
+  exit 1
+fi
+
+manifest_path="${args_options[-m]:-${JOT_MANIFEST:-$HOME/.local/share/jot/sys-files.manifest}}"
+if [[ ! -f "$manifest_path" ]]; then
+  ansi::err "${ERROR}Manifest not found: ${REVERSE}${manifest_path}${RESET_REVERSE}.${RESET_ALL}"
+  ansi::err "Either pass ${BOLD}-m <path>${RESET_BOLD} or create the file (see ${BOLD}~/.local/share/jot/sys-files.manifest.example${RESET_BOLD})."
+  exit 1
+fi
+
+# --- Staging ---
+
+staging=$(mktemp -d)
+trap 'rm -rf -- "$staging"' EXIT
+mkdir -p "$staging/home" "$staging/root"
+
+# Embed the source manifest verbatim. Deploy detects missing entries by file
+# presence in the extracted dir, so no skip annotation is needed.
+cp "$manifest_path" "$staging/.jot-manifest"
+
+ansi::out "Reading manifest: ${BOLD}${manifest_path}${RESET_BOLD}"
+ansi::out "Staging in:      ${BOLD}${staging}${RESET_BOLD}"
+echo
+
+collected=0
+skipped=0
+sudo_files=()
+
+# Manifest format:  path  mode  [owner]
+#  - path without leading /  -> $HOME-relative (-> staging/home/<path>)
+#  - path with leading /     -> absolute     (-> staging/root/<path>)
+#  - trailing /              -> directory entry
+#  - blank lines and #-comments ignored
+
+while IFS= read -r line || [[ -n "$line" ]]; do
+  # strip trailing whitespace + skip blanks/comments
+  line="${line%"${line##*[![:space:]]}"}"
+  [[ -z "$line" ]] && continue
+  [[ "$line" == \#* ]] && continue
+
+  read -r path mode owner _ <<< "$line"
+  [[ -z "$path" || -z "$mode" ]] && {
+    ansi::warn "Malformed manifest line, skipping: ${BOLD}${line}${RESET_BOLD}"
+    continue
+  }
+
+  is_dir=no
+  [[ "$path" == */ ]] && is_dir=yes
+  clean_path="${path%/}"
+
+  if [[ "$clean_path" == /* ]]; then
+    src="$clean_path"
+    rel="${clean_path#/}"
+    dest="$staging/root/$rel"
+  else
+    src="$HOME/$clean_path"
+    dest="$staging/home/$clean_path"
+  fi
+
+  if [[ ! -e "$src" ]]; then
+    ansi::warn "Missing on this machine, skipping: ${BOLD}${path}${RESET_BOLD}"
+    skipped=$((skipped+1))
+    continue
+  fi
+
+  parent=$(dirname -- "$dest")
+  [[ -d "$parent" ]] || mkdir -p -- "$parent"
+
+  needs_sudo=no
+  if [[ ! -r "$src" ]] || [[ -n "$owner" && "$owner" != "$(id -un):$(id -gn)" ]]; then
+    needs_sudo=yes
+  fi
+
+  if [[ "$is_dir" == yes ]]; then
+    if [[ "$needs_sudo" == yes ]]; then
+      sudo cp -a -- "$src" "$dest"
+      sudo chown -R "$(id -un):$(id -gn)" -- "$dest"
+      sudo_files+=("$path")
+    else
+      cp -a -- "$src" "$dest"
+    fi
+  else
+    if [[ "$needs_sudo" == yes ]]; then
+      sudo cp -- "$src" "$dest"
+      sudo chown "$(id -un):$(id -gn)" -- "$dest"
+      sudo_files+=("$path")
+    else
+      cp -- "$src" "$dest"
+    fi
+  fi
+
+  collected=$((collected+1))
+  ansi::out "  ${BOLD}+${RESET_BOLD} ${path}${owner:+ (owner: ${owner})}"
+done < "$manifest_path"
+
+echo
+ansi::out "Collected ${BOLD}${collected}${RESET_BOLD} entries; skipped ${BOLD}${skipped}${RESET_BOLD}."
+if (( ${#sudo_files[@]} > 0 )); then
+  ansi::out "Used ${BOLD}sudo${RESET_BOLD} for: ${sudo_files[*]}"
+fi
+
+if (( collected == 0 )); then
+  ansi::err "${ERROR}Nothing to bundle. All manifest entries were missing.${RESET_ALL}"
+  exit 1
+fi
+
+# --- Upload ---
+
+# Pass through -y and -f to jot.
+jot_args=()
+[[ -v args_options["-y"] ]] && jot_args+=("-y")
+[[ -v args_options["-f"] ]] && jot_args+=("-f" "${args_options["-f"]}")
+
+asset="$s3_prefix"
+
+echo
+ansi::out "Uploading bundle to ${BOLD}s3://.../${asset}.tar.gz.age${RESET_BOLD}..."
+echoRun jot put "$staging" "$asset" -a tar.gz.age "${jot_args[@]}"
