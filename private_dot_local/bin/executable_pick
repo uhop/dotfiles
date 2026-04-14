@@ -27,7 +27,9 @@ ${BOLD}git pick${RESET_BOLD}            same as pick git"
 args_program_footer="Topics are JSON files in \$PICK_DIR ($PICK_DIR).
 See also: ${BOLD}pet${RESET_BOLD} (personal snippet manager)."
 
-args_program_required_command="no"
+args_program_default_command="browse"
+
+args::option "browse" "Browse topics interactively" "[topic]"
 
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
@@ -139,6 +141,12 @@ pick_topic() {
 }
 
 # --- main ---
+
+# Skip explicit command word from positional args
+if [[ -n "${1:-}" && -v "args_aliases[${1}]" && "${1:-}" != -* ]]; then
+  shift
+fi
+
 if [[ -z "${1:-}" ]]; then
   topics=$(list_topics)
   [[ -z "$topics" ]] && { ansi::err "${ERROR} No topics found in $PICK_DIR ${RESET_ALL}"; exit 1; }

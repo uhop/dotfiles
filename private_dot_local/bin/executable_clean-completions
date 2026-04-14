@@ -18,8 +18,9 @@ Identifies generated files by the signature comment:
 args_program_usage="${BOLD}clean-completions${RESET_BOLD}          # List files that would be removed (dry run)
 ${BOLD}clean-completions${RESET_BOLD} remove   # Remove the files"
 
-args_program_required_command="no"
+args_program_default_command="list"
 
+args::option "list, l" "List completion files that would be removed"
 args::option "remove, r" "Remove the completion files"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
@@ -44,9 +45,7 @@ if [[ ${#files[@]} -eq 0 ]]; then
   exit 0
 fi
 
-cmd="${args_command:-}"
-
-if [[ "$cmd" == "remove" ]]; then
+if [[ "$args_command" == "remove" ]]; then
   for f in "${files[@]}"; do
     rm -v "$f"
   done

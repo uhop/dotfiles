@@ -17,8 +17,9 @@ ${BOLD}imop${RESET_BOLD} photo.jpg photo.webp     # Convert to WebP
 ${BOLD}imop${RESET_BOLD} images/                  # Batch optimize in place
 ${BOLD}imop${RESET_BOLD} --to webp images/         # Batch convert to WebP"
 
-args_program_required_command="no"
+args_program_default_command="auto"
 
+args::option "auto" "Auto-detect: optimize, convert, or batch" "file [output]"
 args::option "optimize, o" "Re-compress in same format" "file [output]"
 args::option "convert, c" "Convert to format of output file" "file output"
 args::option "batch, b" "Process images in a directory" "dir [output-dir]"
@@ -585,14 +586,14 @@ if [ -z "${1:-}" ]; then
 fi
 
 # Determine command
-cmd="${args_command:-}"
+cmd="$args_command"
 
-if [ -n "$cmd" ]; then
-  # Explicit subcommand — skip it in positional args
+# Skip explicit command word from positional args
+if [[ -n "${1:-}" && -v "args_aliases[${1}]" && "${1:-}" != -* ]]; then
   shift
 fi
 
-if [ -z "$cmd" ]; then
+if [[ "$cmd" == "auto" ]]; then
   # Infer from arguments
   arg1="${1:-}"
   arg2="${2:-}"
