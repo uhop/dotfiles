@@ -14,5 +14,9 @@ fi
 
 if [ -f "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" ]; then
   echo "${PROMPT}Installing tmux plugins...${RESET}"
+  # If a tmux server is already running (e.g. user attached via ssht before tpm was cloned),
+  # it will not have TMUX_PLUGIN_MANAGER_PATH set and install_plugins will abort.
+  # Seed the var explicitly so install_plugins works regardless of server state.
+  tmux start-server \; set-environment -g TMUX_PLUGIN_MANAGER_PATH "$HOME/.config/tmux/plugins/" 2>/dev/null || true
   "$HOME/.config/tmux/plugins/tpm/bin/install_plugins" || true
 fi
