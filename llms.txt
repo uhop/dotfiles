@@ -248,8 +248,8 @@ Key aliases and functions:
 - `rm` → `rm -I --preserve-root`
 - `mv` → `mv -iv`
 - `cp` → `cp -iv`
-- `cpg` / `mvg` → rsync-based copy/move with progress
-- `rcp` / `rmv` / `rup` / `rsy` → rsync variants
+- `rcp` / `rmv` → rsync copy/move with aggregate progress
+- `rup` / `rsy` → rsync update / sync
 
 ### Git
 - `gst` → `git status`

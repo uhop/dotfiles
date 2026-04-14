@@ -1,22 +1,12 @@
 [
   {
-    "cmd": "cpg",
-    "desc": "rsync copy with aggregate progress bar",
-    "doc": "cpg <src> <dest>\nUses --info=progress2 --no-inc-recursive --stats\nBest for large transfers where you want a single progress bar"
-  },
-  {
-    "cmd": "mvg",
-    "desc": "rsync move with aggregate progress bar (removes source)",
-    "doc": "mvg <src> <dest>\nSame as cpg + --remove-source-files"
-  },
-  {
     "cmd": "rcp",
-    "desc": "rsync copy with per-file progress",
-    "doc": "rcp <src> <dest>\nUses -av --progress — verbose, shows each file as it transfers\nBest when you want to see individual files being copied"
+    "desc": "rsync copy with aggregate progress bar",
+    "doc": "rcp <src> <dest>\nUses --info=progress2 --no-inc-recursive --stats\nBest for large transfers where you want a single progress bar"
   },
   {
     "cmd": "rmv",
-    "desc": "rsync move with per-file progress (removes source)",
+    "desc": "rsync move with aggregate progress bar (removes source)",
     "doc": "rmv <src> <dest>\nSame as rcp + --remove-source-files"
   },
   {

@@ -98,7 +98,7 @@ These aliases add confirmation or safety flags:
 | `where "pattern" [path/glob]` | context search in files |
 | `upsearch pattern` | search upward from cwd |
 | `ssht host [session]` | SSH + tmux attach |
-| `cpg` / `mvg` | rsync copy/move with progress bar |
+| `rcp` / `rmv` | rsync copy/move with progress bar |
 
 ## Available utilities
 

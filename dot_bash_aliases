@@ -102,10 +102,8 @@ fi
 # `rsync`-based file transfers (better `cp` and `mv`) with a progress bar
 
 if command -v rsync &>/dev/null; then
-  alias cpg="rsync -ah --info=progress2 --no-inc-recursive --stats"
-  alias mvg="rsync -ah --info=progress2 --no-inc-recursive --stats --remove-source-files"
-  alias rcp="rsync -av --progress -h"
-  alias rmv="rsync -av --progress -h --remove-source-files"
+  alias rcp="rsync -ah --info=progress2 --no-inc-recursive --stats"
+  alias rmv="rsync -ah --info=progress2 --no-inc-recursive --stats --remove-source-files"
   alias rup="rsync -avu --progress -h"
   alias rsy="rsync -avu --delete --progress -h"
 fi
