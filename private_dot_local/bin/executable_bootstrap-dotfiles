@@ -202,6 +202,16 @@ warn "Then install Homebrew: https://brew.sh/"
 info "Press Enter to continue after installing prerequisites, or Ctrl+C to abort."
 read -r
 
+# Homebrew on Linux installs to /home/linuxbrew/.linuxbrew/ but doesn't get added to
+# PATH until the shell is re-sourced. Try the standard location so users who just
+# installed it (or have it in an unusual location) don't need to re-login first.
+if ! command -v brew &>/dev/null; then
+  if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+  elif [ -x "$HOME/.linuxbrew/bin/brew" ]; then
+    eval "$("$HOME/.linuxbrew/bin/brew" shellenv)"
+  fi
+fi
 if ! command -v brew &>/dev/null; then
   warn "Homebrew not found. Install it first: https://brew.sh/"
   exit 1
