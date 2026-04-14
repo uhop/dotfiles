@@ -169,8 +169,13 @@ SCRIPT_DEBIAN
 
 step "Installing prerequisites"
 info "These packages are needed to build tools from source and run chezmoi."
-run sudo dnf install -y gcc gcc-c++ make curl git git-gui gitk unzip
-run sudo dnf install -y procps-ng util-linux
+# Homebrew's documented Linux prereqs (https://docs.brew.sh/Homebrew-on-Linux#requirements):
+#   gcc/g++/make + curl + git + file + ca-certificates.
+# Minimal RHEL container images skip POSIX basics (tar/bzip2/xz) that Homebrew
+# needs to extract bottles; add them explicitly here so bootstrap works from any base.
+run sudo dnf install -y gcc gcc-c++ make curl git git-gui gitk \
+  file ca-certificates tar gzip bzip2 xz unzip \
+  procps-ng util-linux
 
 step "Installing Homebrew"
 info "Homebrew manages CLI tools across Linux and macOS."
