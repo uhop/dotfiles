@@ -1,0 +1,57 @@
+[
+  {
+    "cmd": "playbash hosts",
+    "desc": "List inventory hosts and groups",
+    "args": false
+  },
+  {
+    "cmd": "playbash doctor",
+    "desc": "Health-check local + inventory hosts",
+    "args": false
+  },
+  {
+    "cmd": "playbash run",
+    "desc": "Run a playbook against host(s)",
+    "doc": "playbash run <target> <playbook> [args...]\n  <target>:  host, group, all, @self\n  <playbook>: name (resolves to playbash-<name>) or path (slash → file)\n\nplaybash run @self daily --report          — local maintenance + machine-readable summary\nplaybash run all weekly                    — fan out to inventory\nplaybash run somehost dev-docs/setup.sh    — ad-hoc script (auto-pushed)"
+  },
+  {
+    "cmd": "playbash exec",
+    "desc": "Execute an inline command across hosts",
+    "doc": "playbash exec <target> -- <cmd> [args...]\nplaybash exec all -- uname -a\nplaybash exec all --sudo -- apt list --upgradable"
+  },
+  {
+    "cmd": "playbash push",
+    "desc": "Push a playbook script to host(s) without running it",
+    "doc": "playbash push <target> <playbook>"
+  },
+  {
+    "cmd": "playbash put",
+    "desc": "Upload local file(s) to host(s)",
+    "doc": "playbash put <target> <local> [<remote>]\nplaybash put all ~/.env :        — to $HOME on every host\nplaybash put all ~/.env :{host}.env  — per-host filename\nplaybash put all -- /etc/foo.conf --sudo  — needs sudo on remote"
+  },
+  {
+    "cmd": "playbash get",
+    "desc": "Download file(s) from host(s)",
+    "doc": "playbash get <target> <remote> [<local>]\nplaybash get all /etc/os-release ./os-release-{host}\nplaybash get all --sudo -- /etc/sudoers.d/chezmoi  — sudo required"
+  },
+  {
+    "cmd": "playbash run @self daily --report",
+    "desc": "Local daily maintenance with machine-readable report",
+    "args": false
+  },
+  {
+    "cmd": "playbash run @self weekly --report",
+    "desc": "Local weekly maintenance",
+    "args": false
+  },
+  {
+    "cmd": "playbash run all daily --report",
+    "desc": "Fleet-wide daily maintenance",
+    "args": false
+  },
+  {
+    "cmd": "playbash --debug",
+    "desc": "Verbose mode (status board + per-host events)",
+    "doc": "playbash --debug run <target> <playbook>"
+  }
+]

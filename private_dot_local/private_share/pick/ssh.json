@@ -1,0 +1,57 @@
+[
+  {
+    "cmd": "ssht",
+    "desc": "SSH + auto-attach to tmux session",
+    "doc": "ssht <host> [<session>]\nDefault session: ssh_tmux"
+  },
+  {
+    "cmd": "mosht",
+    "desc": "mosh + auto-attach to tmux session",
+    "doc": "mosht <host> [<session>]"
+  },
+  {
+    "cmd": "ett",
+    "desc": "Eternal Terminal (et) + tmux",
+    "doc": "ett <host> [<session>]"
+  },
+  {
+    "cmd": "kssht",
+    "desc": "Kitty kitten ssh + tmux",
+    "doc": "kssht <host> [<session>]"
+  },
+  {
+    "cmd": "ssh-add",
+    "desc": "Manage keys in ssh-agent",
+    "doc": "ssh-add -l                  — list loaded keys\nssh-add ~/.ssh/id_ed25519   — add a key\nssh-add -D                  — drop all keys\nssh-add -t 8h <key>         — load with 8h lifetime"
+  },
+  {
+    "cmd": "ssh-keygen",
+    "desc": "Generate / inspect SSH keys",
+    "doc": "ssh-keygen -t ed25519 -C \"you@example.com\"\nssh-keygen -t rsa -b 4096 -C \"...\"\nssh-keygen -y -f <privkey>  — extract public key\nssh-keygen -lf <pubkey>     — fingerprint"
+  },
+  {
+    "cmd": "ssh-copy-id",
+    "desc": "Copy your public key into a remote authorized_keys",
+    "doc": "ssh-copy-id user@host"
+  },
+  {
+    "cmd": "bootstrap-remote",
+    "desc": "Set up SSH access on a vanilla host (key + sshd hardening)",
+    "doc": "bootstrap-remote <host>            — dry-run\nbootstrap-remote <host> --apply    — execute\nbootstrap-remote <host> --apply --skip-harden  — key only"
+  },
+  {
+    "cmd": "bootstrap-dotfiles",
+    "desc": "Generate + upload install script for a remote host",
+    "doc": "bootstrap-dotfiles <host>             — SSH path\nbootstrap-dotfiles --from-jot <pfx>   — self-bootstrap, pull system files from S3"
+  },
+  {
+    "cmd": "systemctl --user status ssh-agent",
+    "desc": "Check the user ssh-agent service",
+    "args": false
+  },
+  {
+    "cmd": "systemctl --user restart ssh-agent",
+    "desc": "Restart user ssh-agent (clears loaded keys)",
+    "args": false
+  }
+]

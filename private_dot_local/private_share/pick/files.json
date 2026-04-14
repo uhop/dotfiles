@@ -1,0 +1,107 @@
+[
+  {
+    "cmd": "ll",
+    "desc": "Long listing (eza --long --icons --sort=type)",
+    "doc": "ll [<path>]"
+  },
+  {
+    "cmd": "lla",
+    "desc": "Long listing, all (incl. hidden)",
+    "doc": "lla [<path>]"
+  },
+  {
+    "cmd": "ltr",
+    "desc": "Long listing sorted by mtime (newest last)",
+    "doc": "ltr [<path>]"
+  },
+  {
+    "cmd": "l.",
+    "desc": "List dotfiles only",
+    "doc": "l. [<dir>]"
+  },
+  {
+    "cmd": "tre",
+    "desc": "tree, excluding common junk dirs (node_modules, .git, venv...)",
+    "doc": "tre [<dir>]"
+  },
+  {
+    "cmd": "z",
+    "desc": "zoxide cd — jump to a frecent dir",
+    "doc": "z <fragment>            — jump\nz                      — back to $HOME\nzi <fragment>          — interactive picker"
+  },
+  {
+    "cmd": "zl",
+    "desc": "z + ls (jump and list)",
+    "doc": "zl <fragment>"
+  },
+  {
+    "cmd": "mkz",
+    "desc": "mkdir + z into it",
+    "doc": "mkz <dir>"
+  },
+  {
+    "cmd": "up",
+    "desc": "Go up N directories (cd ../../...)",
+    "doc": "up 3   — same as cd ../../../"
+  },
+  {
+    "cmd": "where",
+    "desc": "Recursive grep with glob support",
+    "doc": "where \"<pattern>\" [<path-or-glob>]\nwhere \"TODO\" \"src/*.js\""
+  },
+  {
+    "cmd": "upfind",
+    "desc": "find in CWD and each parent up to /",
+    "doc": "upfind <find-args>\nupfind -h <find-args>   — stop at $HOME"
+  },
+  {
+    "cmd": "upsearch",
+    "desc": "Shortcut: upfd -gH <pattern> (glob, hidden files)",
+    "doc": "upsearch <pattern>"
+  },
+  {
+    "cmd": "rcp",
+    "desc": "rsync copy with progress (large transfers)",
+    "doc": "rcp <src> <dest>"
+  },
+  {
+    "cmd": "rsy",
+    "desc": "rsync sync (mirror; deletes extras on dest) — destructive",
+    "doc": "rsy <src> <dest>"
+  },
+  {
+    "cmd": "imop",
+    "desc": "Optimize / convert images for the web",
+    "doc": "imop <file>            — re-encode in place\nimop -j 0 <files...>   — parallel batch (0 = nproc)\nimop -q 90 <file>      — set quality\nSee `imop --help` for full format chain"
+  },
+  {
+    "cmd": "arx",
+    "desc": "View / extract archives (auto-detects format)",
+    "doc": "arx <archive>          — list contents\narx -x <archive>       — extract\nSupports tar / zip / 7z / rar / etc."
+  },
+  {
+    "cmd": "jot",
+    "desc": "List / edit / get / put files in encrypted S3",
+    "doc": "jot                          — list\njot <name>                  — edit (prefix-matched)\njot get <name>              — download to CWD\njot put <local> <remote>    — upload\njot delete <name>           — delete remote"
+  },
+  {
+    "cmd": "jot put",
+    "desc": "Upload to S3 with codec chain",
+    "doc": "jot put <local> <remote>                 — name carries the chain (e.g. .gz.age)\njot put <local> <remote> -a gz.age       — chain via flag\njot put <dir> <remote> -a gz.age         — directory; tar auto-prepended\njot put <local> <remote> -f bob,jim      — encrypt to named recipients"
+  },
+  {
+    "cmd": "jot-bundle",
+    "desc": "Gather + upload system files per a manifest",
+    "doc": "jot-bundle <s3-prefix>\njot-bundle <s3-prefix> -m <manifest>"
+  },
+  {
+    "cmd": "jot-deploy",
+    "desc": "Download + install system files (dry-run by default)",
+    "doc": "jot-deploy <s3-prefix>            — report-only diff\njot-deploy <s3-prefix> --apply    — install (prompts on overwrite)\njot-deploy <s3-prefix> --apply -y — install, no prompts"
+  },
+  {
+    "cmd": "mic",
+    "desc": "micro editor",
+    "doc": "mic <file>"
+  }
+]

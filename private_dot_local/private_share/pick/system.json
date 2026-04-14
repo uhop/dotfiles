@@ -1,0 +1,102 @@
+[
+  {
+    "cmd": "upd",
+    "desc": "Update software via all available package managers",
+    "doc": "upd            — update everything\nupd -c         — update + clean (cln after)\nupd -y         — assume 'yes' to all prompts\nupd -r         — restart docker/containerd after docker upgrade"
+  },
+  {
+    "cmd": "cln",
+    "desc": "Clean unused versions and caches",
+    "doc": "cln            — autoremove + autoclean across managers\ncln -y         — assume 'yes'"
+  },
+  {
+    "cmd": "update-dependencies",
+    "desc": "Pull latest options.bash library",
+    "args": false
+  },
+  {
+    "cmd": "ollama-sync",
+    "desc": "Pull latest version of every installed Ollama model",
+    "args": false
+  },
+  {
+    "cmd": "fastfetch",
+    "desc": "System info splash (runs on shell start)",
+    "args": false
+  },
+  {
+    "cmd": "free",
+    "desc": "Memory usage in MB (alias: free -m)",
+    "args": false
+  },
+  {
+    "cmd": "df",
+    "desc": "Disk usage, human-readable (alias: df -kh)",
+    "args": false
+  },
+  {
+    "cmd": "duf",
+    "desc": "Pretty disk-usage overview (local + fuse)",
+    "args": false
+  },
+  {
+    "cmd": "du",
+    "desc": "Disk usage — interactive (ncdu) when no args, real du otherwise",
+    "doc": "du             — opens ncdu in CWD\ndu -sh <path>  — falls through to real du with args"
+  },
+  {
+    "cmd": "top",
+    "desc": "Process viewer (alias: htop)",
+    "args": false
+  },
+  {
+    "cmd": "psg",
+    "desc": "Search running processes (regex)",
+    "doc": "psg <pattern>"
+  },
+  {
+    "cmd": "psr",
+    "desc": "Top CPU consumers",
+    "args": false
+  },
+  {
+    "cmd": "psm",
+    "desc": "Top memory consumers",
+    "args": false
+  },
+  {
+    "cmd": "pst",
+    "desc": "Processes with start time + elapsed",
+    "args": false
+  },
+  {
+    "cmd": "oports",
+    "desc": "List open listening ports",
+    "args": false
+  },
+  {
+    "cmd": "env",
+    "desc": "Environment variables, sorted (no args only)",
+    "args": false
+  },
+  {
+    "cmd": "path",
+    "desc": "Print $PATH entries one per line",
+    "args": false
+  },
+  {
+    "cmd": "gimme",
+    "desc": "Take ownership: chown $USER:$USER (Linux)",
+    "doc": "gimme <path> [path...]"
+  },
+  {
+    "cmd": "reboot",
+    "desc": "Reboot the system",
+    "args": false
+  },
+  {
+    "cmd": "poff",
+    "desc": "Power off the system",
+    "args": false
+  }
+]

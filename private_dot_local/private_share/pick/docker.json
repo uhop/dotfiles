@@ -1,0 +1,92 @@
+[
+  {
+    "cmd": "dcm",
+    "desc": "Update current Compose stack (pull + up; default action)",
+    "args": false
+  },
+  {
+    "cmd": "dcm update",
+    "desc": "Update one or more stacks (pull + up + status)",
+    "doc": "dcm update            — current dir\ndcm update <dir>      — specific dir\ndcm update <parent>   — every immediate subdir with a compose file\ndcm -n update         — dry-run\ndcm --force update    — pass --force-recreate"
+  },
+  {
+    "cmd": "dcm down",
+    "desc": "Compose down — stop and remove containers",
+    "doc": "dcm down [<dir>]"
+  },
+  {
+    "cmd": "dcm stop",
+    "desc": "Compose stop — pause without removing",
+    "doc": "dcm stop [<dir>]"
+  },
+  {
+    "cmd": "dcm start",
+    "desc": "Compose start — resume stopped services",
+    "doc": "dcm start [<dir>]"
+  },
+  {
+    "cmd": "dcm restart",
+    "desc": "Compose restart",
+    "doc": "dcm restart [<dir>]"
+  },
+  {
+    "cmd": "dcm status",
+    "desc": "Compact per-service status (✓ / ✗, includes stopped)",
+    "doc": "dcm status [<dir>]"
+  },
+  {
+    "cmd": "dcm rollback",
+    "desc": "Re-tag pre-update images, recreate containers",
+    "doc": "dcm rollback [<dir>]\ndcm -n rollback   — dry-run (show tag commands)\nReads <dir>/.dcm-rollback.json (created by last `dcm update`)"
+  },
+  {
+    "cmd": "dcm prune",
+    "desc": "Prune unused Docker images globally",
+    "args": false
+  },
+  {
+    "cmd": "dcms",
+    "desc": "Shortcut: dcm ~/servers (used by playbash daily/weekly)",
+    "args": false
+  },
+  {
+    "cmd": "lzd",
+    "desc": "lazydocker — TUI for containers, images, networks, volumes",
+    "args": false
+  },
+  {
+    "cmd": "docker ps",
+    "desc": "List running containers",
+    "doc": "docker ps              — running\ndocker ps -a           — include stopped"
+  },
+  {
+    "cmd": "docker logs",
+    "desc": "Show / follow container logs",
+    "doc": "docker logs <name>            — full log\ndocker logs -f <name>         — follow\ndocker logs --tail 100 <name> — last 100 lines"
+  },
+  {
+    "cmd": "docker exec",
+    "desc": "Run a command in a running container",
+    "doc": "docker exec -it <name> bash\ndocker exec <name> <cmd> [args...]"
+  },
+  {
+    "cmd": "docker compose ps",
+    "desc": "Per-stack: list services (raw)",
+    "doc": "(prefer `dcm status` for the compact view)"
+  },
+  {
+    "cmd": "docker compose logs",
+    "desc": "Per-stack: logs across services",
+    "doc": "docker compose logs -f          — follow all\ndocker compose logs -f <svc>    — follow one"
+  },
+  {
+    "cmd": "docker system df",
+    "desc": "Disk usage across images / containers / volumes / cache",
+    "args": false
+  },
+  {
+    "cmd": "docker system prune",
+    "desc": "Prune everything unused (images, containers, networks, cache)",
+    "doc": "docker system prune        — interactive\ndocker system prune -af    — force, all"
+  }
+]
