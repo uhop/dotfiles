@@ -64,13 +64,10 @@ These aliases add confirmation or safety flags:
 | `gcob` | `git checkout -b` |
 | `gcm` | `git commit` |
 | `gbr` | `git branch` |
-| `grs` | `git restore` |
 | `gpull` | `git pull` |
 | `gpush` | `git push` |
 | `gsw` | `git switch` (default branch if no args) |
 | `gme` | `git merge` (default branch if no args) |
-| `gls` / `gll` | `git ls` / `git ll` (custom git aliases) |
-| `glsf` | `git lsf` |
 | `gk` | `gitk --all` |
 | `lzg` | `lazygit` |
 

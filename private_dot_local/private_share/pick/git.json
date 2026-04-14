@@ -26,11 +26,6 @@
     "doc": "gbr — list local branches\ngbr -a — all branches\ngbr -d <branch> — delete merged branch\ngbr -D <branch> — force-delete\ngbr -m <old> <new> — rename"
   },
   {
-    "cmd": "grs",
-    "desc": "Restore files in the working tree",
-    "doc": "grs <file> — discard unstaged changes\ngrs --staged <file> — unstage a file"
-  },
-  {
     "cmd": "gpull",
     "desc": "Pull from remote",
     "args": false
@@ -51,19 +46,19 @@
     "doc": "gme — merge main/master into current branch\ngme <branch> — merge a named branch"
   },
   {
-    "cmd": "gls",
+    "cmd": "git ls",
     "desc": "Compact commit log (oneline, decorated)",
-    "doc": "gls [<revision-range>] [-- <path>]\ngll adds numstat, glsf adds graph + follow"
+    "doc": "git ls [<revision-range>] [-- <path>]\ngit ll adds numstat, git lsf adds graph + follow"
   },
   {
-    "cmd": "gll",
+    "cmd": "git ll",
     "desc": "Compact log + changed files (numstat)",
-    "doc": "gll [<revision-range>] [-- <path>]"
+    "doc": "git ll [<revision-range>] [-- <path>]"
   },
   {
-    "cmd": "glsf",
+    "cmd": "git lsf",
     "desc": "Log with graph, follows renames",
-    "doc": "glsf [<revision-range>] [-- <path>]"
+    "doc": "git lsf [<revision-range>] [-- <path>]"
   },
   {
     "cmd": "git tree",
@@ -101,23 +96,8 @@
     "args": false
   },
   {
-    "cmd": "git del",
-    "desc": "Force-delete a branch",
-    "doc": "git del <branch>"
-  },
-  {
     "cmd": "git trim",
     "desc": "Delete all local branches except main/master/current, prune origin",
-    "args": false
-  },
-  {
-    "cmd": "git tags",
-    "desc": "List tags",
-    "args": false
-  },
-  {
-    "cmd": "git remotes",
-    "desc": "List remotes with URLs",
     "args": false
   },
   {
@@ -149,16 +129,6 @@
     "cmd": "git patch",
     "desc": "Plain-text patch output (no pager, no color)",
     "doc": "git patch [<commit-range>] [-- <path>]"
-  },
-  {
-    "cmd": "git nuke",
-    "desc": "Hard reset (reset --hard)",
-    "doc": "git nuke [<commit>] — defaults to HEAD"
-  },
-  {
-    "cmd": "git purge",
-    "desc": "Remove untracked files and directories (clean -fd)",
-    "args": false
   },
   {
     "cmd": "git super-clean",

@@ -119,7 +119,7 @@ __get_default_git_branch() {
 
 declare -A __git_alias_completions=(
   [gst]=status [gco]=checkout [gcob]=checkout [gcm]=commit
-  [gbr]=branch [grs]=restore [gpull]=pull [gpush]=push
+  [gbr]=branch [gpull]=pull [gpush]=push
   [gsw]=switch [gme]=merge
 )
 
@@ -128,18 +128,12 @@ alias gco='f() { echoRun "git checkout $@"; unset -f f; }; f'
 alias gcob='f() { echoRun "git checkout -b $@"; unset -f f; }; f'
 alias gcm='f() { echoRun "git commit $@"; unset -f f; }; f'
 alias gbr='f() { echoRun "git branch $@"; unset -f f; }; f'
-alias grs='f() { echoRun "git restore $@"; unset -f f; }; f'
 alias gpull='f() { echoRun "git pull $@"; unset -f f; }; f'
 alias gpush='f() { echoRun "git push $@"; unset -f f; }; f'
 
 alias gsw='f() { if [[ "$#" -eq 0 ]]; then echoRun "git switch $(__get_default_git_branch)"; else echoRun "git switch $@"; fi; unset -f f; }; f'
 
 alias gme='f() { if [[ "$#" -eq 0 ]]; then echoRun "git merge $(__get_default_git_branch)"; else echoRun "git merge $@"; fi; unset -f f; }; f'
-
-alias gls='f() { echoRun "git ls $@"; unset -f f; }; f'
-alias gll='f() { echoRun "git ll $@"; unset -f f; }; f'
-
-alias glsf='f() { echoRun "git lsf $@"; unset -f f; }; f'
 
 alias gg='f() { echoRun "git gui $@"; unset -f f; }; f'
 
