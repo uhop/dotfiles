@@ -33,7 +33,7 @@ ${BOLD}dcm${RESET_BOLD} prune                    # Prune unused Docker images gl
 
 args_program_default_command="update"
 
-args::option "update, u" "Pull images, recreate changed containers" "dir" "opt"
+args::option "update, up, u" "Pull images, recreate changed containers" "dir" "opt"
 args::option "down, d" "Compose down (stop and remove)" "dir" "opt"
 args::option "stop" "Compose stop (pause without removing)" "dir" "opt"
 args::option "start" "Compose start (resume stopped services)" "dir" "opt"
