@@ -48,7 +48,7 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── executable_bootstrap-remote    # SSH access setup for remote hosts
 │   │   ├── executable_clean-completions   # Remove options.bash completion files
 │   │   ├── executable_cln.tmpl        # Cleanup script (apt/dnf, brew, flatpak, docker, node)
-│   │   ├── executable_dcm             # Single docker compose runner with retry-on-apparmor
+│   │   ├── executable_dcm             # Docker compose manager with change detection and apparmor retry
 │   │   ├── executable_dcms            # All docker-compose stacks under ~/servers/
 │   │   ├── executable_goup            # Run command in current + parent directories
 │   │   ├── executable_gpurr           # Git pull all repos

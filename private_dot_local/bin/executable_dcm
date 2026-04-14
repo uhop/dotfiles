@@ -7,9 +7,21 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
+# --- Tool detection (before options.bash so errors are immediate) ---
+
+if ! command -v docker &>/dev/null; then
+  echo "$script_name: docker is not installed" >&2
+  exit 1
+fi
+
+if ! command -v jq &>/dev/null; then
+  echo "$script_name: jq is not installed" >&2
+  exit 1
+fi
+
 # --- Program definition ---
 
-args::program "$script_name" "1.0.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
+args::program "$script_name" "1.1.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
 
 args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service lifecycles
 with automatic AppArmor recovery on Linux."
@@ -28,6 +40,7 @@ args::option "start" "Compose start (resume stopped services)" "dir" "opt"
 args::option "restart" "Compose restart" "dir" "opt"
 args::option "status, s" "Compose ps (show running services)" "dir" "opt"
 args::option "prune, p" "Prune unused Docker images globally"
+args::option "rollback, r" "Roll back to previous image versions (not yet implemented)" "dir" "opt"
 
 args::option "--force" "Pass --force-recreate to docker compose up"
 args::option "-n, --dry-run" "Show commands without running"
@@ -48,13 +61,6 @@ OPT_FORCE=0
 
 IS_LINUX=0
 [[ "$(uname -s)" == "Linux" ]] && IS_LINUX=1
-
-# --- Tool detection ---
-
-if ! command -v docker &>/dev/null; then
-  ansi::warn "${ERROR}docker is not installed${RESET_ALL}"
-  exit 1
-fi
 
 # --- Helpers ---
 
@@ -154,6 +160,73 @@ run_or_dry() {
   fi
 }
 
+# Capture a snapshot of image IDs keyed by container name.
+# Output: lines of "container_name image_id" pairs.
+snapshot_images() {
+  docker compose images --format json 2>/dev/null \
+    | jq -r '.[] | "\(.ContainerName) \(.ID)"' 2>/dev/null || true
+}
+
+# Compare before/after snapshots and report changes.
+# Args: $1 = before snapshot (string), $2 = after snapshot (string)
+# Output: lines to stderr describing what changed.
+report_changes() {
+  local before="$1" after="$2"
+  local -A before_map=() after_map=()
+  local name id
+
+  while read -r name id; do
+    [[ -n "$name" ]] && before_map["$name"]="$id"
+  done <<< "$before"
+
+  while read -r name id; do
+    [[ -n "$name" ]] && after_map["$name"]="$id"
+  done <<< "$after"
+
+  local updated=() unchanged=()
+  for name in "${!after_map[@]}"; do
+    if [[ -v before_map["$name"] && "${before_map[$name]}" == "${after_map[$name]}" ]]; then
+      unchanged+=("$name")
+    else
+      updated+=("$name")
+    fi
+  done
+
+  if [[ ${#updated[@]} -eq 0 ]]; then
+    ansi::out "  ${INFO}no images changed${RESET_ALL}"
+  else
+    for name in "${updated[@]}"; do
+      ansi::out "  ${OK}updated:${RESET_ALL} $name"
+    done
+    for name in "${unchanged[@]}"; do
+      ansi::out "  unchanged: $name"
+    done
+  fi
+}
+
+# Show a compact one-line-per-service status summary.
+report_status() {
+  local service state health status
+  while IFS=$'\t' read -r service state health status; do
+    [[ -z "$service" ]] && continue
+    case "$state" in
+      running)
+        if [[ "$health" == "unhealthy" ]]; then
+          ansi::out "  ${WARN}$service${RESET_ALL}: running (unhealthy)"
+        else
+          ansi::out "  ${OK}✓${RESET_ALL} $service: $status"
+        fi
+        ;;
+      *)
+        local label="$state"
+        [[ -n "$health" ]] && label="$state ($health)"
+        ansi::out "  ${ERROR}✗${RESET_ALL} $service: $label — $status"
+        ;;
+    esac
+  done < <(docker compose ps --format json 2>/dev/null \
+    | jq -r '"\(.Service)\t\(.State)\t\(.Health // "")\t\(.Status)"')
+}
+
 # --- Commands ---
 # Each cmd_* function cd's into the target dir so docker compose
 # auto-detects the compose file. Runs in a subshell to preserve cwd.
@@ -165,11 +238,16 @@ cmd_update() (
 
   ansi::out "\n${OK}Updating: ${BOLD}$dir_name${RESET_ALL}"
 
-  # Pull doesn't need AppArmor wrapper - just show output directly
   if [ "$DRY_RUN" -eq 1 ]; then
+    ansi::out "${INFO}[dry-run] docker compose images (snapshot before)${RESET_ALL}"
     ansi::out "${INFO}[dry-run] docker compose pull${RESET_ALL}"
+    ansi::out "${INFO}[dry-run] docker compose images (snapshot after)${RESET_ALL}"
   else
+    local before after
+    before="$(snapshot_images)"
     echoRun docker compose pull || return $?
+    after="$(snapshot_images)"
+    report_changes "$before" "$after"
   fi
   if [ "$OPT_FORCE" -eq 1 ]; then
     run_compose up -d --force-recreate || return $?
@@ -177,6 +255,7 @@ cmd_update() (
     run_compose up -d || return $?
   fi
 
+  report_status
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
 )
 
@@ -323,6 +402,10 @@ case "$cmd" in
   restart) dispatch restart "$target_dir" ;;
   status)  dispatch status "$target_dir" ;;
   prune)   cmd_prune ;;
+  rollback)
+    ansi::warn "${WARN}rollback is not yet implemented${RESET_ALL}"
+    exit 1
+    ;;
   *)
     ansi::warn "${ERROR}Unknown command: $cmd${RESET_ALL}"
     exit 1
