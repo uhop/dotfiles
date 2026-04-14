@@ -8,7 +8,7 @@ shopt -s expand_aliases
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.1.0" "Encrypted notes editor using S3" "https://github.com/uhop/dotfiles/wiki/Jot"
+args::program "$script_name" "1.2.0" "Encrypted notes editor using S3" "https://github.com/uhop/dotfiles/wiki/Jot"
 
 args_program_header="${BOLD}Jot${RESET_BOLD} reads and writes notes as text files using S3 as storage.
 Files are decoded by extension (e.g. ${BOLD}.gz.age${RESET_BOLD} is decrypted then decompressed)."
@@ -26,6 +26,7 @@ args::option "-x, --exact" "Exact file name match"
 args::option "-y, --yes" "Create new file without confirmation"
 args::option "-n, --no" "Don't create new file"
 args::option "-a, --as" "Codec chain to apply on put (e.g. gz.age); tar auto-prepended for directories" "chain"
+args::option "-f, --for" "Encrypt to named recipients (comma-separated); see JOT_RECIPIENTS_DIR" "names"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 args::option "--bash-completion" "Show bash completion"
@@ -187,6 +188,31 @@ fi
 AGE_KEY=${JOT_AGE_KEY:-~/.ssh/age.key}
 SSH_PUB=${JOT_SSH_PUB:-~/.ssh/id_rsa.pub}
 SSH_PRV=${JOT_SSH_PRV:-~/.ssh/id_rsa}
+RECIPIENTS_DIR=${JOT_RECIPIENTS_DIR:-~/.config/jot/recipients}
+
+# Resolve --for / -f recipient names to age -R arguments. Each name maps to
+# $RECIPIENTS_DIR/<name>.pub (one file per recipient; age -R reads all keys
+# in the file). When set, the age encode path uses these instead of the
+# default age key / SSH key fallback.
+recipients_args=()
+if [[ -v args_options["-f"] ]]; then
+  IFS=',' read -ra _names <<< "${args_options["-f"]}"
+  for raw in "${_names[@]}"; do
+    name="${raw// /}"
+    [[ -z "$name" ]] && continue
+    pub_file="$RECIPIENTS_DIR/$name.pub"
+    if [[ ! -f "$pub_file" ]]; then
+      ansi::err "${ERROR}Recipient ${BOLD}${name}${RESET_BOLD} not found at ${REVERSE}${pub_file}${RESET_REVERSE}.${RESET_ALL}"
+      exit 1
+    fi
+    recipients_args+=(-R "$pub_file")
+  done
+  unset _names
+  if [[ ${#recipients_args[@]} -eq 0 ]]; then
+    ansi::err "${ERROR}--for parsed to no recipients (value: ${REVERSE}${args_options["-f"]}${RESET_REVERSE}).${RESET_ALL}"
+    exit 1
+  fi
+fi
 
 do_command() {
   local command="$1"
@@ -218,7 +244,11 @@ do_command() {
         fi
       elif [[ "$command" == "e" ]]; then
         # encode
-        if [ -f "$AGE_KEY" ]; then
+        if [[ ${#recipients_args[@]} -gt 0 ]]; then
+          ansi::out "Encrypting to named recipients..."
+          age --encrypt "${recipients_args[@]}" -o "$TMPDIR/$file_long" "$TMPDIR/$file_short"
+          rm "$TMPDIR/$file_short"
+        elif [ -f "$AGE_KEY" ]; then
           ansi::out "Encrypting with age key..."
           age --encrypt -i "$AGE_KEY" -o "$TMPDIR/$file_long" "$TMPDIR/$file_short"
           rm "$TMPDIR/$file_short"
