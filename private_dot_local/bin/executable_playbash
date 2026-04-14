@@ -226,6 +226,7 @@ async function dispatch({job, targetArg, rectHeight, verbose, report, push, sudo
     inventory: inv,
     targets,
     offlineNames,
+    offlineReasons,
     parallelLimit
   } = await resolveAndValidate(targetArg);
 
