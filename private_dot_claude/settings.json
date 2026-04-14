@@ -3,12 +3,7 @@
     "typescript-lsp@claude-plugins-official": true
   },
   "effortLevel": "high",
-  "env": {
-    "DISABLE_AUTO_COMPACT": "1"
-  },
   "permissions": {
-    "allow": [
-      "Bash(curl*croc.lan:8089*)"
-    ]
+    "allow": ["Bash(curl*croc.lan:8089*)"]
   }
 }
