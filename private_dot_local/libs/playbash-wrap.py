@@ -159,7 +159,7 @@ finally:
 # leaking the entire ssh channel. Closing the master here lets the
 # revoke complete so the child can transition to a zombie and waitpid
 # can reap it. Linux is unaffected either way (master can stay open).
-# See dev-docs/done/playbash-debugging.md for the minimal repro.
+# See the playbash-debugging vault note for the minimal repro.
 try:
     os.close(fd)
 except OSError:

@@ -58,7 +58,7 @@ Supported formats: `.tar.br`, `.tar.bz2`, `.tar.gz`, `.tar.xz`, `.tar.zst`, `.ta
 
 ### Playbash Server Management
 
-Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansible-based stack. See `dev-docs/playbash-design.md` and `dev-docs/done/playbash-roadmap.md`.
+Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansible-based stack. See `dev-docs/playbash-design.md`.
 
 **Runner:** Node CLI at `~/.local/bin/playbash` (single entrypoint + modules under `~/.local/share/playbash/`: `runner.js`, `render.js`, `inventory.js`, `sidecar.js`, `staging.js`, `transfer.js`, `commands.js`, `doctor.js`, `errors.js`, `paths.js`, `shell-escape.js`, `subprocess.js`, `ssh-config.js`, `completion.bash`). Cross-platform PTY allocation via `~/.local/libs/playbash-wrap.py` (Python, with stdin relay for `--sudo`). Linux + macOS targets supported end-to-end.
 
