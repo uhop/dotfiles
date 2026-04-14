@@ -21,7 +21,7 @@ fi
 
 # --- Program definition ---
 
-args::program "$script_name" "1.2.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
+args::program "$script_name" "1.3.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
 
 args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service lifecycles
 with automatic AppArmor recovery on Linux."
@@ -40,7 +40,7 @@ args::option "start" "Compose start (resume stopped services)" "dir" "opt"
 args::option "restart" "Compose restart" "dir" "opt"
 args::option "status, s" "Compose ps (show running services)" "dir" "opt"
 args::option "prune, p" "Prune unused Docker images globally"
-args::option "rollback, r" "Roll back to previous image versions (not yet implemented)" "dir" "opt"
+args::option "rollback, r" "Roll back to image versions captured before the last update" "dir" "opt"
 
 args::option "--force" "Pass --force-recreate to docker compose up"
 args::option "-n, --dry-run" "Show commands without running"
@@ -167,6 +167,22 @@ snapshot_images() {
     | jq -r '.[] | "\(.ContainerName) \(.ID)"' 2>/dev/null || true
 }
 
+# Capture a structured snapshot for rollback: per service, the current
+# image:tag reference and the image ID it currently resolves to. Persisted
+# to <dir>/.dcm-rollback.json by cmd_update before each pull.
+snapshot_for_rollback() {
+  local entries
+  entries="$(docker compose images --format json 2>/dev/null \
+    | jq '[.[] | {service: .Service, container: .ContainerName, image: "\(.Repository):\(.Tag)", id: .ID}]')"
+  if [[ -z "$entries" || "$entries" == "[]" || "$entries" == "null" ]]; then
+    return 1
+  fi
+  jq -n --arg ts "$(date -Is)" --argjson entries "$entries" \
+    '{timestamp: $ts, services: $entries}'
+}
+
+DCM_ROLLBACK_FILE=".dcm-rollback.json"
+
 # Compare before/after snapshots and report changes.
 # Args: $1 = before snapshot (string), $2 = after snapshot (string)
 # Output: lines to stderr describing what changed.
@@ -247,12 +263,15 @@ cmd_update() (
   ansi::out "${OK}Updating: ${BOLD}$dir_name${RESET_ALL}"
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    ansi::out "${INFO}[dry-run] docker compose images (snapshot before)${RESET_ALL}"
+    ansi::out "${INFO}[dry-run] docker compose images (snapshot before + persist for rollback)${RESET_ALL}"
     ansi::out "${INFO}[dry-run] docker compose pull${RESET_ALL}"
     ansi::out "${INFO}[dry-run] docker compose images (snapshot after)${RESET_ALL}"
   else
     local before after
     before="$(snapshot_images)"
+    # Persist the pre-pull snapshot for rollback. Skip if no images yet (first
+    # `up` of a brand-new stack has nothing to roll back to).
+    snapshot_for_rollback >| "$DCM_ROLLBACK_FILE" 2>/dev/null || rm -f -- "$DCM_ROLLBACK_FILE"
     echoRun docker compose pull || return $?
     after="$(snapshot_images)"
     report_changes "$before" "$after"
@@ -304,6 +323,59 @@ cmd_restart() (
 
   ansi::out "${INFO}Restarting: ${BOLD}$dir_name${RESET_ALL}"
   run_compose restart || return $?
+  ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
+)
+
+cmd_rollback() (
+  cd "$1"
+  local dir_name
+  dir_name="$(basename "$(pwd)")"
+
+  if [[ ! -f "$DCM_ROLLBACK_FILE" ]]; then
+    ansi::warn "${WARN}No rollback snapshot for ${BOLD}$dir_name${RESET_ALL} — run ${BOLD}dcm update${RESET_BOLD} first to capture one.${RESET_ALL}"
+    return 1
+  fi
+
+  ansi::out "${OK}Rolling back: ${BOLD}$dir_name${RESET_ALL}"
+  local ts
+  ts="$(jq -r '.timestamp // "unknown"' "$DCM_ROLLBACK_FILE")"
+  ansi::out "${INFO}Snapshot from: ${BOLD}$ts${RESET_ALL}"
+
+  # Verify every recorded image ID still exists locally; abort early if any
+  # were pruned away.
+  local missing=()
+  local id image
+  while IFS=$'\x1f' read -r id image; do
+    [[ -z "$id" ]] && continue
+    if ! docker image inspect "$id" >/dev/null 2>&1; then
+      missing+=("$image (id $id)")
+    fi
+  done < <(jq -r '.services[] | "\(.id)\u001f\(.image)"' "$DCM_ROLLBACK_FILE")
+
+  if (( ${#missing[@]} > 0 )); then
+    ansi::warn "${ERROR}Missing images for rollback (probably pruned):${RESET_ALL}"
+    for m in "${missing[@]}"; do
+      ansi::warn "  - $m"
+    done
+    ansi::warn "Cannot roll back. Re-pull current images with ${BOLD}dcm update${RESET_BOLD} or restore manually."
+    return 1
+  fi
+
+  # Re-tag old IDs back to their image references, then recreate containers.
+  while IFS=$'\x1f' read -r id image; do
+    [[ -z "$id" ]] && continue
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      ansi::out "${INFO}[dry-run] docker tag $id $image${RESET_ALL}"
+    else
+      echoRun docker tag "$id" "$image"
+    fi
+  done < <(jq -r '.services[] | "\(.id)\u001f\(.image)"' "$DCM_ROLLBACK_FILE")
+
+  # Force-recreate so containers pick up the re-tagged image even though the
+  # tag string itself didn't change.
+  run_compose up -d --force-recreate || return $?
+
+  report_status
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
 )
 
@@ -412,12 +484,9 @@ case "$cmd" in
   stop)    dispatch stop "$target_dir" ;;
   start)   dispatch start "$target_dir" ;;
   restart) dispatch restart "$target_dir" ;;
-  status)  dispatch status "$target_dir" ;;
-  prune)   cmd_prune ;;
-  rollback)
-    ansi::warn "${WARN}rollback is not yet implemented${RESET_ALL}"
-    exit 1
-    ;;
+  status)   dispatch status "$target_dir" ;;
+  prune)    cmd_prune ;;
+  rollback) dispatch rollback "$target_dir" ;;
   *)
     ansi::warn "${ERROR}Unknown command: $cmd${RESET_ALL}"
     exit 1
