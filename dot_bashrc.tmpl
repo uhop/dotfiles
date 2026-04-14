@@ -141,13 +141,19 @@ export VISUAL=micro
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export FORCE_COLOR=3
 
+{{ if .githubUsername -}}
+# chezmoi-managed non-secret shell env (~/.env sourcing below can override)
+export GITHUB_USERNAME={{ .githubUsername | quote }}
+{{ end -}}
 if [ -s ~/.env ]; then
   set -a
   \. ~/.env
   set +a
 fi
 
-export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
+if [ -z "${JOT_AWS_S3_BUCKET:-}" ] && [ -n "${GITHUB_USERNAME:-}" ]; then
+  export JOT_AWS_S3_BUCKET="${GITHUB_USERNAME}-notes"
+fi
 
 # Alias and function definitions.
 [ -s ~/.bash_aliases ] && \. ~/.bash_aliases || true

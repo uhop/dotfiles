@@ -291,9 +291,9 @@ Key aliases and functions:
 Set in `dot_bashrc`:
 - `EDITOR=micro`
 - `VISUAL=micro`
-- `GITHUB_USERNAME=uhop`
-- `JOT_AWS_S3_BUCKET=${GITHUB_USERNAME}-notes`
 - `FORCE_COLOR=3`
+- `GITHUB_USERNAME` — rendered from the chezmoi `githubUsername` data value; exported before `~/.env` is sourced so user `.env` can override
+- `JOT_AWS_S3_BUCKET=${GITHUB_USERNAME}-notes` — exported only if unset and `GITHUB_USERNAME` is non-empty (so `~/.env` can pin a custom bucket; users without a GitHub identity don't get a bogus `-notes` default)
 
 ## Links
 

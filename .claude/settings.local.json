@@ -39,7 +39,8 @@
       "WebFetch(domain:docs.github.com)",
       "WebFetch(domain:apscheduler.readthedocs.io)",
       "WebFetch(domain:schedule.readthedocs.io)",
-      "Bash(echo \"status: $?\")"
+      "Bash(echo \"status: $?\")",
+      "Bash(git --no-pager diff --stat)"
     ]
   }
 }

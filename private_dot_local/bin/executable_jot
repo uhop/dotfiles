@@ -35,8 +35,12 @@ set -- "${args_cleaned[@]}"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf -- "$TMPDIR"' EXIT
 
-if [ -z "$JOT_AWS_S3_BUCKET" ]; then
-  ansi::err "${ERROR}No AWS bucket name is specified by \"${REVERSE}JOT_AWS_S3_BUCKET${RESET_REVERSE}\". Please set it to an accessible bucket for notes.${RESET_ALL}"
+if [ -z "${JOT_AWS_S3_BUCKET:-}" ]; then
+  if [ -z "${GITHUB_USERNAME:-}" ]; then
+    ansi::err "${ERROR}No AWS bucket name. ${REVERSE}JOT_AWS_S3_BUCKET${RESET_REVERSE} defaults to ${BOLD}\${GITHUB_USERNAME}-notes${RESET_BOLD}, but ${REVERSE}GITHUB_USERNAME${RESET_REVERSE} is also unset. Re-run ${BOLD}chezmoi init${RESET_BOLD} and answer the GitHub username prompt, or set ${BOLD}JOT_AWS_S3_BUCKET${RESET_BOLD} directly in ~/.env.${RESET_ALL}"
+  else
+    ansi::err "${ERROR}No AWS bucket name is specified by \"${REVERSE}JOT_AWS_S3_BUCKET${RESET_REVERSE}\". Please set it to an accessible bucket for notes.${RESET_ALL}"
+  fi
   exit 1
 fi
 
