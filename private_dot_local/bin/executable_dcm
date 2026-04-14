@@ -244,7 +244,7 @@ cmd_update() (
   local dir_name
   dir_name="$(basename "$(pwd)")"
 
-  ansi::out "\n${OK}Updating: ${BOLD}$dir_name${RESET_ALL}"
+  ansi::out "${OK}Updating: ${BOLD}$dir_name${RESET_ALL}"
 
   if [ "$DRY_RUN" -eq 1 ]; then
     ansi::out "${INFO}[dry-run] docker compose images (snapshot before)${RESET_ALL}"
@@ -272,7 +272,7 @@ cmd_down() (
   local dir_name
   dir_name="$(basename "$(pwd)")"
 
-  ansi::out "\n${OK}Bringing down: ${BOLD}$dir_name${RESET_ALL}"
+  ansi::out "${OK}Bringing down: ${BOLD}$dir_name${RESET_ALL}"
   run_compose down || return $?
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
 )
@@ -282,7 +282,7 @@ cmd_stop() (
   local dir_name
   dir_name="$(basename "$(pwd)")"
 
-  ansi::out "\n${INFO}Stopping: ${BOLD}$dir_name${RESET_ALL}"
+  ansi::out "${INFO}Stopping: ${BOLD}$dir_name${RESET_ALL}"
   run_compose stop || return $?
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
 )
@@ -292,7 +292,7 @@ cmd_start() (
   local dir_name
   dir_name="$(basename "$(pwd)")"
 
-  ansi::out "\n${INFO}Starting: ${BOLD}$dir_name${RESET_ALL}"
+  ansi::out "${INFO}Starting: ${BOLD}$dir_name${RESET_ALL}"
   run_compose start || return $?
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
 )
@@ -302,7 +302,7 @@ cmd_restart() (
   local dir_name
   dir_name="$(basename "$(pwd)")"
 
-  ansi::out "\n${INFO}Restarting: ${BOLD}$dir_name${RESET_ALL}"
+  ansi::out "${INFO}Restarting: ${BOLD}$dir_name${RESET_ALL}"
   run_compose restart || return $?
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
 )
@@ -312,7 +312,7 @@ cmd_status() (
   local dir_name
   dir_name="$(basename "$(pwd)")"
 
-  ansi::out "\n${INFO}Status: ${BOLD}$dir_name${RESET_ALL}"
+  ansi::out "${INFO}Status: ${BOLD}$dir_name${RESET_ALL}"
   report_status
 )
 
@@ -373,6 +373,10 @@ dispatch() {
   fi
 
   while IFS= read -r dir; do
+    # Blank line before each iteration in multi-dir runs (separates the
+    # "Found N..." header from the first stack and stacks from each other).
+    # Single-dir runs stay tight: no leading blank.
+    [[ "$total" -gt 1 ]] && echo
     if "cmd_$cmd" "$dir"; then
       succeeded=$((succeeded + 1))
     else
