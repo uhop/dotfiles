@@ -12,7 +12,7 @@ llms.txt
 .windsurf
 .windsurfrules
 dev-docs
-external_wiki
+wiki
 {{ if ne .osFamily "linux" }}
 .config/systemd
 {{ end }}
