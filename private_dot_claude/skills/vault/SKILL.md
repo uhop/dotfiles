@@ -15,21 +15,38 @@ Requires two environment variables (set in `~/.env`, which is sourced by `.bashr
 - `VAULT_API_URL` — base URL of the Obsidian Local REST API (e.g., `http://host:8089`)
 - `VAULT_API_TOKEN` — bearer token for authentication
 
-Before any vault operation, verify both are set:
+### Use `vault-curl` — don't hand-roll `curl`
+
+There is a `vault-curl` wrapper on `$PATH` (installed under `~/.local/bin/vault-curl`). **Prefer it over raw `curl`** — it prepends `$VAULT_API_URL` and the `Authorization: Bearer $VAULT_API_TOKEN` header, checks the env vars, and forwards every remaining flag straight to `curl`.
+
+Quick check before the first vault op in a session:
+
+```bash
+command -v vault-curl >/dev/null || { echo "vault-curl missing — falling back to curl"; }
+```
+
+`vault-curl` itself exits with a clear error if `VAULT_API_URL` or `VAULT_API_TOKEN` is unset, so no separate guard is required. Only fall back to raw `curl` if `vault-curl` isn't installed on the machine.
+
+API endpoints (invoked via `vault-curl <path> [curl-options...]`):
+
+- **Read**: `vault-curl /vault/{path} -s`
+- **Write**: `vault-curl /vault/{path} -X PUT -H 'Content-Type: text/markdown' --data-binary @file.md`
+  - Or with a heredoc: `vault-curl /vault/{path} -X PUT -H 'Content-Type: text/markdown' --data-binary @- <<'EOF' ... EOF`
+  - Add `-o /dev/null -w "%{http_code}\n"` to confirm a 204 without flooding stdout.
+- **List**: `vault-curl /vault/{path}/ -s` (trailing slash → `{"files": [...]}`)
+- **Delete**: `vault-curl /vault/{path} -X DELETE`
+- **Search**: `vault-curl /search/simple/ -X POST -G --data-urlencode 'query=...'`
+  - The Obsidian Local REST API expects `query` as a URL parameter on a POST; `-G --data-urlencode` produces the right form.
+
+### Fallback: raw `curl`
+
+If `vault-curl` is unavailable, verify env vars explicitly:
 
 ```bash
 [[ -z "${VAULT_API_URL:-}" || -z "${VAULT_API_TOKEN:-}" ]] && { echo "Error: VAULT_API_URL and VAULT_API_TOKEN must be set in ~/.env"; exit 1; }
 ```
 
-API endpoints (all via `curl` in Bash tool):
-
-- **Read**: `GET $VAULT_API_URL/vault/{path}` (returns markdown body)
-- **Write**: `PUT $VAULT_API_URL/vault/{path}` with `Content-Type: text/markdown` body
-- **List**: `GET $VAULT_API_URL/vault/{path}/` (trailing slash = list children, returns JSON `{"files": [...]}`)
-- **Delete**: `DELETE $VAULT_API_URL/vault/{path}`
-- **Search**: `POST $VAULT_API_URL/search/simple/` with `Content-Type: application/json` body `{"query": "search terms"}`
-
-All `curl` calls use `-H "Authorization: Bearer $VAULT_API_TOKEN"`.
+Then use `curl -H "Authorization: Bearer $VAULT_API_TOKEN" "$VAULT_API_URL/<path>"` with the same endpoints listed above.
 
 ## Vault structure
 
