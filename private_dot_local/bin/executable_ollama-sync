@@ -8,6 +8,8 @@ shopt -s expand_aliases
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
+deps::need ollama
+
 args::program "$script_name" "1.0.0" "Updates ollama models"
 args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset}"
 
@@ -17,10 +19,6 @@ args::option "--bash-completion" "Show bash completion"
 
 args::parse "$@"
 set -- "${args_cleaned[@]}"
-
-if ! command -v ollama &> /dev/null; then
-  ansi::err "${ERROR}ollama is not installed${RESET_ALL}"
-fi
 
 ollama list | tail -n +2 | awk '{print $1}' | while read -r model; do
   ansi::out "${CYAN}Model: ${BOLD}${model}${RESET_ALL}"

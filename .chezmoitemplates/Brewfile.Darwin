@@ -1,3 +1,4 @@
+brew "age"
 brew "bash-completion"
 brew "bat"
 brew "brotli"

@@ -7,17 +7,7 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-# --- Tool detection (before options.bash so errors are immediate) ---
-
-if ! command -v docker &>/dev/null; then
-  echo "$script_name: docker is not installed" >&2
-  exit 1
-fi
-
-if ! command -v jq &>/dev/null; then
-  echo "$script_name: jq is not installed" >&2
-  exit 1
-fi
+deps::need docker jq
 
 # --- Program definition ---
 

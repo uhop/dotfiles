@@ -57,7 +57,7 @@ if [ "$hasSudo" -eq 0 ]; then
   sudo dnf install -y --skip-broken micro mosh dialog bat ncdu \
     the_silver_searcher tig htop parallel tree brotli mc ripgrep \
     nginx ShellCheck clang-tools-extra git-lfs etckeeper \
-    fuse-sshfs lnav || true
+    fuse-sshfs lnav age || true
   command -v gh &>/dev/null || sudo dnf install -y gh || true
 fi
 {{ if .hasGui -}}

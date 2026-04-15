@@ -7,6 +7,8 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
+deps::need jot tar
+
 args::program "$script_name" "1.0.0" "Download a jot-bundle and install files per its embedded manifest" "https://github.com/uhop/dotfiles/wiki/Jot#bundle-helpers"
 
 args_program_header="${BOLD}jot-deploy${RESET_BOLD} downloads a bundle uploaded by ${BOLD}jot-bundle${RESET_BOLD},
@@ -20,15 +22,6 @@ args::option "-h, --help" "Show help"
 
 args::parse "$@"
 set -- "${args_cleaned[@]}"
-
-# --- Tool detection ---
-
-for cmd in jot tar; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    ansi::err "${ERROR}${REVERSE}${cmd}${RESET_REVERSE} is required but not installed.${RESET_ALL}"
-    exit 1
-  fi
-done
 
 # --- Args ---
 

@@ -3,6 +3,11 @@
 set -euCo pipefail
 shopt -s expand_aliases
 
+if ! command -v git >/dev/null 2>&1; then
+  echo "update-dependencies: git is required but is not installed" >&2
+  exit 1
+fi
+
 CYAN="$(tput setaf 6)"
 BOLD="$(tput bold)"
 RESET="$(tput op)$(tput sgr0)"

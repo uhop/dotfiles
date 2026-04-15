@@ -47,6 +47,33 @@ if [[ "$args_command" == "extract" ]]; then
   path_to="${2:-}"
 fi
 
+# Map archive/compression suffix → required external tool(s). Returns
+# non-zero for unknown suffixes so callers let the existing `*)` case
+# report the format error (via ansi::err) without a premature tool check.
+arx::format_tools() { # usage: arx::format_tools <file-name>
+  case "$1" in
+    *.tar.br)    echo "tar brotli"     ;;
+    *.tar.bz2)   echo "tar bzip2"      ;;
+    *.tar.gz)    echo "tar gzip"       ;;
+    *.tar.xz)    echo "tar xz"         ;;
+    *.tar.zst)   echo "tar zstd"       ;;
+    *.tar)       echo "tar"            ;;
+    *.tbz2)      echo "tar bzip2"      ;;
+    *.tgz)       echo "tar gzip"       ;;
+    *.7z)        echo "7z"             ;;
+    *.deb)       echo "ar"             ;;
+    *.rar)       echo "unrar"          ;;
+    *.zip)       echo "unzip"          ;;
+    *.br)        echo "brotli"         ;;
+    *.bz2)       echo "bunzip2"        ;;
+    *.gz)        echo "gunzip"         ;;
+    *.xz)        echo "xz"             ;;
+    *.zst)       echo "zstd"           ;;
+    *.Z)         echo "uncompress"     ;;
+    *)           return 1              ;;
+  esac
+}
+
 requiresDir () { # usage: requiresDir <file>
   case "$1" in
     *.tar.br)    echo yes ;;
@@ -76,6 +103,8 @@ extract () { # usage: extract <file> <to>
     ansi::err "${ERROR}'$1' is not a valid file${RESET_ALL}"
     exit 1
   fi
+  # shellcheck disable=SC2046  # intentional word-splitting: multiple tool names
+  deps::need $(arx::format_tools "$1")
   if [ -n "$2" ]; then
     reqDir="$(requiresDir "$1")"
     if [[ "$reqDir" == "yes" ]]; then
@@ -119,6 +148,8 @@ list () { # usage: list <file>
     ansi::err "${ERROR}'$1' is not a valid file${RESET_ALL}"
     exit 1
   fi
+  # shellcheck disable=SC2046  # intentional word-splitting: multiple tool names
+  deps::need $(arx::format_tools "$1")
   file_name="$(printf '%q' "$1")"
   case "${file_name}" in
     *.tar.br)    echoRun tar tvf "${file_name}" -I brotli ;;

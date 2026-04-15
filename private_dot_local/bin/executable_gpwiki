@@ -3,6 +3,11 @@
 set -euCo pipefail
 shopt -s expand_aliases
 
+if ! command -v git >/dev/null 2>&1; then
+  echo "gpwiki: git is required but is not installed" >&2
+  exit 1
+fi
+
 echoRun() {
   echo -e "\033[36m$@\033[0m"
   eval "$@"

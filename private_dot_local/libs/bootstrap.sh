@@ -16,6 +16,7 @@ command -v git &> /dev/null && git -C ~/.local/share/libs/scripts pull --no-recu
 . ~/.local/share/libs/scripts/args-version.sh
 . ~/.local/share/libs/scripts/args-help.sh
 . ~/.local/share/libs/scripts/args-completion.sh
+. ~/.local/share/libs/scripts/deps.sh
 
 # echo the first argument and run
 # Usage: echoRun [--bold] <command...>

@@ -36,8 +36,8 @@ fi
 
 OS=$(uname -s)
 case $OS in
-  Linux)  PLATFORM=systemd ;;
-  Darwin) PLATFORM=launchd ;;
+  Linux)  PLATFORM=systemd; deps::need systemctl ;;
+  Darwin) PLATFORM=launchd; deps::need launchctl ;;
   *)
     ansi::err "${BOLD}${FG_RED}Unsupported platform: $OS${RESET_ALL}"
     exit 1

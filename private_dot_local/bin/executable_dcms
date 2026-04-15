@@ -5,6 +5,8 @@ shopt -s expand_aliases
 
 . ~/.local/libs/bootstrap.sh
 
+deps::need dcm
+
 if [ -d ~/servers ]; then
   echoRun --bold "dcm ~/servers"
 else

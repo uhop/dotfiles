@@ -40,6 +40,22 @@ import {
 } from '../share/playbash/inventory.js';
 import {runDoctor} from '../share/playbash/doctor.js';
 
+// Hard dependencies: playbash spawns ssh on every remote operation and tar
+// for the directory-transfer pipelines in put/get. Catch missing tools
+// once at startup instead of letting each spawn fail with ENOENT mid-run.
+// Matches the deps::need pattern used by the bash utilities (single
+// aggregate diagnostic line, plain stderr, exit 1).
+import {spawnSync} from 'node:child_process';
+{
+  const missing = ['ssh', 'tar'].filter(
+    t => spawnSync('sh', ['-c', `command -v ${t}`], {stdio: 'ignore'}).status !== 0
+  );
+  if (missing.length) {
+    process.stderr.write(`playbash: required tool(s) not installed: ${missing.join(' ')}\n`);
+    process.exit(1);
+  }
+}
+
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
 const VERSION = '3.4.0';

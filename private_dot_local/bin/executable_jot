@@ -8,6 +8,8 @@ shopt -s expand_aliases
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
+deps::need aws
+
 args::program "$script_name" "1.2.0" "Encrypted notes editor using S3" "https://github.com/uhop/dotfiles/wiki/Jot"
 
 args_program_header="${BOLD}Jot${RESET_BOLD} reads and writes notes as text files using S3 as storage.
@@ -36,6 +38,21 @@ set -- "${args_cleaned[@]}"
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf -- "$TMPDIR"' EXIT
+
+# Codec → required binary. Returns non-zero for unknown codecs so callers
+# can ignore them (probe path stays cheap).
+jot::codec_tool() {
+  case "$1" in
+    age) echo age ;;
+    br)  echo brotli ;;
+    bz2) echo bzip2 ;;
+    gz)  echo gzip ;;
+    xz)  echo xz ;;
+    zst) echo zstd ;;
+    tar) echo tar ;;
+    *)   return 1 ;;
+  esac
+}
 
 if [ -z "${JOT_AWS_S3_BUCKET:-}" ]; then
   if [ -z "${GITHUB_USERNAME:-}" ]; then
@@ -234,6 +251,13 @@ do_command() {
     rm "$TMPDIR/$file_long"
     touch "$TMPDIR/$file_short"
     return 0
+  fi
+
+  if [[ "$command" == "d" || "$command" == "e" ]]; then
+    local tool
+    if tool=$(jot::codec_tool "$file_ext"); then
+      deps::need "$tool"
+    fi
   fi
 
   case "$file_ext" in

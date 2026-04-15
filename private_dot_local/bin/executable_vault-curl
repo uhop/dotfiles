@@ -21,6 +21,13 @@
 
 set -uCo pipefail
 
+# Hard dependency. Inline (no bootstrap.sh source — vault-curl stays slim
+# so it's cheap to invoke from scripts, hooks, or one-liners).
+if ! command -v curl >/dev/null 2>&1; then
+  echo "vault-curl: curl is required but is not installed" >&2
+  exit 1
+fi
+
 if [[ -z "${VAULT_API_URL:-}" || -z "${VAULT_API_TOKEN:-}" ]]; then
   echo "vault-curl: VAULT_API_URL and VAULT_API_TOKEN must be set" >&2
   exit 1
