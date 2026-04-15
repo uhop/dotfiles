@@ -1,10 +1,14 @@
 [Unit]
 Description=SSH key agent
 Documentation=man:ssh-agent(1)
-Requires=ssh-agent.socket
 
 [Service]
-ExecStart=/usr/bin/ssh-agent -D
+Type=simple
+Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
+ExecStartPre=-/usr/bin/rm -f %t/ssh-agent.socket
+ExecStart=/usr/bin/ssh-agent -D -a %t/ssh-agent.socket
+ExecStartPost=/usr/bin/systemctl --user set-environment SSH_AUTH_SOCK=%t/ssh-agent.socket
+ExecStopPost=-/usr/bin/systemctl --user unset-environment SSH_AUTH_SOCK
 Restart=on-failure
 RestartSec=5
 

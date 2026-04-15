@@ -1,0 +1,32 @@
+{{- if eq .osFamily "linux" -}}
+#!/bin/bash
+set -euCo pipefail
+
+# Our ssh-agent.service overrides any distro-provided unit and binds the agent
+# to %t/ssh-agent.socket explicitly. ssh-agent doesn't support systemd socket
+# activation, so a separate .socket unit would be a dead listener on
+# OpenSSH <10 — the service itself binds the well-known path.
+#
+# Re-runs whenever the unit changes (chezmoi run_onchange + hash below):
+# ssh-agent.service sha256: {{ include "dot_config/systemd/user/ssh-agent.service" | sha256sum }}
+#
+# No-op if user systemd is unavailable (bare containers, non-systemd distros).
+
+if ! command -v systemctl >/dev/null 2>&1; then
+  exit 0
+fi
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+  exit 0
+fi
+
+# Retire the obsolete .socket unit from earlier revisions of this repo.
+if systemctl --user list-unit-files ssh-agent.socket --no-legend 2>/dev/null | grep -q ssh-agent.socket; then
+  systemctl --user disable --now ssh-agent.socket 2>/dev/null || true
+fi
+
+systemctl --user daemon-reload
+
+# Restart so the agent picks up the new ExecStart.
+systemctl --user enable ssh-agent.service
+systemctl --user restart ssh-agent.service
+{{- end }}
