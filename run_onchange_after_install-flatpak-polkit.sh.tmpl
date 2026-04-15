@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# run_onchange_after_install-flatpak-polkit.sh.tmpl — manage
+# /usr/local/share/polkit-1/rules.d/90-flatpak-ssh.rules so members of
+# sudo/wheel can run flatpak operations over SSH without password prompts.
+#
+# Re-runs whenever the rendered script changes (i.e., the rule body below).
+# Idempotent: compares rendered rule with current file, skips write if
+# identical. Reloads polkit only when the file actually changes.
+#
+# Why: stock polkit rules require an active/local session for flatpak
+# operations. Running flatpak over SSH triggers repeated password prompts —
+# several per package processed — which breaks unattended updates. The
+# rule here authorizes org.freedesktop.Flatpak.* for members of the groups
+# listed in $sudoerGroups below. See external_wiki/Application-Notes.md.
+#
+# Skip conditions:
+#   - No GUI (hasGui = false) — flatpak is a desktop-app mechanism
+#   - flatpak not installed
+#   - User has no sudo access
+{{- if .hasGui }}
+{{/*
+  Groups authorized to run flatpak over SSH without password. The support
+  matrix uses `sudo` (Debian family) and `wheel` (everyone else); adding a
+  group here is a one-line change. Don't pre-add speculative groups — they
+  grant rights on systems where they aren't actually sudoers.
+*/ -}}
+{{- $sudoerGroups := list "sudo" "wheel" -}}
+
+{{ template "install-prelude.sh" . }}
+
+command -v flatpak &>/dev/null || exit 0
+[ "$hasSudo" -eq 0 ] || exit 0
+
+RULE_PATH=/usr/local/share/polkit-1/rules.d/90-flatpak-ssh.rules
+
+managed_rule=$(cat <<'RULE'
+// Managed by chezmoi — allow {{ join "/" $sudoerGroups }} members to run flatpak over SSH
+// without a polkit password prompt. Edit
+// run_onchange_after_install-flatpak-polkit.sh.tmpl in the chezmoi source.
+polkit.addRule(function (action, subject) {
+  if (
+    action.id.indexOf('org.freedesktop.Flatpak.') == 0 &&
+    ({{ range $i, $g := $sudoerGroups }}{{ if $i }} || {{ end }}subject.isInGroup('{{ $g }}'){{ end }})
+  ) {
+    return polkit.Result.YES;
+  }
+  return polkit.Result.NOT_HANDLED;
+});
+RULE
+)
+
+# Compare with current file (if any) to avoid pointless writes + reloads.
+if [ -f "$RULE_PATH" ]; then
+  current=$(sudo cat "$RULE_PATH" 2>/dev/null || echo "")
+  if [ "$current" = "$managed_rule" ]; then
+    exit 0
+  fi
+fi
+
+echo "${WARN}Writing ${RULE_PATH} requires sudo: expect asking for the sudo password (cached if already entered).${RESET}"
+
+sudo install -d -m 0755 -o root -g root "$(dirname "$RULE_PATH")"
+
+tmp=$(mktemp)
+printf '%s\n' "$managed_rule" >| "$tmp"
+
+echo "${PROMPT}Installing ${RULE_PATH}...${RESET}"
+sudo install -m 0644 -o root -g root "$tmp" "$RULE_PATH"
+rm -f "$tmp"
+
+# Reload polkit so the new rule takes effect without a reboot.
+if systemctl list-unit-files polkit.service &>/dev/null; then
+  echo "${PROMPT}Reloading polkit...${RESET}"
+  sudo systemctl reload polkit 2>/dev/null || sudo systemctl restart polkit
+fi
+
+echo "${PROMPT}Updated ${RULE_PATH}${RESET}"
+{{- end }}
