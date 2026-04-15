@@ -2,8 +2,6 @@ Include config.d/*
 
 Host *
   AddKeysToAgent yes
-  IdentityFile ~/.ssh/id_rsa
-  IdentityFile ~/.ssh/id_ed25519
   ControlMaster auto
   ControlPath ~/.ssh/sockets/%r@%h-%p
   ControlPersist 5m

@@ -48,7 +48,12 @@ if [[ -n "$FROM_JOT" ]]; then
   # AWS credentials and the decryption key locally before this can do anything.
   missing=()
   [[ ! -f "$HOME/.env" ]] && missing+=("~/.env (AWS credentials)")
-  [[ ! -f "$HOME/.ssh/age.key" && ! -f "$HOME/.ssh/id_rsa" ]] && missing+=("~/.ssh/age.key or ~/.ssh/id_rsa (decryption key)")
+  have_decryption_key=false
+  [[ -f "$HOME/.ssh/age.key" ]] && have_decryption_key=true
+  for _b in id_ed25519 id_rsa id_ecdsa; do
+    [[ -f "$HOME/.ssh/$_b" ]] && have_decryption_key=true && break
+  done
+  $have_decryption_key || missing+=("~/.ssh/age.key or ~/.ssh/{id_ed25519,id_rsa,id_ecdsa} (decryption key)")
   if (( ${#missing[@]} > 0 )); then
     ansi::warn "${ERROR}--from-jot pre-flight failed. Missing files:${RESET_ALL}"
     for m in "${missing[@]}"; do

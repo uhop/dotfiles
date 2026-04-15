@@ -186,8 +186,18 @@ if [[ "$FOUND" == "no" ]] && [[ "$args_command" != "put" ]]; then
 fi
 
 AGE_KEY=${JOT_AGE_KEY:-~/.ssh/age.key}
-SSH_PUB=${JOT_SSH_PUB:-~/.ssh/id_rsa.pub}
-SSH_PRV=${JOT_SSH_PRV:-~/.ssh/id_rsa}
+# Pick the first available standard SSH key (prefer modern) unless overridden.
+if [[ -z "${JOT_SSH_PRV:-}" ]]; then
+  for _b in id_ed25519 id_rsa id_ecdsa; do
+    if [[ -f "$HOME/.ssh/$_b" ]]; then
+      JOT_SSH_PRV="$HOME/.ssh/$_b"
+      [[ -z "${JOT_SSH_PUB:-}" && -f "$HOME/.ssh/$_b.pub" ]] && JOT_SSH_PUB="$HOME/.ssh/$_b.pub"
+      break
+    fi
+  done
+fi
+SSH_PUB=${JOT_SSH_PUB:-$HOME/.ssh/id_rsa.pub}
+SSH_PRV=${JOT_SSH_PRV:-$HOME/.ssh/id_rsa}
 RECIPIENTS_DIR=${JOT_RECIPIENTS_DIR:-~/.config/jot/recipients}
 
 # Resolve --for / -f recipient names to age -R arguments. Each name maps to

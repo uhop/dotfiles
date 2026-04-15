@@ -159,8 +159,8 @@ Options:
 Environment variables:
 - `JOT_AWS_S3_BUCKET` — AWS bucket name (required)
 - `JOT_AGE_KEY` — age key path (default: `~/.ssh/age.key`)
-- `JOT_SSH_PUB` — SSH public key (default: `~/.ssh/id_rsa.pub`)
-- `JOT_SSH_PRV` — SSH private key (default: `~/.ssh/id_rsa`)
+- `JOT_SSH_PUB` — SSH public key (default: auto-detected — first of `id_ed25519.pub`, `id_rsa.pub`, `id_ecdsa.pub`)
+- `JOT_SSH_PRV` — SSH private key (default: auto-detected — first of `id_ed25519`, `id_rsa`, `id_ecdsa`)
 
 Supported codecs: `.age`, `.br`, `.bz2`, `.gz`, `.xz`, `.zst`
 
