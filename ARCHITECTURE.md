@@ -59,7 +59,7 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_notify-systemd-failure      # systemd OnFailure= email handler (Linux)
 │   │   ├── executable_setup-periodic              # periodic task scheduler setup utility
 │   │   ├── executable_playbash                    # multi-host playbook runner (Node)
-│   │   └── executable_playbash-{daily,weekly,hello,sample}  # playbash playbooks
+│   │   └── executable_playbash-{daily,weekly,clean,hello,sample}  # playbash playbooks
 │   ├── libs/                                      # → ~/.local/libs/
 │   │   ├── bootstrap.sh                           # options.bash bootstrap
 │   │   ├── playbash.sh                            # event helpers sourced by playbash playbooks
@@ -126,7 +126,7 @@ private_share/playbash/subprocess.js   ← run(): short-lived subprocess helper 
 private_share/playbash/ssh-config.js   ← parseHostNames(): walk ~/.ssh/config + Includes
 private_share/playbash/completion.bash ← bash completion (sourced via --bash-completion)
 
-playbash-{daily,weekly,sample,hello}  ← playbook scripts deployed to every host
+playbash-{daily,weekly,clean,sample,hello}  ← playbook scripts deployed to every host
     ↓
 playbash.sh (sourced)                 ← playbash_info/warn/error/action/reboot/step helpers
                                        (writes to $PLAYBASH_REPORT or pretty-prints to stderr)
