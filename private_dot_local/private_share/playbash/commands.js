@@ -8,7 +8,7 @@
 // shared state with each other. They live in their own module so the
 // entry point file can stay focused on argv → dispatch.
 
-import {readFileSync, readdirSync} from 'node:fs';
+import {readFileSync, readdirSync, statSync, unlinkSync, rmdirSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 
@@ -75,6 +75,213 @@ export function cmdLog(hostArg, commandArg) {
   }
   process.stdout.write(sanitizeForRect(raw));
   process.stderr.write(`\nplaybash: log ${target}\n`);
+}
+
+// --- log --stats ---
+
+// Walk a directory, collecting {files, bytes} per relative two-level key
+// (host/command for nested layout). Flat legacy logs at root go under
+// the "(flat)" host bucket with command extracted where possible.
+function collectLogEntries(root) {
+  const entries = []; // [{host, command, path, size, mtime}]
+  let dirItems;
+  try { dirItems = readdirSync(root, {withFileTypes: true}); } catch { return entries; }
+  for (const e of dirItems) {
+    const p = join(root, e.name);
+    if (e.isDirectory()) {
+      // Nested layout: host → command → *.log
+      let commands;
+      try { commands = readdirSync(p, {withFileTypes: true}); } catch { continue; }
+      for (const cmd of commands) {
+        if (!cmd.isDirectory()) continue;
+        const cmdDir = join(p, cmd.name);
+        let logs;
+        try { logs = readdirSync(cmdDir); } catch { continue; }
+        for (const f of logs) {
+          if (!f.endsWith('.log')) continue;
+          try {
+            const st = statSync(join(cmdDir, f));
+            entries.push({host: e.name, command: cmd.name, path: join(cmdDir, f), size: st.size, mtime: st.mtimeMs});
+          } catch {}
+        }
+      }
+    } else if (e.name.endsWith('.log')) {
+      // Flat legacy: <timestamp>Z-<host>-<command>.log
+      try {
+        const st = statSync(p);
+        entries.push({host: '(flat)', command: '', path: p, size: st.size, mtime: st.mtimeMs});
+      } catch {}
+    }
+  }
+  return entries;
+}
+
+function humanSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GiB`;
+}
+
+// Group entries by a key function, returning Map<string, {files, bytes}>.
+function groupBy(entries, keyFn) {
+  const map = new Map();
+  for (const e of entries) {
+    const k = keyFn(e);
+    const bucket = map.get(k) || {files: 0, bytes: 0};
+    bucket.files++;
+    bucket.bytes += e.size;
+    map.set(k, bucket);
+  }
+  return map;
+}
+
+function printTable(rows, indent = '') {
+  if (rows.length === 0) return;
+  const widths = rows[0].map((_, col) =>
+    Math.max(...rows.map(r => r[col].length))
+  );
+  for (const row of rows) {
+    const line = row.map((cell, i) =>
+      i === 0 ? cell.padEnd(widths[i]) : cell.padStart(widths[i])
+    ).join('  ');
+    process.stdout.write(`${indent}${line}\n`);
+  }
+}
+
+export function cmdLogStats(hostArg, commandArg, byCommand) {
+  const all = collectLogEntries(LOG_DIR);
+
+  // Filter to scope
+  const entries = hostArg
+    ? all.filter(e => e.host === hostArg && (!commandArg || e.command === commandArg))
+    : all;
+
+  if (entries.length === 0) {
+    const scope = commandArg ? `${hostArg}/${commandArg}` : hostArg || LOG_DIR;
+    process.stdout.write(`no logs in ${scope}\n`);
+    return;
+  }
+
+  const totalBytes = entries.reduce((s, e) => s + e.size, 0);
+  process.stdout.write(
+    `${COLOR.bold}${entries.length}${COLOR.reset} log file${entries.length === 1 ? '' : 's'}, ` +
+    `${COLOR.bold}${humanSize(totalBytes)}${COLOR.reset} in ${LOG_DIR}\n\n`
+  );
+
+  if (hostArg || byCommand) {
+    // Per-command breakdown (when scoped to a host, or --by-command globally)
+    if (hostArg && !byCommand) {
+      // Single host: show per-command
+      const byCmd = groupBy(entries, e => e.command || '(flat)');
+      const rows = [...byCmd.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([cmd, s]) => [cmd, `${s.files}`, humanSize(s.bytes)]);
+      rows.unshift([`${COLOR.dim}command${COLOR.reset}`, `${COLOR.dim}files${COLOR.reset}`, `${COLOR.dim}size${COLOR.reset}`]);
+      printTable(rows, '  ');
+    } else {
+      // Global --by-command: per-host, each with per-command sub-table
+      const byHost = new Map();
+      for (const e of entries) {
+        if (!byHost.has(e.host)) byHost.set(e.host, []);
+        byHost.get(e.host).push(e);
+      }
+      for (const host of [...byHost.keys()].sort()) {
+        const hostEntries = byHost.get(host);
+        const hostBytes = hostEntries.reduce((s, e) => s + e.size, 0);
+        process.stdout.write(
+          `  ${COLOR.bold}${host}${COLOR.reset}  ${hostEntries.length} file${hostEntries.length === 1 ? '' : 's'}, ${humanSize(hostBytes)}\n`
+        );
+        const byCmd = groupBy(hostEntries, e => e.command || '(flat)');
+        const rows = [...byCmd.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([cmd, s]) => [cmd, `${s.files}`, humanSize(s.bytes)]);
+        printTable(rows, '    ');
+        process.stdout.write('\n');
+      }
+    }
+  } else {
+    // Per-host breakdown (default)
+    const byHost = groupBy(entries, e => e.host);
+    const rows = [...byHost.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([host, s]) => [host, `${s.files}`, humanSize(s.bytes)]);
+    rows.unshift([`${COLOR.dim}host${COLOR.reset}`, `${COLOR.dim}files${COLOR.reset}`, `${COLOR.dim}size${COLOR.reset}`]);
+    printTable(rows, '  ');
+  }
+}
+
+// --- log --prune ---
+
+function parseAge(str) {
+  const m = /^(\d+)([dhm])$/.exec(str);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  const unit = m[2];
+  const ms = unit === 'd' ? n * 86400000 : unit === 'h' ? n * 3600000 : n * 60000;
+  return ms;
+}
+
+// Remove empty directories bottom-up under root (but not root itself).
+function pruneEmptyDirs(dir) {
+  let entries;
+  try { entries = readdirSync(dir, {withFileTypes: true}); } catch { return; }
+  for (const e of entries) {
+    if (e.isDirectory()) pruneEmptyDirs(join(dir, e.name));
+  }
+  // Re-read after children may have been removed
+  try { entries = readdirSync(dir); } catch { return; }
+  if (entries.length === 0) {
+    try { rmdirSync(dir); } catch {}
+  }
+}
+
+export function cmdLogPrune(hostArg, commandArg, ageStr, apply) {
+  const ms = parseAge(ageStr);
+  if (ms == null) die(`invalid age "${ageStr}" — use e.g. 7d, 24h, 30m`);
+
+  const cutoff = Date.now() - ms;
+  const all = collectLogEntries(LOG_DIR);
+  const entries = hostArg
+    ? all.filter(e => e.host === hostArg && (!commandArg || e.command === commandArg))
+    : all;
+
+  const old = entries.filter(e => e.mtime < cutoff);
+  if (old.length === 0) {
+    const scope = commandArg ? `${hostArg}/${commandArg}` : hostArg || 'any host';
+    process.stdout.write(`no logs older than ${ageStr} for ${scope}\n`);
+    return;
+  }
+
+  const totalBytes = old.reduce((s, e) => s + e.size, 0);
+  if (!apply) {
+    process.stdout.write(
+      `${COLOR.bold}dry run${COLOR.reset} — would delete ${old.length} file${old.length === 1 ? '' : 's'}, ${humanSize(totalBytes)}\n\n`
+    );
+    for (const e of old) {
+      const rel = e.path.slice(LOG_DIR.length + 1);
+      process.stdout.write(`  ${COLOR.dim}${rel}${COLOR.reset}\n`);
+    }
+    process.stdout.write(`\nre-run with --apply to delete\n`);
+    return;
+  }
+
+  let deleted = 0, freedBytes = 0, errors = 0;
+  for (const e of old) {
+    try {
+      unlinkSync(e.path);
+      deleted++;
+      freedBytes += e.size;
+    } catch {
+      errors++;
+    }
+  }
+  pruneEmptyDirs(LOG_DIR);
+  process.stdout.write(
+    `deleted ${deleted} file${deleted === 1 ? '' : 's'}, freed ${humanSize(freedBytes)}`
+  );
+  if (errors > 0) process.stdout.write(` (${errors} error${errors === 1 ? '' : 's'})`);
+  process.stdout.write('\n');
 }
 
 // --- list ---

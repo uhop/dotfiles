@@ -27,7 +27,9 @@ import {
   cmdCompleteTargets,
   cmdHosts,
   cmdList,
-  cmdLog
+  cmdLog,
+  cmdLogPrune,
+  cmdLogStats
 } from '../share/playbash/commands.js';
 import {cmdGet, cmdPut} from '../share/playbash/transfer.js';
 import {die} from '../share/playbash/errors.js';
@@ -73,7 +75,7 @@ usage:
   playbash get    <targets> <remote-path> [<local-path>] [-p N] [--self] [--sudo] [-N]
   playbash list
   playbash hosts
-  playbash log    [host] [command]
+  playbash log    [host] [command] [--stats [--by-command]] [--prune AGE [--apply]]
   playbash doctor
   playbash -v, --version            # print version and exit
   playbash --bash-completion        # print bash completion script
@@ -85,6 +87,10 @@ options:
   --sudo             prompt for a password and inject on sudo/doas prompts
   --report           plain-text summary of actionable events to stdout (run/push)
   -N, --no-precheck  skip ssh connectivity pre-flight check
+  --stats            show log file counts and sizes (per-host or per-command)
+  --by-command       break stats down by command within each host
+  --prune AGE        delete logs older than AGE (e.g. 7d, 24h); dry-run by default
+  --apply            actually delete when used with --prune
 
 For more information visit: ${WIKI}`;
 
@@ -103,6 +109,10 @@ const {values, positionals} = parseArgs({
     report: {type: 'boolean', default: false},
     'no-precheck': {type: 'boolean', short: 'N', default: false},
     parallel: {type: 'string', short: 'p', default: '0'},
+    stats: {type: 'boolean', default: false},
+    'by-command': {type: 'boolean', default: false},
+    prune: {type: 'string'},
+    apply: {type: 'boolean', default: false},
     'bash-completion': {type: 'boolean', default: false},
     version: {type: 'boolean', short: 'v', default: false},
     help: {type: 'boolean', short: 'h', default: false}
@@ -327,7 +337,13 @@ switch (command) {
   case 'log': {
     if (rest.length > 2)
       die(`log takes at most two arguments: [host] [command]`);
-    cmdLog(rest[0], rest[1]);
+    if (values.prune != null) {
+      cmdLogPrune(rest[0], rest[1], values.prune, values.apply);
+    } else if (values.stats) {
+      cmdLogStats(rest[0], rest[1], values['by-command']);
+    } else {
+      cmdLog(rest[0], rest[1]);
+    }
     break;
   }
   case '__complete-targets': {
