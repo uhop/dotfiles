@@ -163,12 +163,6 @@ export function cmdLogStats(hostArg, commandArg, byCommand) {
     return;
   }
 
-  const totalBytes = entries.reduce((s, e) => s + e.size, 0);
-  process.stdout.write(
-    `${COLOR.bold}${entries.length}${COLOR.reset} log file${entries.length === 1 ? '' : 's'}, ` +
-    `${COLOR.bold}${humanSize(totalBytes)}${COLOR.reset} in ${LOG_DIR}\n\n`
-  );
-
   if (hostArg || byCommand) {
     // Per-command breakdown (when scoped to a host, or --by-command globally)
     if (hostArg && !byCommand) {
@@ -209,16 +203,22 @@ export function cmdLogStats(hostArg, commandArg, byCommand) {
     rows.unshift([`${COLOR.dim}host${COLOR.reset}`, `${COLOR.dim}files${COLOR.reset}`, `${COLOR.dim}size${COLOR.reset}`]);
     printTable(rows, '  ');
   }
+
+  const totalBytes = entries.reduce((s, e) => s + e.size, 0);
+  process.stdout.write(
+    `\n${COLOR.bold}${entries.length}${COLOR.reset} log file${entries.length === 1 ? '' : 's'}, ` +
+    `${COLOR.bold}${humanSize(totalBytes)}${COLOR.reset} in ${LOG_DIR}\n`
+  );
 }
 
 // --- log --prune ---
 
 function parseAge(str) {
-  const m = /^(\d+)([dhm])$/.exec(str);
+  const m = /^(\d+)([wdhm])$/.exec(str);
   if (!m) return null;
   const n = parseInt(m[1], 10);
   const unit = m[2];
-  const ms = unit === 'd' ? n * 86400000 : unit === 'h' ? n * 3600000 : n * 60000;
+  const ms = unit === 'w' ? n * 604800000 : unit === 'd' ? n * 86400000 : unit === 'h' ? n * 3600000 : n * 60000;
   return ms;
 }
 
@@ -236,9 +236,9 @@ function pruneEmptyDirs(dir) {
   }
 }
 
-export function cmdLogPrune(hostArg, commandArg, ageStr, apply) {
+export function cmdLogPrune(hostArg, commandArg, ageStr, apply, verbose) {
   const ms = parseAge(ageStr);
-  if (ms == null) die(`invalid age "${ageStr}" — use e.g. 7d, 24h, 30m`);
+  if (ms == null) die(`invalid age "${ageStr}" — use e.g. 2w, 7d, 24h, 30m`);
 
   const cutoff = Date.now() - ms;
   const all = collectLogEntries(LOG_DIR);
@@ -255,14 +255,17 @@ export function cmdLogPrune(hostArg, commandArg, ageStr, apply) {
 
   const totalBytes = old.reduce((s, e) => s + e.size, 0);
   if (!apply) {
-    process.stdout.write(
-      `${COLOR.bold}dry run${COLOR.reset} — would delete ${old.length} file${old.length === 1 ? '' : 's'}, ${humanSize(totalBytes)}\n\n`
-    );
-    for (const e of old) {
-      const rel = e.path.slice(LOG_DIR.length + 1);
-      process.stdout.write(`  ${COLOR.dim}${rel}${COLOR.reset}\n`);
+    if (verbose) {
+      for (const e of old) {
+        const rel = e.path.slice(LOG_DIR.length + 1);
+        process.stdout.write(`  ${COLOR.dim}${rel}${COLOR.reset}\n`);
+      }
+      process.stdout.write('\n');
     }
-    process.stdout.write(`\nre-run with --apply to delete\n`);
+    process.stdout.write(
+      `${COLOR.bold}dry run${COLOR.reset} — would delete ${old.length} file${old.length === 1 ? '' : 's'}, ${humanSize(totalBytes)}\n`
+    );
+    process.stdout.write(`re-run with --apply to delete\n`);
     return;
   }
 

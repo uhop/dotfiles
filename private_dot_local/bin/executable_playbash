@@ -89,8 +89,9 @@ options:
   -N, --no-precheck  skip ssh connectivity pre-flight check
   --stats            show log file counts and sizes (per-host or per-command)
   --by-command       break stats down by command within each host
-  --prune AGE        delete logs older than AGE (e.g. 7d, 24h); dry-run by default
+  --prune AGE        delete logs older than AGE (e.g. 2w, 7d, 24h); dry-run by default
   --apply            actually delete when used with --prune
+  --verbose          list individual files in --prune dry-run
 
 For more information visit: ${WIKI}`;
 
@@ -101,24 +102,33 @@ For more information visit: ${WIKI}`;
 
 // --- main dispatcher ---
 
-const {values, positionals} = parseArgs({
-  options: {
-    lines: {type: 'string', short: 'n'},
-    self: {type: 'boolean', default: false},
-    sudo: {type: 'boolean', default: false},
-    report: {type: 'boolean', default: false},
-    'no-precheck': {type: 'boolean', short: 'N', default: false},
-    parallel: {type: 'string', short: 'p', default: '0'},
-    stats: {type: 'boolean', default: false},
-    'by-command': {type: 'boolean', default: false},
-    prune: {type: 'string'},
-    apply: {type: 'boolean', default: false},
-    'bash-completion': {type: 'boolean', default: false},
-    version: {type: 'boolean', short: 'v', default: false},
+let values, positionals;
+try {
+  ({values, positionals} = parseArgs({
+    options: {
+      lines: {type: 'string', short: 'n'},
+      self: {type: 'boolean', default: false},
+      sudo: {type: 'boolean', default: false},
+      report: {type: 'boolean', default: false},
+      'no-precheck': {type: 'boolean', short: 'N', default: false},
+      parallel: {type: 'string', short: 'p', default: '0'},
+      stats: {type: 'boolean', default: false},
+      'by-command': {type: 'boolean', default: false},
+      prune: {type: 'string'},
+      apply: {type: 'boolean', default: false},
+      verbose: {type: 'boolean', default: false},
+      'bash-completion': {type: 'boolean', default: false},
+      version: {type: 'boolean', short: 'v', default: false},
     help: {type: 'boolean', short: 'h', default: false}
-  },
-  allowPositionals: true
-});
+    },
+    allowPositionals: true
+  }));
+} catch (err) {
+  if (err.code === 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE' && /--prune/.test(err.message)) {
+    die('--prune requires an age value (e.g. --prune 7d)');
+  }
+  die(err.message);
+}
 
 // null when the user didn't pass -n; a validated number otherwise.
 const linesFlag =
@@ -338,7 +348,7 @@ switch (command) {
     if (rest.length > 2)
       die(`log takes at most two arguments: [host] [command]`);
     if (values.prune != null) {
-      cmdLogPrune(rest[0], rest[1], values.prune, values.apply);
+      cmdLogPrune(rest[0], rest[1], values.prune, values.apply, values.verbose);
     } else if (values.stats) {
       cmdLogStats(rest[0], rest[1], values['by-command']);
     } else {
