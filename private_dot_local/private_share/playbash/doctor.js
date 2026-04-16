@@ -36,17 +36,13 @@ import {join} from 'node:path';
 
 import {COLOR} from './render.js';
 import {INVENTORY_PATH, isSelfAddress, loadInventory} from './inventory.js';
+import {HELPER_LIB, LOG_DIR, PLAYBOOK_DIR, PLAYBOOK_PREFIX, PTY_WRAPPER} from './paths.js';
 import {parseHostNames} from './ssh-config.js';
 import {run} from './subprocess.js';
 
-const SSH_DIR        = join(homedir(), '.ssh');
-const SSH_CONFIG     = join(SSH_DIR, 'config');
-const PRIVATE_KEYS   = ['id_ed25519', 'id_rsa', 'id_ecdsa', 'id_dsa'];
-const HELPER_LIB     = join(homedir(), '.local', 'libs', 'playbash.sh');
-const PTY_WRAPPER    = join(homedir(), '.local', 'libs', 'playbash-wrap.py');
-const PLAYBOOK_DIR   = join(homedir(), '.local', 'bin');
-const PLAYBOOK_PREFIX = 'playbash-';
-const LOG_DIR        = join(homedir(), '.cache', 'playbash', 'runs');
+const SSH_DIR      = join(homedir(), '.ssh');
+const SSH_CONFIG   = join(SSH_DIR, 'config');
+const PRIVATE_KEYS = ['id_ed25519', 'id_rsa', 'id_ecdsa', 'id_dsa'];
 
 // --- result helper ---
 
