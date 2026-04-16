@@ -1,9 +1,12 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(vault-curl:*)"
+    ]
+  },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true
   },
   "effortLevel": "high",
-  "permissions": {
-    "allow": ["Bash(vault-curl:*)"]
-  }
+  "tui": "fullscreen"
 }
