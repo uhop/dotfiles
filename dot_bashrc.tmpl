@@ -210,7 +210,7 @@ if [ "$__INTERACTIVE" == yes ]; then
   if command -v pet &> /dev/null; then
     function ppet() {
       PREV=$(history | tail -n2 | head -n1 | sed 's/^[[:space:]]*[0-9]*[[:space:]]*//')
-      pet new "$(printf %q "$PREV")"
+      pet new "$PREV"
     }
 
     function pet-select() {
