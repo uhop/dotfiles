@@ -46,6 +46,7 @@ const HELPER_LIB     = join(homedir(), '.local', 'libs', 'playbash.sh');
 const PTY_WRAPPER    = join(homedir(), '.local', 'libs', 'playbash-wrap.py');
 const PLAYBOOK_DIR   = join(homedir(), '.local', 'bin');
 const PLAYBOOK_PREFIX = 'playbash-';
+const LOG_DIR        = join(homedir(), '.cache', 'playbash', 'runs');
 
 // --- result helper ---
 
@@ -104,6 +105,30 @@ function classifySshError(stderr, timedOut) {
   // Generic fallback. Trim noisy first-line.
   const firstLine = stderr.split('\n').find(l => l.trim()) || 'ssh failed';
   return {category: firstLine.trim().slice(0, 60), hint: undefined};
+}
+
+// --- log stats ---
+
+function logStats(dir) {
+  let files = 0, bytes = 0;
+  const walk = d => {
+    let entries;
+    try { entries = readdirSync(d, {withFileTypes: true}); } catch { return; }
+    for (const e of entries) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      try { bytes += statSync(p).size; files++; } catch {}
+    }
+  };
+  walk(dir);
+  return {files, bytes};
+}
+
+function humanSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GiB`;
 }
 
 // --- environment checks ---
@@ -255,6 +280,14 @@ async function checkEnv() {
       'python3', 'fail', 'not on PATH',
       'install python3 (`apt install python3` / `brew install python3`)',
     ));
+  }
+
+  // Run logs
+  const stats = logStats(LOG_DIR);
+  if (stats.files > 0) {
+    checks.push(result('run logs', 'ok', `${stats.files} file${stats.files === 1 ? '' : 's'}, ${humanSize(stats.bytes)} in ${LOG_DIR}`));
+  } else {
+    checks.push(result('run logs', 'ok', `empty (${LOG_DIR})`));
   }
 
   return {checks, inventory: inv};
