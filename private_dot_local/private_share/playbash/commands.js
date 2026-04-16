@@ -136,15 +136,20 @@ function groupBy(entries, keyFn) {
   return map;
 }
 
+// Strip ANSI escape sequences for display-width calculation.
+// Strip all CSI sequences (same pattern as console-toolkit's matchCsiNoGroups).
+const stripAnsi = s => s.replace(/\x1B\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]/g, '');
+
 function printTable(rows, indent = '') {
   if (rows.length === 0) return;
   const widths = rows[0].map((_, col) =>
-    Math.max(...rows.map(r => r[col].length))
+    Math.max(...rows.map(r => stripAnsi(r[col]).length))
   );
   for (const row of rows) {
-    const line = row.map((cell, i) =>
-      i === 0 ? cell.padEnd(widths[i]) : cell.padStart(widths[i])
-    ).join('  ');
+    const line = row.map((cell, i) => {
+      const pad = widths[i] - stripAnsi(cell).length;
+      return i === 0 ? cell + ' '.repeat(pad) : ' '.repeat(pad) + cell;
+    }).join('  ');
     process.stdout.write(`${indent}${line}\n`);
   }
 }
