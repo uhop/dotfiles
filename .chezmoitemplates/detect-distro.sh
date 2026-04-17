@@ -788,15 +788,27 @@ detect::mgr_register transactional-update \
 
 declare -gA __DETECT_CANDIDATES=()
 
+# Managers disabled by detect::apply_overrides. Populated per the §3.8
+# decision table (e.g. dnf is disabled on Silverblue in favor of
+# rpm-ostree). Consumers must call apply_overrides once after identity
+# probes stabilize, or entries stay unset (no overrides applied).
+declare -gA __DETECT_MGR_DISABLED=()
+
 # Echoes newline-separated list of manager names the resolver should
 # consider. Starts with sniffed primary system managers (detect::pkgmgrs_present,
-# which already includes brew and nix via __DETECT_MGR_SNIFFS). Snap is
-# opt-in via DETECT_ALLOW_SNAP=1 so CLI tooling doesn't accidentally route
-# through snap unless the user has said so (design §3.10.2 + plan #4).
+# which already includes brew and nix via __DETECT_MGR_SNIFFS). Entries
+# disabled by apply_overrides are filtered out. Snap is opt-in via
+# DETECT_ALLOW_SNAP=1 so CLI tooling doesn't accidentally route through
+# snap unless the user has said so (design §3.10.2 + plan #4).
 detect::active_managers() {
-  detect::pkgmgrs_present
+  local mgr
+  while IFS= read -r mgr; do
+    [[ -z $mgr ]] && continue
+    [[ ${__DETECT_MGR_DISABLED[$mgr]:-0} == 1 ]] && continue
+    echo "$mgr"
+  done < <(detect::pkgmgrs_present)
   if detect::has_snap && [[ ${DETECT_ALLOW_SNAP:-0} == 1 ]]; then
-    echo snap
+    [[ ${__DETECT_MGR_DISABLED[snap]:-0} == 1 ]] || echo snap
   fi
 }
 
@@ -936,6 +948,66 @@ detect::pkg_ensure() {
     return 2
   fi
   return "$rc"
+}
+
+#------------------------------------------------------------------------------
+# Decision-table overrides (design §3.8)
+#------------------------------------------------------------------------------
+#
+# Where capability sniffing needs a nudge from the declared family — or
+# where a consumer needs to know about an environmental constraint that
+# can't be expressed purely through the resolver — we encode it here.
+# apply_overrides is idempotent: calling it twice with the same detected
+# state yields the same disabled-manager set. Consumers call it once
+# after sourcing detect-distro.sh + detect-packages.sh, before any
+# pkg_resolve / pkg_ensure calls.
+
+# Disable managers that should be superseded on the current host, per
+# the §3.8 decision table. Also emits a one-line warning for the
+# "unknown family but pkgmgr detected" case (rule 5).
+#
+# Rules 3 and 4 (container/init and IPv6) don't change resolution — they
+# expose themselves through the detect::should_* predicates below so
+# consumer install scripts can branch on them.
+detect::apply_overrides() {
+  __DETECT_MGR_DISABLED=()
+  detect::identity
+
+  # Rule 1: rhel + immutable + rpm-ostree → dnf is off-limits.
+  if [[ $DETECTED_FAMILY == rhel ]] \
+    && detect::is_immutable \
+    && detect::has_cmd rpm-ostree; then
+    __DETECT_MGR_DISABLED[dnf]=1
+    __DETECT_MGR_DISABLED[dnf5]=1
+  fi
+
+  # Rule 2: suse + immutable + transactional-update → zypper is off-limits.
+  if [[ $DETECTED_FAMILY == suse ]] \
+    && detect::is_immutable \
+    && detect::has_cmd transactional-update; then
+    __DETECT_MGR_DISABLED[zypper]=1
+  fi
+
+  # Rule 5: unknown family but a pkgmgr is present — proceed, warn once.
+  local primary
+  primary=$(detect::pkgmgr)
+  if [[ $DETECTED_FAMILY == unknown && $primary != unknown ]]; then
+    echo "detect[warn]: unknown family; proceeding with $primary (report if misbehaves)" >&2
+  fi
+
+  return 0
+}
+
+# Rule 3: consumer install scripts can skip systemd-unit steps when
+# there's no systemd to talk to (containers without their own init).
+detect::should_skip_systemd() {
+  detect::is_container && [[ $(detect::init_system) == unknown ]]
+}
+
+# Rule 4: consumer scripts pulling over the network should force IPv4
+# when no IPv6 route is available. Typical use: `curl $(detect::should_force_ipv4 && echo -4) ...`.
+detect::should_force_ipv4() {
+  ! detect::has_ipv6
 }
 
 #==============================================================================
@@ -1104,10 +1176,13 @@ detect::report_json() {
   printf '}\n'
 }
 
-# Clear memoization caches + identity state. Intended for tests that swap
-# OS_RELEASE_PATH or the _* indirection points between calls.
+# Clear memoization caches + identity state + applied overrides.
+# Intended for tests that swap OS_RELEASE_PATH or the _* indirection
+# points between calls. Consumers of the library should NOT call this
+# during normal operation; it's an escape hatch for test harnesses.
 detect::reset() {
   __DETECT_CACHE=()
+  __DETECT_MGR_DISABLED=()
   DETECTED_ID=""
   DETECTED_ID_LIKE=""
   DETECTED_VERSION_ID=""
