@@ -160,6 +160,22 @@ Dispatch:
 
 Library: `~/.local/libs/flatpak-install.sh` exposes the probes (`flatpak_install::has_polkit_rule`, `::in_sudo_group`, `::can_sudo_nopasswd`, `::can_system`, `::system_needs_sudo`, `::chosen_scope`, `::scope_of`, `::has_remote`) for other scripts and the future `detect::` library.
 
+### Bootstrap detection library
+
+Location: `.chezmoitemplates/detect-distro.sh` — a reusable chezmoi template fragment sourced into `bootstrap-dotfiles` (via `curl` or local-checkout inline), `.chezmoi.toml.tmpl` (via `output "bash" "-c" (includeTemplate ...)`), and `run_onchange_*` scripts (via `{{ template ... }}`). Single source of truth for OS identity + capability detection.
+
+Scope of the current commit (PR 1, commit 1): identity probes + version utilities. Capabilities (`pkgmgr`, `is_immutable`, `has_ipv6`, etc.), resolver (`pkg_resolve`, `pkg_ensure`), and candidate tables land in follow-up commits within PR 1. No call sites consume the library yet.
+
+API (current):
+- `detect::identity` — populates `DETECTED_ID`, `DETECTED_ID_LIKE`, `DETECTED_VERSION_ID`, `DETECTED_VARIANT_ID`, `DETECTED_NAME`, `DETECTED_FAMILY` from `$OS_RELEASE_PATH` (default `/etc/os-release`). Memoized.
+- `detect::family_contains <token>` — 0 if token appears as a whole word in `ID` or `ID_LIKE`. Don't use `first-word-of-ID_LIKE` heuristics.
+- `detect::is_version_at_least <n>` — numeric compare on first integer component of `VERSION_ID`. Returns nonzero on rolling distros with no `VERSION_ID`.
+- `detect::_version_normalize <raw>` — strips epoch (`1:`), Debian/RPM packaging suffixes (`-1ubuntu1`, `-3.fc39`), pre-release markers (`~rc1`, `-beta3`), build metadata (`+build4`). Returns bare `X.Y.Z[.W]`.
+- `detect::_version_compare <a> <b>` — component-wise numeric compare of normalized versions. Echoes `-1`/`0`/`1`, returns same magnitude as exit. Missing trailing components treated as 0. MVP — does NOT do SemVer pre-release ordering (single seam for future semver port: `private_dot_local/private_share/utils/semver.js`).
+- `detect::reset` — clears memoization (intended for tests).
+
+Sourcing is idempotent via `__DETECT_DISTRO_LOADED` guard. No side effects on sourcing. Tests: `bash tests/detect/run-tests.sh`.
+
 ### jot
 
 Encrypted S3 notes editor.

@@ -84,6 +84,17 @@ dotfiles/                                          # chezmoi source directory
 │   └── vendors/
 │       └── fzf-git.sh                             # fzf git integration
 │
+├── .chezmoitemplates/                             # reusable template fragments (not deployed)
+│   ├── install-prelude.sh                         # shared header for run_*_install-*.sh scripts
+│   └── detect-distro.sh                           # bootstrap detection library (identity + version utils; capabilities/resolver land in follow-up commits)
+│
+├── tests/detect/                                  # unit tests for detect-distro.sh
+│   ├── run-tests.sh                               # harness; discovers test_*.sh, runs each in a subshell
+│   ├── lib.sh                                     # assert::eq / assert::ok / assert::fail helpers
+│   ├── fixtures/os-release/                       # per-distro /etc/os-release fixtures
+│   ├── test_identity.sh                           # identity pass across all fixtures
+│   └── test_version.sh                            # normalizer + compare
+│
 ├── private_dot_ssh/                               # → ~/.ssh/ (SSH config)
 ├── run_onchange_before_install-packages.sh.tmpl   # package installation
 └── run_once_after_install-vim.sh                   # vim setup
