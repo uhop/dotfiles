@@ -350,6 +350,171 @@ detect::can_sudo_nopasswd() {
   [[ $result == 1 ]]
 }
 
+#------------------------------------------------------------------------------
+# Package manager probes
+#------------------------------------------------------------------------------
+#
+# Ordered pairs: "sniff_binary:canonical_name". Priority is top-to-bottom.
+# Immutable-FS managers come first so they win on hosts that have both
+# (Silverblue ships rpm-ostree AND dnf; installs must go through the former).
+# Traditional natives next, then secondary managers (brew, nix).
+# Two sniffs may map to the same canonical ("dnf5" and "dnf") — pkgmgrs_present
+# dedups canonicals on emit.
+__DETECT_MGR_SNIFFS=(
+  rpm-ostree:rpm-ostree
+  transactional-update:transactional-update
+  apt-get:apt
+  dnf5:dnf
+  dnf:dnf
+  zypper:zypper
+  pacman:pacman
+  apk:apk
+  xbps-install:xbps
+  emerge:emerge
+  eopkg:eopkg
+  brew:brew
+  nix-env:nix
+)
+
+# Echoes newline-separated list of detected system package managers in
+# priority order, deduped by canonical name. Empty output if none found.
+# Memoized.
+detect::pkgmgrs_present() {
+  if [[ ${__DETECT_CACHE[pkgmgrs_present]+set} == set ]]; then
+    [[ -n ${__DETECT_CACHE[pkgmgrs_present]} ]] && echo "${__DETECT_CACHE[pkgmgrs_present]}"
+    return 0
+  fi
+  local found=() seen=" " pair sniff mgr joined
+  for pair in "${__DETECT_MGR_SNIFFS[@]}"; do
+    sniff=${pair%%:*}
+    mgr=${pair#*:}
+    [[ $seen == *" $mgr "* ]] && continue
+    if detect::has_cmd "$sniff"; then
+      found+=("$mgr")
+      seen+="$mgr "
+    fi
+  done
+  joined=$(IFS=$'\n'; echo "${found[*]:-}")
+  __DETECT_CACHE[pkgmgrs_present]=$joined
+  [[ -n $joined ]] && echo "$joined"
+  return 0
+}
+
+# Echoes the top-priority system manager, or `unknown`. Memoized via
+# pkgmgrs_present.
+detect::pkgmgr() {
+  local first
+  first=$(detect::pkgmgrs_present | command head -1)
+  echo "${first:-unknown}"
+}
+
+# 0 if Homebrew is callable. brew itself refuses sudo by design, so
+# presence = usable.
+detect::has_brew() { detect::has_cmd brew; }
+
+# 0 if flatpak is callable AND at least one remote is configured.
+# A flatpak install without a remote has nothing to pull from.
+detect::has_flatpak() {
+  if [[ ${__DETECT_CACHE[has_flatpak]+set} == set ]]; then
+    [[ ${__DETECT_CACHE[has_flatpak]} == 1 ]]
+    return
+  fi
+  local result=0
+  if detect::has_cmd flatpak; then
+    local remotes
+    remotes=$(detect::_run flatpak remotes --columns=name 2>/dev/null || true)
+    [[ -n $remotes ]] && result=1
+  fi
+  __DETECT_CACHE[has_flatpak]=$result
+  [[ $result == 1 ]]
+}
+
+# 0 if snap is callable AND snapd responds. The CLI alone is useless
+# if snapd isn't running (common on minimal containers / distros where
+# snap was installed but the socket is down).
+detect::has_snap() {
+  if [[ ${__DETECT_CACHE[has_snap]+set} == set ]]; then
+    [[ ${__DETECT_CACHE[has_snap]} == 1 ]]
+    return
+  fi
+  local result=0
+  if detect::has_cmd snap && detect::_run snap version >/dev/null 2>&1; then
+    result=1
+  fi
+  __DETECT_CACHE[has_snap]=$result
+  [[ $result == 1 ]]
+}
+
+# 0 if nix is callable via either the legacy nix-env or the newer nix CLI.
+detect::has_nix() {
+  detect::has_cmd nix-env || detect::has_cmd nix
+}
+
+# Language-scoped package managers (design §3.10.4). Presence only —
+# detailed "is this usable here" checks (writable bin dir, $GOBIN set,
+# etc.) can tighten later if the resolver needs these as fallbacks.
+# Currently none are default candidates; they're probed so `report_json`
+# can surface what's available for user-added candidate entries.
+detect::has_npm_global() { detect::has_cmd npm; }
+detect::has_pip_user()   { detect::has_cmd pip3 || detect::has_cmd pip; }
+detect::has_uv_tool()    { detect::has_cmd uv; }
+detect::has_pipx()       { detect::has_cmd pipx; }
+detect::has_cargo()      { detect::has_cmd cargo; }
+detect::has_go_install() { detect::has_cmd go; }
+
+#------------------------------------------------------------------------------
+# Family-consistency cross-check (capability-driven, name as sanity check)
+#------------------------------------------------------------------------------
+#
+# Data table — not a router. Consulted ONLY by detect::family_consistency
+# to diagnose mismatch between what /etc/os-release claims and what's
+# actually installed. Never picks a package manager.
+declare -gA __DETECT_FAMILY_EXPECTED=(
+  [debian]="apt"
+  [rhel]="dnf rpm-ostree"
+  [suse]="zypper transactional-update"
+  [arch]="pacman"
+  [alpine]="apk"
+)
+
+# Echoes consistent | inconsistent | unknown.
+#   consistent   — declared family has an expected pkgmgr on the host
+#   inconsistent — pkgmgrs don't match family expectations, or OS kernel
+#                  disagrees with family (e.g. Darwin kernel + debian family)
+#   unknown      — DETECTED_FAMILY is unknown, so nothing to check against
+#
+# Logs a warning on inconsistency but never blocks. Callers treat the
+# result as diagnostic signal to surface in the report, not as routing.
+detect::family_consistency() {
+  detect::identity
+  if [[ -z $DETECTED_FAMILY || $DETECTED_FAMILY == unknown ]]; then
+    echo unknown
+    return 0
+  fi
+  local expected=${__DETECT_FAMILY_EXPECTED[$DETECTED_FAMILY]:-}
+  if [[ -z $expected ]]; then
+    echo unknown
+    return 0
+  fi
+
+  # Kernel/family sanity: all entries in __DETECT_FAMILY_EXPECTED are
+  # Linux families. Darwin + any of these is inconsistent by definition.
+  if [[ $(detect::uname_s) != Linux ]]; then
+    echo inconsistent
+    return 0
+  fi
+
+  local present=" $(detect::pkgmgrs_present | command tr '\n' ' ')"
+  local mgr
+  for mgr in $expected; do
+    if [[ $present == *" $mgr "* ]]; then
+      echo consistent
+      return 0
+    fi
+  done
+  echo inconsistent
+}
+
 #==============================================================================
 # Section 3 (partial) — Version utilities
 #==============================================================================
