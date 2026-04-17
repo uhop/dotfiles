@@ -82,20 +82,34 @@ detect::identity() {
 }
 
 # Derive a coarse family label from ID + ID_LIKE.
-# Order matters: more-specific forms (debian before generic linux) win.
+#
+# Family is a DIAGNOSTIC label, not a router. Package operations are driven
+# by sniffed package-manager presence (detect::pkgmgr, landing in a later
+# commit) — not by family. Family is used only for genuinely family-scoped
+# semantics that aren't derivable from a pkgmgr check (SELinux defaults,
+# /etc/default/* layout, systemd unit conventions).
+#
+# The match arms rely on derivatives self-declaring ID_LIKE rather than
+# listing every downstream distro by name:
+#   - ubuntu/mint/pop/zorin declare ID_LIKE containing "debian"
+#   - rocky/alma/oracle/amazon declare ID_LIKE containing "fedora" or "rhel"
+#   - opensuse-* (tumbleweed, leap, microos) + SLES declare ID_LIKE containing "suse"
+#   - manjaro/endeavour/garuda declare ID_LIKE="arch"
+# Truly novel distros with no familiar ID_LIKE fall through to `unknown`,
+# which is the correct signal that family-scoped logic should not apply
+# and capability probes should drive decisions instead.
+#
+# Darwin doesn't ship os-release; consumers check $(uname -s) separately.
 detect::_derive_family() {
   local id=$1 id_like=$2
   local haystack=" $id $id_like "
 
-  # Darwin doesn't ship os-release; identity() won't populate here.
-  # Consumers check $(uname -s) separately.
   case "$haystack" in
-    *" debian "*|*" ubuntu "*)  echo debian ;;
-    *" rhel "*|*" fedora "*|*" centos "*)  echo rhel ;;
-    *" suse "*|*" opensuse "*|*" opensuse-tumbleweed "*|*" opensuse-leap "*)  echo suse ;;
-    *" arch "*|*" archlinux "*|*" manjaro "*)  echo arch ;;
+    *" debian "*)  echo debian ;;
+    *" fedora "*|*" rhel "*)  echo rhel ;;
+    *" suse "*)  echo suse ;;
+    *" arch "*)  echo arch ;;
     *" alpine "*)  echo alpine ;;
-    *" amzn "*)  echo rhel ;;
     *)  echo unknown ;;
   esac
 }
