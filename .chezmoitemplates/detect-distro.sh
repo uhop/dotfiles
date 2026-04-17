@@ -1163,6 +1163,93 @@ detect::should_force_ipv4() {
   ! detect::has_ipv6
 }
 
+#------------------------------------------------------------------------------
+# Flatpak dispatch (design §3.10.1.1)
+#------------------------------------------------------------------------------
+#
+# Three legs of the --system vs --user decision for `flatpak install`,
+# collapsed into reusable probes. Absorbed from the standalone
+# `flatpak-install.sh` library (2026-04-16) so consumers can reach them
+# via one source of the detection library.
+
+# Managed polkit rule that authorizes `org.freedesktop.Flatpak.*` for
+# sudo/wheel members without a password — deployed by
+# run_onchange_after_install-flatpak-polkit.sh.tmpl. Override for tests.
+: "${DETECT_FLATPAK_POLKIT_RULE:=/usr/local/share/polkit-1/rules.d/90-flatpak-ssh.rules}"
+
+# Default flatpak remote. The project configures flathub only; consumers
+# can override per-call or via this env var.
+: "${DETECT_FLATPAK_DEFAULT_REMOTE:=flathub}"
+
+# 0 if the managed polkit rule file is present on disk.
+detect::flatpak_has_polkit_rule() {
+  [[ -f $DETECT_FLATPAK_POLKIT_RULE ]]
+}
+
+# 0 if the current user is a member of `sudo` or `wheel`. These are the
+# groups authorized by the polkit rule. `admin` (macOS) is deliberately
+# excluded — flatpak is Linux-only. Built on top of detect::sudo_group,
+# which returns the first matching group from `wheel,sudo,admin`.
+detect::flatpak_in_sudo_group() {
+  local g
+  g=$(detect::sudo_group)
+  [[ $g == sudo || $g == wheel ]]
+}
+
+# 0 if a --system install is viable without a password prompt:
+# either the polkit rule is deployed AND the user is in sudo/wheel, or
+# passwordless sudo is available generally.
+detect::flatpak_can_system() {
+  (detect::flatpak_has_polkit_rule && detect::flatpak_in_sudo_group) \
+    || detect::can_sudo_nopasswd
+}
+
+# Echo the scope that currently holds <pkg>: `system` | `user` | `none`.
+# Checks --system first because it's the project default.
+detect::flatpak_scope_of() {
+  local pkg=$1
+  if detect::_run flatpak info --system "$pkg" >/dev/null 2>&1; then
+    echo system
+  elif detect::_run flatpak info --user "$pkg" >/dev/null 2>&1; then
+    echo user
+  else
+    echo none
+  fi
+}
+
+# Echo the scope the dispatcher picks for a new install: `system` | `user`.
+detect::flatpak_chosen_scope() {
+  if detect::flatpak_can_system; then
+    echo system
+  else
+    echo user
+  fi
+}
+
+# 0 if a --system install must be wrapped in `sudo -n` (i.e., we are
+# relying on passwordless sudo rather than the polkit rule). When this
+# returns 1, plain `flatpak install --system` works because polkit
+# authorizes the user to run Flatpak D-Bus actions without a password;
+# over SSH that path is the only one without an interactive polkit agent.
+#
+# Precondition: only meaningful when flatpak_can_system is true.
+detect::flatpak_system_needs_sudo() {
+  detect::flatpak_has_polkit_rule && detect::flatpak_in_sudo_group && return 1
+  return 0
+}
+
+# 0 if <remote> is configured in the given scope (or any scope when no
+# scope argument is passed).
+# Args: <remote> [system|user]
+detect::flatpak_has_remote() {
+  local remote=$1 scope=${2:-}
+  case "$scope" in
+    system) detect::_run flatpak remotes --system --columns=name 2>/dev/null | command grep -Fxq "$remote" ;;
+    user)   detect::_run flatpak remotes --user   --columns=name 2>/dev/null | command grep -Fxq "$remote" ;;
+    *)      detect::_run flatpak remotes          --columns=name 2>/dev/null | command grep -Fxq "$remote" ;;
+  esac
+}
+
 #==============================================================================
 # Section 4 — Diagnostics
 #==============================================================================

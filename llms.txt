@@ -158,7 +158,7 @@ Dispatch:
 3. Otherwise scope = `user` (no privileges needed).
 4. When scope = `system` without the polkit rule, the install is wrapped in `sudo -n` so it bypasses polkit via root rather than tripping a polkit prompt that can't be answered over SSH.
 
-Library: `~/.local/libs/flatpak-install.sh` exposes the probes (`flatpak_install::has_polkit_rule`, `::in_sudo_group`, `::can_sudo_nopasswd`, `::can_system`, `::system_needs_sudo`, `::chosen_scope`, `::scope_of`, `::has_remote`) for other scripts and the future `detect::` library.
+Probes live under `detect::flatpak_*` in `~/.local/libs/detect-distro.sh` (absorbed from the former standalone library 2026-04-17): `detect::flatpak_has_polkit_rule`, `flatpak_in_sudo_group`, `flatpak_can_system`, `flatpak_system_needs_sudo`, `flatpak_chosen_scope`, `flatpak_scope_of`, `flatpak_has_remote`. `detect::can_sudo_nopasswd` is the shared capability used alongside them.
 
 ### Bootstrap detection library
 

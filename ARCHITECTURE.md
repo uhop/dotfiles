@@ -63,7 +63,8 @@ dotfiles/                                          # chezmoi source directory
 │   │   └── executable_playbash-{daily,weekly,clean,hello,sample}  # playbash playbooks
 │   ├── libs/                                      # → ~/.local/libs/
 │   │   ├── bootstrap.sh                           # options.bash bootstrap
-│   │   ├── flatpak-install.sh                     # probes + scope chooser for flatpak-install
+│   │   ├── detect-distro.sh.tmpl                  # → detect-distro.sh (detection library inlined from .chezmoitemplates/)
+│   │   ├── detect-packages.sh.tmpl                # → detect-packages.sh (candidate tables)
 │   │   ├── playbash.sh                            # event helpers sourced by playbash playbooks
 │   │   ├── playbash-wrap.py                       # cross-platform PTY wrapper (stdin relay for --sudo)
 │   │   └── maintenance.sh                         # report_reboot/warn/action + apt-history scan

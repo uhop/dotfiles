@@ -4,7 +4,7 @@ set -euCo pipefail
 shopt -s expand_aliases
 
 . ~/.local/libs/bootstrap.sh
-. ~/.local/libs/flatpak-install.sh
+. ~/.local/libs/detect-distro.sh
 
 deps::need flatpak
 
@@ -36,7 +36,7 @@ DRY_RUN=0; [[ -v args_options["-n"] ]] && DRY_RUN=1
 VERBOSE=0; [[ -v args_options["--verbose"] ]] && VERBOSE=1
 ASSUME_YES=0; [[ -v args_options["-y"] ]] && ASSUME_YES=1
 
-REMOTE="${args_options[--remote]:-$FLATPAK_INSTALL_REMOTE}"
+REMOTE="${args_options[--remote]:-$DETECT_FLATPAK_DEFAULT_REMOTE}"
 
 FORCE_SCOPE=""
 if [[ -v args_options["--system"] ]] && [[ -v args_options["--user"] ]]; then
@@ -50,19 +50,19 @@ fi
 
 if [ -n "$FORCE_SCOPE" ]; then
   scope=$FORCE_SCOPE
-  if [ "$scope" = system ] && ! flatpak_install::can_system; then
+  if [ "$scope" = system ] && ! detect::flatpak_can_system; then
     ansi::err "${ERROR}--system requested but not viable:${RESET_ALL}"
-    ansi::err "  polkit rule present: $(flatpak_install::has_polkit_rule && echo yes || echo no)"
-    ansi::err "  user in sudo/wheel:  $(flatpak_install::in_sudo_group  && echo yes || echo no)"
-    ansi::err "  passwordless sudo:   $(flatpak_install::can_sudo_nopasswd && echo yes || echo no)"
+    ansi::err "  polkit rule present: $(detect::flatpak_has_polkit_rule && echo yes || echo no)"
+    ansi::err "  user in sudo/wheel:  $(detect::flatpak_in_sudo_group  && echo yes || echo no)"
+    ansi::err "  passwordless sudo:   $(detect::can_sudo_nopasswd && echo yes || echo no)"
     exit 1
   fi
 else
-  scope=$(flatpak_install::chosen_scope)
+  scope=$(detect::flatpak_chosen_scope)
 fi
 
-if ! flatpak_install::has_remote "$REMOTE" "$scope"; then
-  if flatpak_install::has_remote "$REMOTE"; then
+if ! detect::flatpak_has_remote "$REMOTE" "$scope"; then
+  if detect::flatpak_has_remote "$REMOTE"; then
     ansi::err "${ERROR}remote '$REMOTE' is not configured in --$scope scope${RESET_ALL}"
     ansi::err "  (it exists in the other scope; re-add it or switch scope)"
   else
@@ -77,7 +77,7 @@ fi
 to_install=()
 skipped=()
 for pkg in "$@"; do
-  case "$(flatpak_install::scope_of "$pkg")" in
+  case "$(detect::flatpak_scope_of "$pkg")" in
     system) skipped+=("$pkg (already installed: system)") ;;
     user)   skipped+=("$pkg (already installed: user)") ;;
     none)   to_install+=("$pkg") ;;
@@ -88,7 +88,7 @@ done
 
 if [ "$VERBOSE" -eq 1 ] || [ "$DRY_RUN" -eq 1 ]; then
   auth=polkit
-  [ "$scope" = system ] && flatpak_install::system_needs_sudo && auth="sudo (nopasswd)"
+  [ "$scope" = system ] && detect::flatpak_system_needs_sudo && auth="sudo (nopasswd)"
   [ "$scope" = user ] && auth="n/a (user scope)"
   ansi::out "${BOLD}install scope:${RESET_ALL} $scope  ${BOLD}auth:${RESET_ALL} $auth"
   ansi::out "${BOLD}remote:${RESET_ALL} $REMOTE"
@@ -110,7 +110,7 @@ fi
 # --- Execute ---
 
 cmd=()
-if [ "$scope" = system ] && flatpak_install::system_needs_sudo; then
+if [ "$scope" = system ] && detect::flatpak_system_needs_sudo; then
   cmd+=(sudo -n)
 fi
 cmd+=(flatpak install "--$scope")
