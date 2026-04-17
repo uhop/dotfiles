@@ -29,8 +29,37 @@ detect::_which() {
   command -v "$1" >/dev/null 2>&1
 }
 
+# Run an external command and return its stdout + exit. Indirection point
+# for tests that need to canned-return non-filesystem command output.
+detect::_run() {
+  "$@"
+}
+
+# Probe a URL with HEAD within a short timeout. Indirection point for
+# tests so network reachability checks don't actually touch the network.
+detect::_net_get() {
+  curl --max-time 5 -sI "$1" >/dev/null 2>&1
+}
+
+# Current user name. DETECT_USER_OVERRIDE pins it for tests.
+detect::_user() {
+  if [[ -n ${DETECT_USER_OVERRIDE:-} ]]; then
+    echo "$DETECT_USER_OVERRIDE"
+  else
+    id -un
+  fi
+}
+
 # Memoization cache — keyed by probe name. `detect::reset` clears it.
 declare -gA __DETECT_CACHE=()
+
+# Paths probed in Section 2 — overridable for tests so filesystem-dependent
+# checks can point at a tmpdir.
+: "${DETECT_SYSTEMD_RUN:=/run/systemd/system}"
+: "${DETECT_OSTREE_BOOTED:=/run/ostree-booted}"
+: "${DETECT_OPENRC_SOFTLEVEL:=/run/openrc/softlevel}"
+: "${DETECT_DOCKERENV:=/.dockerenv}"
+: "${DETECT_WSL_BINFMT:=/proc/sys/fs/binfmt_misc/WSLInterop}"
 
 #==============================================================================
 # Section 1 — Identity (name-based, Pass 1)
@@ -138,6 +167,190 @@ detect::is_version_at_least() {
 }
 
 #==============================================================================
+# Section 2 — Capabilities (sniffed, Pass 2)
+#==============================================================================
+#
+# Capabilities drive behavior. DETECTED_FAMILY is a DIAGNOSTIC label only —
+# never consulted here to pick a code path. detect::family_consistency
+# (Section 2b, not yet landed) cross-checks sniffed state against the
+# declared family and logs mismatches; it never blocks. See design doc
+# §5 + project memory on capability-driven detection.
+
+# 0 if <cmd> is on PATH. Memoized per-name.
+detect::has_cmd() {
+  local cmd=$1
+  local key="has_cmd:$cmd"
+  if [[ ${__DETECT_CACHE[$key]+set} == set ]]; then
+    [[ ${__DETECT_CACHE[$key]} == 1 ]]
+    return
+  fi
+  if detect::_which "$cmd"; then
+    __DETECT_CACHE[$key]=1
+    return 0
+  fi
+  __DETECT_CACHE[$key]=0
+  return 1
+}
+
+# CPU architecture from `uname -m`. Echoes x86_64, aarch64, armv7l, etc.
+detect::arch() {
+  if [[ ${__DETECT_CACHE[arch]+set} != set ]]; then
+    __DETECT_CACHE[arch]=$(detect::_run uname -m)
+  fi
+  echo "${__DETECT_CACHE[arch]}"
+}
+
+# Kernel identity from `uname -s`. Echoes Linux, Darwin, FreeBSD, etc.
+detect::uname_s() {
+  if [[ ${__DETECT_CACHE[uname_s]+set} != set ]]; then
+    __DETECT_CACHE[uname_s]=$(detect::_run uname -s)
+  fi
+  echo "${__DETECT_CACHE[uname_s]}"
+}
+
+# Echoes systemd|openrc|runit|s6|launchd|unknown.
+# Signal priority: Darwin → launchd; systemd runtime dir; openrc softlevel;
+# specific binaries on PATH for runit/s6.
+detect::init_system() {
+  if [[ ${__DETECT_CACHE[init_system]+set} == set ]]; then
+    echo "${__DETECT_CACHE[init_system]}"
+    return 0
+  fi
+  local result=unknown
+  if [[ $(detect::uname_s) == Darwin ]]; then
+    result=launchd
+  elif [[ -d $DETECT_SYSTEMD_RUN ]]; then
+    result=systemd
+  elif [[ -e $DETECT_OPENRC_SOFTLEVEL ]]; then
+    result=openrc
+  elif detect::has_cmd runit-init; then
+    result=runit
+  elif detect::has_cmd s6-svscan; then
+    result=s6
+  fi
+  __DETECT_CACHE[init_system]=$result
+  echo "$result"
+}
+
+# 0 if the root filesystem is immutable (read-only /usr family).
+# Read-only signals only — never attempts a write (§5.2 in design).
+detect::is_immutable() {
+  if [[ ${__DETECT_CACHE[is_immutable]+set} == set ]]; then
+    [[ ${__DETECT_CACHE[is_immutable]} == 1 ]]
+    return
+  fi
+  local result=0
+  if detect::has_cmd rpm-ostree \
+    || detect::has_cmd transactional-update \
+    || [[ -e $DETECT_OSTREE_BOOTED ]]; then
+    result=1
+  fi
+  __DETECT_CACHE[is_immutable]=$result
+  [[ $result == 1 ]]
+}
+
+# 0 if running inside a container (Docker, podman, LXC, systemd-nspawn).
+detect::is_container() {
+  if [[ ${__DETECT_CACHE[is_container]+set} == set ]]; then
+    [[ ${__DETECT_CACHE[is_container]} == 1 ]]
+    return
+  fi
+  local result=0
+  if [[ -e $DETECT_DOCKERENV ]] || [[ -n ${container:-} ]]; then
+    result=1
+  elif detect::has_cmd systemd-detect-virt \
+    && [[ -n "$(detect::_run systemd-detect-virt -c 2>/dev/null || true)" ]]; then
+    result=1
+  fi
+  __DETECT_CACHE[is_container]=$result
+  [[ $result == 1 ]]
+}
+
+# 0 if running on WSL (any version).
+detect::is_wsl() {
+  if [[ ${__DETECT_CACHE[is_wsl]+set} == set ]]; then
+    [[ ${__DETECT_CACHE[is_wsl]} == 1 ]]
+    return
+  fi
+  local result=0
+  if [[ -n ${WSL_DISTRO_NAME:-} || -n ${WSL_INTEROP:-} ]] \
+    || [[ -e $DETECT_WSL_BINFMT ]]; then
+    result=1
+  fi
+  __DETECT_CACHE[is_wsl]=$result
+  [[ $result == 1 ]]
+}
+
+# 0 if a real IPv6 route to a public host exists (via `ip -6 route get`).
+# Uses `ip route get` rather than ping because ping needs CAP_NET_RAW.
+# Target is Cloudflare's 2606:4700:4700::1111 — anycast, always up.
+detect::has_ipv6() {
+  if [[ ${__DETECT_CACHE[has_ipv6]+set} == set ]]; then
+    [[ ${__DETECT_CACHE[has_ipv6]} == 1 ]]
+    return
+  fi
+  local result=0
+  if detect::has_cmd ip \
+    && detect::_run timeout 3 ip -6 route get 2606:4700:4700::1111 >/dev/null 2>&1; then
+    result=1
+  fi
+  __DETECT_CACHE[has_ipv6]=$result
+  [[ $result == 1 ]]
+}
+
+# 0 if <url> responds to a HEAD request within 5s. Memoized per-URL.
+detect::can_reach() {
+  local url=$1
+  local key="can_reach:$url"
+  if [[ ${__DETECT_CACHE[$key]+set} == set ]]; then
+    [[ ${__DETECT_CACHE[$key]} == 1 ]]
+    return
+  fi
+  local result=0
+  if detect::_net_get "$url"; then
+    result=1
+  fi
+  __DETECT_CACHE[$key]=$result
+  [[ $result == 1 ]]
+}
+
+# Echoes the first sudo-capable group the user belongs to, or empty if none.
+# Candidates (in priority order): wheel, sudo, admin. Memoized.
+detect::sudo_group() {
+  if [[ ${__DETECT_CACHE[sudo_group]+set} == set ]]; then
+    local v=${__DETECT_CACHE[sudo_group]}
+    [[ $v == __NONE__ ]] && echo "" || echo "$v"
+    return 0
+  fi
+  local user groups group
+  user=$(detect::_user)
+  groups=$(detect::_run id -nG "$user" 2>/dev/null || echo "")
+  for group in wheel sudo admin; do
+    if [[ " $groups " == *" $group "* ]]; then
+      __DETECT_CACHE[sudo_group]=$group
+      echo "$group"
+      return 0
+    fi
+  done
+  __DETECT_CACHE[sudo_group]=__NONE__
+  echo ""
+}
+
+# 0 if passwordless sudo is currently usable.
+detect::can_sudo_nopasswd() {
+  if [[ ${__DETECT_CACHE[can_sudo_nopasswd]+set} == set ]]; then
+    [[ ${__DETECT_CACHE[can_sudo_nopasswd]} == 1 ]]
+    return
+  fi
+  local result=0
+  if detect::has_cmd sudo && detect::_run sudo -n true 2>/dev/null; then
+    result=1
+  fi
+  __DETECT_CACHE[can_sudo_nopasswd]=$result
+  [[ $result == 1 ]]
+}
+
+#==============================================================================
 # Section 3 (partial) — Version utilities
 #==============================================================================
 
@@ -191,11 +404,11 @@ detect::_version_compare() {
 }
 
 #==============================================================================
-# Diagnostics
+# Section 4 — Diagnostics (partial)
 #==============================================================================
 
-# Clear memoization caches. Intended for tests that swap OS_RELEASE_PATH
-# between calls.
+# Clear memoization caches + identity state. Intended for tests that swap
+# OS_RELEASE_PATH or the _* indirection points between calls.
 detect::reset() {
   __DETECT_CACHE=()
   DETECTED_ID=""
@@ -204,4 +417,21 @@ detect::reset() {
   DETECTED_VARIANT_ID=""
   DETECTED_NAME=""
   DETECTED_FAMILY=""
+}
+
+# Falsifiability guard per design §5.5: the library must not be invoked
+# via sudo during sniffing. Running as actual root is FINE (container
+# bootstrap scenarios); only the sudo-escalation path is rejected, since
+# a sudo'd library would pick up root-scoped file permissions and mask
+# real unprivileged-user probe failures.
+#
+# CI test: `sudo -n -u nobody bash -c '. detect-distro.sh; detect::summary'`
+# must succeed. If it fails, we've regressed.
+detect::_assert_no_sudo() {
+  [[ ${EUID:-$(id -u)} -eq 0 ]] && return 0
+  if [[ -n ${SUDO_USER:-} ]]; then
+    echo "detect[error]: library must not be invoked via sudo during sniffing phase" >&2
+    return 1
+  fi
+  return 0
 }
