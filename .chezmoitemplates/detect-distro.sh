@@ -852,6 +852,92 @@ detect::pkg_resolve() {
   return 1
 }
 
+#------------------------------------------------------------------------------
+# Orchestrator: resolve + batched install per manager
+#------------------------------------------------------------------------------
+
+# Ensure one or more logical capabilities are installed. For each
+# capability:
+#   1. Resolve it to a (mgr, pkg) pair via detect::pkg_resolve.
+#   2. Skip if pkg_has already reports it installed.
+#   3. Otherwise accumulate into a per-manager bucket.
+# Then issue one install call per manager (batched per design §3.6.3).
+#
+# Flags:
+#   --dry-run   Print what would run; do not execute.
+#   --strict    Return 2 if any capability is unresolved (default: warn
+#               and continue with the rest).
+#
+# Exit codes:
+#   0  all capabilities resolved and installed/skipped successfully
+#   1  one or more install commands failed
+#   2  one or more capabilities unresolved (only with --strict)
+#  64  unknown flag
+#
+# Progress lines go to stderr with a `detect[...]` tag so callers can
+# filter / capture cleanly.
+detect::pkg_ensure() {
+  local dry_run=0 strict=0
+  while (( $# > 0 )); do
+    case "$1" in
+      --dry-run) dry_run=1; shift ;;
+      --strict)  strict=1;  shift ;;
+      --) shift; break ;;
+      -*)
+        echo "detect[error]: pkg_ensure: unknown flag: $1" >&2
+        return 64
+        ;;
+      *) break ;;
+    esac
+  done
+  (( $# == 0 )) && return 0
+
+  local -A buckets=()
+  local -a unresolved=()
+
+  local cap result mgr name
+  for cap; do
+    if ! result=$(detect::pkg_resolve "$cap"); then
+      unresolved+=("$cap")
+      echo "detect[warn]: no candidate resolved for '$cap'" >&2
+      continue
+    fi
+    read -r mgr name <<<"$result"
+    if detect::pkg_has "$mgr" "$name"; then
+      echo "detect[skip] $cap: $mgr/$name (already installed)" >&2
+      continue
+    fi
+    buckets[$mgr]="${buckets[$mgr]:+${buckets[$mgr]} }$name"
+  done
+
+  local rc=0 tmpl cmd pkgs
+  for mgr in "${!buckets[@]}"; do
+    pkgs=${buckets[$mgr]}
+    tmpl=${__DETECT_MGR_INSTALL[$mgr]:-}
+    if [[ -z $tmpl ]]; then
+      echo "detect[error]: $mgr has no install template — cannot install: $pkgs" >&2
+      rc=1
+      continue
+    fi
+    # shellcheck disable=SC2086
+    cmd=$(detect::_subst_pkgs "$tmpl" $pkgs)
+    echo "detect[install] $mgr: $pkgs" >&2
+    if (( dry_run )); then
+      echo "[dry-run] $cmd" >&2
+    else
+      if ! detect::_run bash -c "$cmd"; then
+        rc=1
+        echo "detect[error]: $mgr install failed: $cmd" >&2
+      fi
+    fi
+  done
+
+  if (( ${#unresolved[@]} > 0 && strict )); then
+    return 2
+  fi
+  return "$rc"
+}
+
 #==============================================================================
 # Section 4 — Diagnostics
 #==============================================================================
