@@ -101,6 +101,54 @@ else
   ansi::out "${OK}Remote: $REMOTE_OS ($REMOTE_ID)${RESET_ALL}"
 fi
 
+# --- Place the detection library at /tmp on the target ---
+#
+# bootstrap-dotfiles runs on a machine that already has `~/.local/libs/
+# detect-distro.sh` (chezmoi-deployed from `.chezmoitemplates/`). The
+# target machine (fresh host in remote mode, or the local machine in
+# --from-jot mode) doesn't have it yet — chezmoi hasn't applied there.
+# Rather than inline the library into the generated install script via
+# heredoc (fragile quoting, 1300-line generated scripts), we copy the
+# two files over alongside the install script so the script can just
+# `source /tmp/detect-*.sh` at runtime.
+#
+# Upload uses the same `ssh ... cat >` idiom as the install script
+# upload below — no scp dep, works with any SSH server, matches style.
+
+LIB_SRC="$HOME/.local/libs"
+LIB_FILES=(detect-distro.sh detect-packages.sh)
+
+place_detect_library() {
+  # Only place if the source files exist — degrades gracefully on
+  # operator machines that haven't pulled the library yet. The install
+  # script's source-the-library stanza is also tolerant of missing files.
+  local missing=0
+  for f in "${LIB_FILES[@]}"; do
+    [[ -r "$LIB_SRC/$f" ]] || { missing=1; break; }
+  done
+  if (( missing )); then
+    ansi::warn "${WARN}Detection library not found at $LIB_SRC — install script will skip its code paths.${RESET_ALL}"
+    ansi::warn "${DIM}Hint: run \`chezmoi apply\` on this machine so \$LIB_SRC/detect-distro.sh is deployed.${RESET_ALL}"
+    return
+  fi
+
+  if [[ -n "$FROM_JOT" ]]; then
+    ansi::out "${INFO}Placing detection library in /tmp...${RESET_ALL}"
+    for f in "${LIB_FILES[@]}"; do
+      command cp "$LIB_SRC/$f" "/tmp/$f"
+    done
+    ansi::out "${OK}Placed${RESET_ALL}"
+  else
+    ansi::out "${INFO}Uploading detection library to $HOST:/tmp...${RESET_ALL}"
+    for f in "${LIB_FILES[@]}"; do
+      ssh "$HOST" "cat > /tmp/$f" < "$LIB_SRC/$f"
+    done
+    ansi::out "${OK}Uploaded${RESET_ALL}"
+  fi
+}
+
+place_detect_library
+
 # --- Generate install script ---
 
 REMOTE_SCRIPT="/tmp/install-dotfiles.sh"
@@ -109,6 +157,26 @@ generate_script() {
   cat <<'SCRIPT_HEADER'
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Source the detection library if it was placed alongside us by
+# bootstrap-dotfiles. Bash 4+ is required (associative arrays); macOS's
+# default bash 3.2 will skip the source and fall back to the original
+# case-based install logic below. Clean up the library files on exit so
+# /tmp doesn't accumulate cruft across re-runs.
+DETECT_LOADED=0
+if (( BASH_VERSINFO[0] >= 4 )); then
+  for d in /tmp "$HOME/.local/libs"; do
+    if [[ -r "$d/detect-distro.sh" ]]; then
+      # shellcheck disable=SC1091
+      source "$d/detect-distro.sh"
+      [[ -r "$d/detect-packages.sh" ]] && source "$d/detect-packages.sh"
+      detect::apply_overrides 2>/dev/null || true
+      DETECT_LOADED=1
+      break
+    fi
+  done
+fi
+trap 'rm -f /tmp/detect-distro.sh /tmp/detect-packages.sh' EXIT
 
 BOLD="\033[1m"
 GREEN="\033[32m"
