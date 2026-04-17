@@ -41,6 +41,7 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_cln.tmpl                    # system cleanup
 │   │   ├── executable_dcm                         # docker compose manager with change detection and apparmor retry
 │   │   ├── executable_dcms                        # all docker stacks under ~/servers/
+│   │   ├── executable_flatpak-install              # flatpak installer dispatching --system vs --user
 │   │   ├── executable_goup                        # run command up directory tree
 │   │   ├── executable_gpurr                       # git pull all repos
 │   │   ├── executable_gpwiki                      # git push wiki
@@ -62,6 +63,7 @@ dotfiles/                                          # chezmoi source directory
 │   │   └── executable_playbash-{daily,weekly,clean,hello,sample}  # playbash playbooks
 │   ├── libs/                                      # → ~/.local/libs/
 │   │   ├── bootstrap.sh                           # options.bash bootstrap
+│   │   ├── flatpak-install.sh                     # probes + scope chooser for flatpak-install
 │   │   ├── playbash.sh                            # event helpers sourced by playbash playbooks
 │   │   ├── playbash-wrap.py                       # cross-platform PTY wrapper (stdin relay for --sudo)
 │   │   └── maintenance.sh                         # report_reboot/warn/action + apt-history scan

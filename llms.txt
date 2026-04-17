@@ -137,6 +137,29 @@ Options:
 
 Cleans: `apt autoremove/autoclean` (Debian), `dnf autoremove` + `dnf clean all` (Red Hat-like), `flatpak uninstall --unused`, `brew autoremove/cleanup`, `docker system prune`, node version management.
 
+### flatpak-install
+
+Install flatpak packages, dispatching between `--system` and `--user` scopes.
+
+Usage: `flatpak-install [options] <package>...`
+
+Options:
+- `--system` — force system install (errors if not viable)
+- `--user` — force user install
+- `--remote=REMOTE` — flatpak remote to install from (default: `flathub`)
+- `-n, --dry-run` — print the plan without installing
+- `--verbose` — show per-package dispatch decisions
+- `-y, --yes` — assume yes to flatpak prompts
+- `-v, --version`, `-h, --help`
+
+Dispatch:
+1. Dedup via `flatpak info <pkg>` — packages already installed in either scope are skipped.
+2. Scope = `system` when the managed polkit rule at `/usr/local/share/polkit-1/rules.d/90-flatpak-ssh.rules` is present AND the user is in `sudo`/`wheel`, OR when `sudo -n true` succeeds.
+3. Otherwise scope = `user` (no privileges needed).
+4. When scope = `system` without the polkit rule, the install is wrapped in `sudo -n` so it bypasses polkit via root rather than tripping a polkit prompt that can't be answered over SSH.
+
+Library: `~/.local/libs/flatpak-install.sh` exposes the probes (`flatpak_install::has_polkit_rule`, `::in_sudo_group`, `::can_sudo_nopasswd`, `::can_system`, `::system_needs_sudo`, `::chosen_scope`, `::scope_of`, `::has_remote`) for other scripts and the future `detect::` library.
+
 ### jot
 
 Encrypted S3 notes editor.

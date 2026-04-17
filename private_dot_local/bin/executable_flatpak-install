@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+. ~/.local/libs/bootstrap.sh
+. ~/.local/libs/flatpak-install.sh
+
+deps::need flatpak
+
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0.0" "Install flatpak packages, dispatching between --system and --user" "https://github.com/uhop/dotfiles/wiki/Flatpak-Install"
+
+args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset} ${args_help_command_arg}<package>...${args_help_reset}"
+
+args::option "--system" "Force system install (errors if not viable)"
+args::option "--user" "Force user install"
+args::option "--remote" "Flatpak remote to install from (default: flathub)" "remote"
+args::option "-n, --dry-run" "Show the plan without installing"
+args::option "--verbose" "Show per-package dispatch decisions"
+args::option "-y, --yes" "Assume yes to flatpak prompts"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+if [ "$#" -eq 0 ]; then
+  ansi::err "${ERROR}no packages specified${RESET_ALL}"
+  exit 1
+fi
+
+DRY_RUN=0; [[ -v args_options["-n"] ]] && DRY_RUN=1
+VERBOSE=0; [[ -v args_options["--verbose"] ]] && VERBOSE=1
+ASSUME_YES=0; [[ -v args_options["-y"] ]] && ASSUME_YES=1
+
+REMOTE="${args_options[--remote]:-$FLATPAK_INSTALL_REMOTE}"
+
+FORCE_SCOPE=""
+if [[ -v args_options["--system"] ]] && [[ -v args_options["--user"] ]]; then
+  ansi::err "${ERROR}--system and --user are mutually exclusive${RESET_ALL}"
+  exit 1
+fi
+[[ -v args_options["--system"] ]] && FORCE_SCOPE=system
+[[ -v args_options["--user"]   ]] && FORCE_SCOPE=user
+
+# --- Resolve install scope ---
+
+if [ -n "$FORCE_SCOPE" ]; then
+  scope=$FORCE_SCOPE
+  if [ "$scope" = system ] && ! flatpak_install::can_system; then
+    ansi::err "${ERROR}--system requested but not viable:${RESET_ALL}"
+    ansi::err "  polkit rule present: $(flatpak_install::has_polkit_rule && echo yes || echo no)"
+    ansi::err "  user in sudo/wheel:  $(flatpak_install::in_sudo_group  && echo yes || echo no)"
+    ansi::err "  passwordless sudo:   $(flatpak_install::can_sudo_nopasswd && echo yes || echo no)"
+    exit 1
+  fi
+else
+  scope=$(flatpak_install::chosen_scope)
+fi
+
+if ! flatpak_install::has_remote "$REMOTE" "$scope"; then
+  if flatpak_install::has_remote "$REMOTE"; then
+    ansi::err "${ERROR}remote '$REMOTE' is not configured in --$scope scope${RESET_ALL}"
+    ansi::err "  (it exists in the other scope; re-add it or switch scope)"
+  else
+    ansi::err "${ERROR}remote '$REMOTE' is not configured${RESET_ALL}"
+    ansi::err "  add with: flatpak remote-add --if-not-exists --$scope $REMOTE https://dl.flathub.org/repo/flathub.flatpakrepo"
+  fi
+  exit 1
+fi
+
+# --- Classify each input package ---
+
+to_install=()
+skipped=()
+for pkg in "$@"; do
+  case "$(flatpak_install::scope_of "$pkg")" in
+    system) skipped+=("$pkg (already installed: system)") ;;
+    user)   skipped+=("$pkg (already installed: user)") ;;
+    none)   to_install+=("$pkg") ;;
+  esac
+done
+
+# --- Report ---
+
+if [ "$VERBOSE" -eq 1 ] || [ "$DRY_RUN" -eq 1 ]; then
+  auth=polkit
+  [ "$scope" = system ] && flatpak_install::system_needs_sudo && auth="sudo (nopasswd)"
+  [ "$scope" = user ] && auth="n/a (user scope)"
+  ansi::out "${BOLD}install scope:${RESET_ALL} $scope  ${BOLD}auth:${RESET_ALL} $auth"
+  ansi::out "${BOLD}remote:${RESET_ALL} $REMOTE"
+  if [ "${#skipped[@]}" -gt 0 ]; then
+    ansi::out "${BOLD}already installed:${RESET_ALL}"
+    for line in "${skipped[@]}"; do ansi::out "  $line"; done
+  fi
+  if [ "${#to_install[@]}" -gt 0 ]; then
+    ansi::out "${BOLD}to install:${RESET_ALL}"
+    for pkg in "${to_install[@]}"; do ansi::out "  $pkg"; done
+  fi
+fi
+
+if [ "${#to_install[@]}" -eq 0 ]; then
+  [ "$DRY_RUN" -eq 1 ] || ansi::out "${INFO}nothing to install${RESET_ALL}"
+  exit 0
+fi
+
+# --- Execute ---
+
+cmd=()
+if [ "$scope" = system ] && flatpak_install::system_needs_sudo; then
+  cmd+=(sudo -n)
+fi
+cmd+=(flatpak install "--$scope")
+[ "$ASSUME_YES" -eq 1 ] && cmd+=(-y)
+cmd+=("$REMOTE" "${to_install[@]}")
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  ansi::out "${BOLD}would run:${RESET_ALL} ${cmd[*]}"
+  exit 0
+fi
+
+echoRun --bold "${cmd[@]}"

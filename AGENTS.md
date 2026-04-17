@@ -50,6 +50,7 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── executable_cln.tmpl        # Cleanup script (apt/dnf, brew, flatpak, docker, node)
 │   │   ├── executable_dcm             # Docker compose manager with change detection and apparmor retry
 │   │   ├── executable_dcms            # All docker-compose stacks under ~/servers/
+│   │   ├── executable_flatpak-install # Flatpak installer, dispatches between --system and --user
 │   │   ├── executable_goup            # Run command in current + parent directories
 │   │   ├── executable_gpurr           # Git pull all repos
 │   │   ├── executable_gpwiki          # Git push wiki
@@ -71,6 +72,7 @@ dotfiles/                              # chezmoi source directory
 │   │   └── executable_playbash-{daily,weekly,clean,hello,sample}  # playbash playbooks
 │   ├── libs/
 │   │   ├── bootstrap.sh               # Sources options.bash core modules
+│   │   ├── flatpak-install.sh         # Probes + scope chooser sourced by flatpak-install
 │   │   ├── playbash.sh                # Sidecar/event helpers sourced by playbash playbooks
 │   │   ├── playbash-wrap.py           # Cross-platform PTY wrapper (stdin relay for --sudo)
 │   │   └── maintenance.sh             # report_reboot/warn/action helpers + apt-history scanning
@@ -196,3 +198,4 @@ The `dev-docs/` directory holds active design documents — long-lived reference
 - Maintenance scripts (`upd`, `cln`) source `~/.local/libs/maintenance.sh` for shared `report_reboot` / `report_warn` / `report_action` helpers. Each helper prints a colored message via options.bash AND writes a JSON-lines event to `$PLAYBASH_REPORT` when the script runs under the playbash runner. The helpers do not depend on `playbash.sh`; the JSON writer is inlined.
 - The playbash runner (`~/.local/bin/playbash`) is a multi-host playbook runner (v1–v3 complete, v3.4+). Subcommands: `run`, `push`, `debug`, `exec`, `put`, `get`, `list`, `hosts`, `log`, `doctor`. Targets always come first: `playbash <cmd> <targets> <rest>`. The special target `@self` resolves to the local hostname and implies `--self` — used for scheduled local runs. Options include `--sudo` (prompt once for a password; for run/exec/push/debug injects via PTY stdin relay; for put/get wraps remote commands with `sudo -S` and prepends the password to stdin) and `--report` (writes a plain-text summary of actionable events to stdout for notification wrappers). `log` supports `--stats` (per-host/per-command breakdown with `--by-command`) and `--prune AGE` (dry-run by default, `--apply` to delete, `--verbose` to list files; ages like `2w`, `7d`, `24h`). `doctor` includes run log file count and size. Inventory hosts are managed; bare ssh aliases get playbooks pushed automatically. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management) on the wiki and [`dev-docs/playbash-design.md`](./dev-docs/playbash-design.md) for technical rationale.
 - Periodic task scheduling uses `setup-periodic` to create systemd timers (Linux) or launchd system daemons (macOS). The primary pattern is `playbash run @self daily --report` on each managed host. Notification wrappers (`notify-playbash`, `notify-on-failure`, `notify-systemd-failure`) handle failure emails via msmtp/sendmail. See [`dev-docs/periodic-tasks-design.md`](./dev-docs/periodic-tasks-design.md) for rationale.
+- `flatpak-install` dispatches between `--system` and `--user` scopes with dedup across both. `--system` is chosen when the managed polkit rule at `/usr/local/share/polkit-1/rules.d/90-flatpak-ssh.rules` is present AND the user is in `sudo`/`wheel` (polkit handles auth, works over SSH), OR when `sudo -n true` succeeds (wrapped in `sudo -n flatpak install --system ...` to bypass polkit). Falls back to `--user` otherwise. Probes live in the sourceable library `~/.local/libs/flatpak-install.sh`; they'll migrate to the `detect::flatpak_*` namespace when the broader detection library lands (see `dev-docs/bootstrap-detection-design.md` §3.10.1.1).
