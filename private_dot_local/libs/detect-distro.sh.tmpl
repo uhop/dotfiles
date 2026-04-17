@@ -1,0 +1,6 @@
+{{- /* Deploy the bootstrap detection library to ~/.local/libs/detect-distro.sh.
+       Single source of truth lives in .chezmoitemplates/detect-distro.sh;
+       this file just inlines it so consumer scripts (bootstrap-dotfiles,
+       run_onchange_*, ad-hoc tools) can `source ~/.local/libs/detect-distro.sh`
+       without having to re-include the template themselves. */ -}}
+{{ template "detect-distro.sh" . }}

@@ -1,0 +1,5 @@
+{{- /* Deploy the bootstrap detection candidate tables to
+       ~/.local/libs/detect-packages.sh. Single source of truth lives in
+       .chezmoitemplates/detect-packages.sh; consumer scripts source this
+       alongside detect-distro.sh to get pkg_resolve / pkg_ensure populated. */ -}}
+{{ template "detect-packages.sh" . }}
