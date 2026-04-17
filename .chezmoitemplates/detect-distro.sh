@@ -518,8 +518,17 @@ detect::family_consistency() {
 }
 
 #==============================================================================
-# Section 3 (partial) — Version utilities
+# Section 3 — Package resolution
 #==============================================================================
+#
+# Package managers expose themselves through a registry (detect::mgr_register)
+# and four single-shot probes (pkg_avail / pkg_has / pkg_version / pkg_meets).
+# Bulk variants, warmup, and the candidate-resolver sit on top of these in
+# follow-up commits.
+
+#------------------------------------------------------------------------------
+# Version utilities
+#------------------------------------------------------------------------------
 
 # Normalize a raw package version string to bare X.Y.Z[.W].
 # Strips:
@@ -569,6 +578,168 @@ detect::_version_compare() {
   echo 0
   return 0
 }
+
+#------------------------------------------------------------------------------
+# Manager registry
+#------------------------------------------------------------------------------
+#
+# Per-manager command templates, keyed by canonical manager name. Each
+# template is a shell snippet with `{pkg}` as the single substitution
+# point; the runner substitutes the package name and pipes the result to
+# `bash -c`, so templates may use pipes, redirects, awk/grep, etc.
+#
+# Three axes today:
+#   avail   — "<pkg> is in the manager's index?"    (exit 0 = yes)
+#   has     — "<pkg> is installed via this manager?" (exit 0 = yes)
+#   version — print the raw version string to stdout (may include distro
+#             packaging tail — detect::_version_normalize handles that).
+#
+# Bulk variants + install templates join in a follow-up commit.
+
+declare -gA __DETECT_MGR_AVAIL=()
+declare -gA __DETECT_MGR_HAS=()
+declare -gA __DETECT_MGR_VERSION=()
+
+# Substitute every `{pkg}` in the template with the given package name.
+detect::_subst_pkg() {
+  local tmpl=$1 pkg=$2
+  printf '%s' "${tmpl//\{pkg\}/$pkg}"
+}
+
+# Run a templated shell command through the test-monkey-patchable `_run`
+# indirection. Templates are passed to `bash -c` so they may contain pipes,
+# awk scripts, etc. Callers get the command's exit code and stdout.
+detect::_run_tmpl() {
+  local tmpl=$1 pkg=$2
+  local cmd
+  cmd=$(detect::_subst_pkg "$tmpl" "$pkg")
+  detect::_run bash -c "$cmd"
+}
+
+# Register a manager's command templates. Positional arguments:
+#   mgr      — canonical name (apt, dnf, ...).
+#   avail    — "in the index?" template. Empty string means the manager
+#              has no meaningful index query (e.g. rpm-ostree defers to
+#              the underlying dnf layer) — pkg_avail returns false.
+#   has      — "installed?" template. Empty = pkg_has returns false.
+#   version  — "what version?" template. Empty = pkg_version returns empty.
+#
+# Consumers may re-call this to override defaults (e.g. swapping apt-cache
+# for aptitude) before probing.
+detect::mgr_register() {
+  local mgr=$1 avail=${2:-} has=${3:-} version=${4:-}
+  __DETECT_MGR_AVAIL[$mgr]=$avail
+  __DETECT_MGR_HAS[$mgr]=$has
+  __DETECT_MGR_VERSION[$mgr]=$version
+}
+
+#------------------------------------------------------------------------------
+# Single-package probes
+#------------------------------------------------------------------------------
+
+# 0 if <pkg> is available in <mgr>'s index.
+detect::pkg_avail() {
+  local mgr=$1 pkg=$2
+  local tmpl=${__DETECT_MGR_AVAIL[$mgr]:-}
+  [[ -z $tmpl ]] && return 1
+  detect::_run_tmpl "$tmpl" "$pkg" >/dev/null 2>&1
+}
+
+# 0 if <pkg> is currently installed via <mgr>.
+detect::pkg_has() {
+  local mgr=$1 pkg=$2
+  local tmpl=${__DETECT_MGR_HAS[$mgr]:-}
+  [[ -z $tmpl ]] && return 1
+  detect::_run_tmpl "$tmpl" "$pkg" >/dev/null 2>&1
+}
+
+# Echoes the raw version string <mgr> reports for <pkg>. Empty if the
+# manager has no version template or the command fails. Output may include
+# distro-packaging tails (e.g. "2.34.1-1ubuntu1.9") — pass through
+# detect::_version_normalize before comparison.
+detect::pkg_version() {
+  local mgr=$1 pkg=$2
+  local tmpl=${__DETECT_MGR_VERSION[$mgr]:-}
+  [[ -z $tmpl ]] && return 0
+  detect::_run_tmpl "$tmpl" "$pkg" 2>/dev/null || true
+}
+
+# 0 if <mgr> has <pkg> at a normalized version >= <min>.
+# An empty <min> short-circuits to pkg_avail (any version acceptable).
+detect::pkg_meets() {
+  local mgr=$1 pkg=$2 min=${3:-}
+  detect::pkg_avail "$mgr" "$pkg" || return 1
+  [[ -z $min ]] && return 0
+  local raw
+  raw=$(detect::pkg_version "$mgr" "$pkg")
+  [[ -z $raw ]] && return 1
+  local norm
+  norm=$(detect::_version_normalize "$raw")
+  [[ -z $norm ]] && return 1
+  local cmp
+  cmp=$(detect::_version_compare "$norm" "$min" 2>/dev/null || true)
+  [[ $cmp == 0 || $cmp == 1 ]]
+}
+
+#------------------------------------------------------------------------------
+# Default manager registrations
+#------------------------------------------------------------------------------
+#
+# Shell snippets — callers should think in shell quoting terms. The `\$`
+# sequences (e.g. `\${Status}`) survive storage through single quotes here
+# and are de-escaped by the inner `bash -c` at call time, so the wrapped
+# tool sees a literal `${Status}` field reference.
+#
+# Templates below are first-pass; the LXD matrix will refine anything that
+# misbehaves on real hosts before PR 3 lights up the resolver end-to-end.
+
+# apt — dpkg-query for installed state, apt-cache for the index.
+detect::mgr_register apt \
+  'apt-cache show {pkg}' \
+  'dpkg-query -W -f=\${Status} {pkg} 2>/dev/null | grep -q "ok installed"' \
+  'dpkg-query -W -f=\${Version} {pkg}'
+
+# dnf / rpm family.
+detect::mgr_register dnf \
+  'dnf info -q {pkg}' \
+  'rpm -q {pkg}' \
+  'rpm -q --queryformat "%{VERSION}" {pkg}'
+
+# zypper shares rpm for installed state + versions.
+detect::mgr_register zypper \
+  'zypper -n info {pkg}' \
+  'rpm -q {pkg}' \
+  'rpm -q --queryformat "%{VERSION}" {pkg}'
+
+# pacman — -Si probes the index, -Qq the local db.
+detect::mgr_register pacman \
+  'pacman -Si {pkg}' \
+  'pacman -Qq {pkg}' \
+  'pacman -Q {pkg} | awk "{ print \$2 }"'
+
+# apk — `apk info -e` for installed, `apk search -e` for the index.
+detect::mgr_register apk \
+  'apk search -e {pkg} | grep -q .' \
+  'apk info -e {pkg}' \
+  'apk info -ws {pkg} 2>/dev/null | awk "/-/ { print \$0; exit }"'
+
+# brew — formula-only for now; casks are an orthogonal axis handled later.
+detect::mgr_register brew \
+  'brew info --formula {pkg}' \
+  'brew list --formula --versions {pkg}' \
+  'brew list --formula --versions {pkg} | awk "{ print \$2 }"'
+
+# rpm-ostree — immutable: no index query of its own; installed state via rpm.
+detect::mgr_register rpm-ostree \
+  '' \
+  'rpm -q {pkg}' \
+  'rpm -q --queryformat "%{VERSION}" {pkg}'
+
+# transactional-update (MicroOS) — shares zypper index + rpm db.
+detect::mgr_register transactional-update \
+  'zypper -n info {pkg}' \
+  'rpm -q {pkg}' \
+  'rpm -q --queryformat "%{VERSION}" {pkg}'
 
 #==============================================================================
 # Section 4 — Diagnostics
