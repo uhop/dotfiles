@@ -216,9 +216,43 @@ ask_yn() {
 }
 SCRIPT_HEADER
 
-  # Platform-specific prerequisites
+  # Platform-specific prerequisites.
+  #
+  # Two paths emitted: a library-first path (runs when DETECT_LOADED==1 on
+  # the remote — bash ≥4 + detect-*.sh present) and the legacy case-based
+  # path as fallback. The library path handles every distro through one
+  # unified `detect::pkg_ensure` call; the fallback preserves the original
+  # per-distro heredocs for bash 3.x / missing-library situations.
   case "$REMOTE_OS" in
     Linux)
+      cat <<'SCRIPT_LIBRARY_INSTALL'
+
+if (( DETECT_LOADED )); then
+  step "Installing prerequisites"
+  info "These packages are needed to build tools from source and run chezmoi."
+  # apt needs an explicit index refresh before install; dnf/zypper/pacman/
+  # apk do it implicitly.
+  if [[ "$(detect::pkgmgr)" == "apt" ]]; then
+    run sudo env DEBIAN_FRONTEND=noninteractive apt update
+  fi
+  # `brew_linux_prereqs` deliberately has no apt row in the candidate
+  # table — on debian-family `build-essential` and the base image already
+  # provide file/tar/gzip/etc., so pkg_ensure warns unresolved and
+  # continues. On rpm/zypper/pacman/apk hosts it resolves to the
+  # comma-separated bundle.
+  detect::pkg_ensure c_toolchain git git_gui gitk curl brew_linux_prereqs micro_editor
+
+  step "Installing Homebrew"
+  info "Homebrew manages CLI tools across Linux and macOS."
+  info "(chezmoi will manage your shell init; ignore Homebrew's 'Next steps' output.)"
+  if command -v brew &>/dev/null; then
+    info "Homebrew is already installed, skipping."
+  else
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+  fi
+else
+SCRIPT_LIBRARY_INSTALL
       case "$REMOTE_ID" in
         ubuntu|debian|pop|linuxmint)
           cat <<'SCRIPT_DEBIAN'
@@ -298,6 +332,9 @@ fi
 SCRIPT_GENERIC_LINUX
           ;;
       esac
+      cat <<'SCRIPT_LIBRARY_INSTALL_END'
+fi
+SCRIPT_LIBRARY_INSTALL_END
       ;;
     Darwin)
       cat <<'SCRIPT_MACOS'
