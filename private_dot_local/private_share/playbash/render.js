@@ -12,10 +12,14 @@
 
 // --- ANSI utilities ---
 
-const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
+// Strips all CSI sequences. Matches console-toolkit's `matchCsiNoGroups`:
+// ESC '[' + params (0x30-0x3F) + intermediates (0x20-0x2F) + final (0x40-0x7E).
+const CSI_RE = /\x1B\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]/g;
+
+export const stripAnsi = s => s.replace(CSI_RE, '');
 
 export function visibleLength(s) {
-  return s.replace(ANSI_RE, '').length;
+  return stripAnsi(s).length;
 }
 
 // Strip escape sequences that would interfere with the rectangle's cursor

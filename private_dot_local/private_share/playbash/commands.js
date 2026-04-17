@@ -12,7 +12,7 @@ import {readFileSync, readdirSync, statSync, unlinkSync, rmdirSync} from 'node:f
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 
-import {COLOR, sanitizeForRect} from './render.js';
+import {COLOR, sanitizeForRect, stripAnsi} from './render.js';
 import {die} from './errors.js';
 import {isSelfAddress, loadInventory} from './inventory.js';
 import {parseHostNames} from './ssh-config.js';
@@ -135,10 +135,6 @@ function groupBy(entries, keyFn) {
   }
   return map;
 }
-
-// Strip ANSI escape sequences for display-width calculation.
-// Strip all CSI sequences (same pattern as console-toolkit's matchCsiNoGroups).
-const stripAnsi = s => s.replace(/\x1B\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]/g, '');
 
 function printTable(rows, indent = '') {
   if (rows.length === 0) return;
