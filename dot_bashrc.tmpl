@@ -136,8 +136,16 @@ fi
 # lm studio
 [ -d ~/.lmstudio/bin ] && PATH="$HOME/.lmstudio/bin:$PATH" || true
 
-export EDITOR=micro
-export VISUAL=micro
+# Prefer micro on hosts that have it, fall back through the list.
+# Keeps behavior sane on distros where micro isn't in the base repos
+# (e.g. openSUSE Tumbleweed) and brew hasn't yet installed it either.
+for _editor in micro nvim vim vi; do
+  if command -v "$_editor" >/dev/null 2>&1; then
+    export EDITOR="$_editor" VISUAL="$_editor"
+    break
+  fi
+done
+unset _editor
 export BASH_SILENCE_DEPRECATION_WARNING=1
 export FORCE_COLOR=3
 

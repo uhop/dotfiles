@@ -6,7 +6,9 @@
   user = {{ .githubUsername }}
 [core]
 	pager = diff-so-fancy | less --tabs=4 -RFX
-	editor = micro
+	# editor intentionally left unset — git falls back to $EDITOR / $VISUAL
+	# / `vi` in order. The bashrc picks the best available (micro / nvim /
+	# vim / vi), so hosts without micro still get a sane default.
 	autocrlf = input
 	whitespace = trailing-space,-space-before-tab,cr-at-eol
 [interactive]
