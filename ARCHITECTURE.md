@@ -82,9 +82,10 @@ dotfiles/                                          # chezmoi source directory
 │   │   │   ├── semver.js                          # semver parsing
 │   │   │   └── nvm.js                             # nvm helper functions
 │   │   └── private_gnome-shell/extensions/        # GNOME shell extensions
-│   └── vendors/
-│       └── fzf-git.sh                             # fzf git integration
+│   └── vendors/                                   # → ~/.local/vendors/ (fetched via .chezmoiexternal.toml)
+│       └── fzf-git.sh                             # fzf git integration (weekly refresh from upstream main)
 │
+├── .chezmoiexternal.toml                          # external files fetched at apply/update time (fzf-git.sh)
 ├── .chezmoitemplates/                             # reusable template fragments (not deployed)
 │   ├── install-prelude.sh                         # shared header for run_*_install-*.sh scripts
 │   ├── detect-distro.sh                           # bootstrap detection library (§1 identity, §2 capabilities, §3 resolver + pkg_ensure, §4 diagnostics)

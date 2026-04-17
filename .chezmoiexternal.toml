@@ -1,0 +1,4 @@
+[".local/vendors/fzf-git.sh"]
+    type          = "file"
+    url           = "https://raw.githubusercontent.com/junegunn/fzf-git.sh/main/fzf-git.sh"
+    refreshPeriod = "168h"
