@@ -1022,7 +1022,15 @@ detect::pkg_ensure() {
       echo "detect[skip] $cap: $mgr/$name (already installed)" >&2
       continue
     fi
-    buckets[$mgr]="${buckets[$mgr]:+${buckets[$mgr]} }$name"
+    # Per-pkg dedup — two capabilities may resolve to the same package
+    # on a given manager (e.g. pacman's git_gui and gitk both map to `tk`).
+    # `name` may be multi-word; split and skip tokens already in the bucket.
+    local bucket=${buckets[$mgr]:-} pkg_token
+    for pkg_token in $name; do
+      case " $bucket " in *" $pkg_token "*) continue ;; esac
+      bucket="${bucket:+${bucket} }$pkg_token"
+    done
+    buckets[$mgr]=$bucket
   done
 
   local rc=0 tmpl cmd pkgs
