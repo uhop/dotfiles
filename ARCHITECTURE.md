@@ -86,14 +86,25 @@ dotfiles/                                          # chezmoi source directory
 │
 ├── .chezmoitemplates/                             # reusable template fragments (not deployed)
 │   ├── install-prelude.sh                         # shared header for run_*_install-*.sh scripts
-│   └── detect-distro.sh                           # bootstrap detection library (identity + version utils; capabilities/resolver land in follow-up commits)
+│   ├── detect-distro.sh                           # bootstrap detection library (§1 identity, §2 capabilities, §3 resolver + pkg_ensure, §4 diagnostics)
+│   └── detect-packages.sh                         # candidate tables: logical capability → ordered mgr:pkg tuples
 │
-├── tests/detect/                                  # unit tests for detect-distro.sh
+├── tests/detect/                                  # unit tests for the detection library
 │   ├── run-tests.sh                               # harness; discovers test_*.sh, runs each in a subshell
 │   ├── lib.sh                                     # assert::eq / assert::ok / assert::fail helpers
-│   ├── fixtures/os-release/                       # per-distro /etc/os-release fixtures
+│   ├── fixtures/os-release/                       # per-distro /etc/os-release fixtures (11 distros + Silverblue + MicroOS + slim variants)
 │   ├── test_identity.sh                           # identity pass across all fixtures
-│   └── test_version.sh                            # normalizer + compare
+│   ├── test_capabilities.sh                       # OS/env/network/sudo probes (stubbed _which / _run)
+│   ├── test_network.sh                            # has_ipv6 + can_reach
+│   ├── test_pkgmgr.sh                             # pkgmgr sniff + family-consistency cross-check
+│   ├── test_version.sh                            # version normalize + compare
+│   ├── test_pkg_probes.sh                         # mgr_register + pkg_avail/has/version/meets
+│   ├── test_install.sh                            # _subst_pkgs + pkg_install + install templates
+│   ├── test_resolver.sh                           # pkg_resolve + active_managers + DETECT_OPT_OUT / DETECT_ALLOW_SNAP
+│   ├── test_ensure.sh                             # pkg_ensure batching + --dry-run + --strict
+│   ├── test_overrides.sh                          # apply_overrides (§3.8 decision table) + should_* predicates
+│   ├── test_diagnostics.sh                        # summary + report_json (jq-validated when available)
+│   └── test_privilege.sh                          # _assert_no_sudo falsifiability guard
 │
 ├── private_dot_ssh/                               # → ~/.ssh/ (SSH config)
 ├── run_onchange_before_install-packages.sh.tmpl   # package installation

@@ -162,19 +162,80 @@ Library: `~/.local/libs/flatpak-install.sh` exposes the probes (`flatpak_install
 
 ### Bootstrap detection library
 
-Location: `.chezmoitemplates/detect-distro.sh` — a reusable chezmoi template fragment sourced into `bootstrap-dotfiles` (via `curl` or local-checkout inline), `.chezmoi.toml.tmpl` (via `output "bash" "-c" (includeTemplate ...)`), and `run_onchange_*` scripts (via `{{ template ... }}`). Single source of truth for OS identity + capability detection.
+Location: `.chezmoitemplates/detect-distro.sh` + `.chezmoitemplates/detect-packages.sh` — reusable chezmoi template fragments sourced into `bootstrap-dotfiles` (via `curl` or local-checkout inline), `.chezmoi.toml.tmpl` (via `output "bash" "-c" (includeTemplate ...)`), and `run_onchange_*` scripts (via `{{ template ... }}`). Single source of truth for OS identity + capability detection + package-resolution. Full design in [`dev-docs/bootstrap-detection-design.md`](./dev-docs/bootstrap-detection-design.md).
 
-Scope of the current commit (PR 1, commit 1): identity probes + version utilities. Capabilities (`pkgmgr`, `is_immutable`, `has_ipv6`, etc.), resolver (`pkg_resolve`, `pkg_ensure`), and candidate tables land in follow-up commits within PR 1. No call sites consume the library yet.
+The library is capability-driven — declared family (`DETECTED_FAMILY`) is a diagnostic label, never a router. Package operations are driven by sniffed package-manager presence + per-capability candidate tables.
 
-API (current):
+#### Sourcing
+
+```bash
+. ~/.local/libs/detect-distro.sh
+. ~/.local/libs/detect-packages.sh
+detect::apply_overrides      # one-shot; applies §3.8 decision table
+detect::pkg_ensure c_toolchain git jq   # resolves and installs as needed
+```
+
+Both files are idempotent (`__DETECT_DISTRO_LOADED`, `__DETECT_PACKAGES_LOADED` guards). No side effects on sourcing beyond populating the manager registry and candidate tables.
+
+#### Section 1 — Identity (name-based)
+
 - `detect::identity` — populates `DETECTED_ID`, `DETECTED_ID_LIKE`, `DETECTED_VERSION_ID`, `DETECTED_VARIANT_ID`, `DETECTED_NAME`, `DETECTED_FAMILY` from `$OS_RELEASE_PATH` (default `/etc/os-release`). Memoized.
-- `detect::family_contains <token>` — 0 if token appears as a whole word in `ID` or `ID_LIKE`. Don't use `first-word-of-ID_LIKE` heuristics.
-- `detect::is_version_at_least <n>` — numeric compare on first integer component of `VERSION_ID`. Returns nonzero on rolling distros with no `VERSION_ID`.
-- `detect::_version_normalize <raw>` — strips epoch (`1:`), Debian/RPM packaging suffixes (`-1ubuntu1`, `-3.fc39`), pre-release markers (`~rc1`, `-beta3`), build metadata (`+build4`). Returns bare `X.Y.Z[.W]`.
-- `detect::_version_compare <a> <b>` — component-wise numeric compare of normalized versions. Echoes `-1`/`0`/`1`, returns same magnitude as exit. Missing trailing components treated as 0. MVP — does NOT do SemVer pre-release ordering (single seam for future semver port: `private_dot_local/private_share/utils/semver.js`).
-- `detect::reset` — clears memoization (intended for tests).
+- `detect::family_contains <token>` — 0 if token appears as a whole word in `ID` or `ID_LIKE`. Don't use first-word-of-`ID_LIKE` heuristics.
+- `detect::is_version_at_least <n>` — numeric compare on first integer component of `VERSION_ID`.
 
-Sourcing is idempotent via `__DETECT_DISTRO_LOADED` guard. No side effects on sourcing. Tests: `bash tests/detect/run-tests.sh`.
+#### Section 2 — Capabilities (sniffed)
+
+- `detect::has_cmd <cmd>` — memoized PATH check via `detect::_which` indirection.
+- `detect::arch`, `detect::uname_s`, `detect::init_system` (systemd|openrc|runit|s6|launchd|unknown).
+- `detect::is_immutable` — rpm-ostree / transactional-update / `/run/ostree-booted`.
+- `detect::is_container`, `detect::is_wsl`.
+- `detect::has_ipv6`, `detect::can_reach <url>`.
+- `detect::sudo_group` (wheel|sudo|admin|empty), `detect::can_sudo_nopasswd`.
+- `detect::pkgmgr`, `detect::pkgmgrs_present` — priority-ordered sniff (rpm-ostree > transactional-update > apt > dnf > zypper > pacman > apk > …).
+- `detect::has_brew`, `detect::has_flatpak`, `detect::has_snap`, `detect::has_nix` + language-scoped `has_{npm_global,pip_user,uv_tool,pipx,cargo,go_install}`.
+- `detect::family_consistency` — cross-check declared family against sniffed pkgmgrs (`consistent`|`inconsistent`|`unknown`). Diagnostic only; never blocks.
+
+#### Section 3 — Package resolution
+
+Manager registry (per-manager command templates with `{pkg}` / `{pkgs}` substitution):
+- `detect::mgr_register <mgr> <avail> <has> <version> <install>` — register or override a manager's templates.
+- Default registrations cover apt, dnf, zypper, pacman, apk, brew, rpm-ostree, transactional-update.
+
+Single-package probes:
+- `detect::pkg_avail <mgr> <pkg>` — is `<pkg>` in `<mgr>`'s index?
+- `detect::pkg_has <mgr> <pkg>` — is `<pkg>` currently installed via `<mgr>`?
+- `detect::pkg_version <mgr> <pkg>` — raw version string (may include packaging tail).
+- `detect::pkg_meets <mgr> <pkg> <min_version>` — avail + normalized version comparison.
+- `detect::pkg_install <mgr> <pkg…>` — run the install template with the package list batched into one call.
+
+Candidate resolution:
+- `detect::active_managers` — sniffed primary managers + brew/nix + optional snap (`DETECT_ALLOW_SNAP=1`), minus anything vetoed by `DETECT_OPT_OUT` or `apply_overrides`.
+- `detect::pkg_resolve <capability>` — walks `__DETECT_CANDIDATES[<capability>]` and echoes the first `<mgr> <name>` tuple that resolves.
+- `detect::pkg_ensure [--dry-run] [--strict] <capability…>` — resolve each capability, skip already-installed, group remaining by manager, one install call per group.
+
+Decision-table overrides (design §3.8):
+- `detect::apply_overrides` — idempotent; disables dnf on Silverblue (rhel + immutable + rpm-ostree), zypper on MicroOS (suse + immutable + transactional-update), warns once on unknown family + present pkgmgr.
+- `detect::should_skip_systemd` — container with `init_system=unknown`.
+- `detect::should_force_ipv4` — no IPv6 route → consumer curl/wget should pass `-4`.
+
+Internals:
+- `detect::_version_normalize <raw>` — strips epoch (`1:`), Debian/RPM packaging suffixes (`-1ubuntu1`, `-3.fc39`), pre-release markers (`~rc1`, `-beta3`), build metadata (`+build4`). MVP — no SemVer pre-release ordering; single seam for a future port (`private_dot_local/private_share/utils/semver.js`).
+- `detect::_version_compare <a> <b>` — component-wise numeric compare. Missing trailing components treated as 0.
+
+#### Section 4 — Diagnostics
+
+- `detect::summary` — multi-line human-readable probe snapshot (for `bootstrap-dotfiles` pre-flight).
+- `detect::report_json` — same state as a flat JSON object (for `.chezmoi.toml.tmpl` to ingest via `output` → `.detect.*` data keys).
+- `detect::reset` — clears memoization + applied overrides. Test-only escape hatch.
+- `detect::_assert_no_sudo` — falsifiability guard: library must not be invoked via sudo during sniffing.
+
+#### Candidate tables (`detect-packages.sh`)
+
+Format: `__DETECT_CANDIDATES[<capability>]` is a newline-separated list of `mgr:name[:min_version]` tuples. Blank lines and `#` comments are ignored. Consumers add or override entries freely before calling `pkg_resolve`/`pkg_ensure`. Starter entries: `c_toolchain`, `micro_editor`, `git`, `jq`, `lxd`, `kubectl`.
+
+#### Tests
+
+`bash tests/detect/run-tests.sh` discovers and runs every `test_*.sh` in `tests/detect/`. 12 files today — identity across all 11-distro os-release fixtures, capabilities, pkgmgr, version, pkg_probes, install, resolver, ensure, overrides, network, diagnostics, privilege. Tests stub `detect::_which`, `detect::_run`, `detect::_net_get`, `detect::_user` indirection points for deterministic execution.
 
 ### jot
 
