@@ -116,16 +116,28 @@ detect::reset
 detect::_which() { [[ $1 == systemd-detect-virt ]]; }
 detect::_run() {
   case "$*" in
-    "systemd-detect-virt -c") echo docker ;;
+    "systemd-detect-virt -c") echo docker; return 0 ;;
     *) return 1 ;;
   esac
 }
-assert::ok "is_container: systemd-detect-virt -c echoes non-empty"  detect::is_container
+assert::ok "is_container: systemd-detect-virt -c exit 0"  detect::is_container
+
+# systemd-detect-virt prints "none" AND exits nonzero outside a container.
+# Signal is the exit code — output is supplementary.
+detect::reset
+detect::_which() { [[ $1 == systemd-detect-virt ]]; }
+detect::_run() {
+  case "$*" in
+    "systemd-detect-virt -c") echo none; return 1 ;;
+    *) return 1 ;;
+  esac
+}
+assert::fail "is_container: systemd-detect-virt prints 'none', exits 1"  detect::is_container
 
 detect::reset
 detect::_which() { [[ $1 == systemd-detect-virt ]]; }
 detect::_run() { return 1; }
-assert::fail "is_container: systemd-detect-virt -c empty"  detect::is_container
+assert::fail "is_container: systemd-detect-virt absent / nonzero"  detect::is_container
 
 # ---------- is_wsl ----------
 

@@ -250,6 +250,12 @@ detect::is_immutable() {
 }
 
 # 0 if running inside a container (Docker, podman, LXC, systemd-nspawn).
+#
+# systemd-detect-virt -c signals via EXIT CODE, not output. It prints the
+# container type and exits 0 inside a container; it prints "none" and exits
+# 1 outside one. An earlier version of this probe tested for non-empty
+# output, which misfired on every host with systemd installed because "none"
+# is non-empty.
 detect::is_container() {
   if [[ ${__DETECT_CACHE[is_container]+set} == set ]]; then
     [[ ${__DETECT_CACHE[is_container]} == 1 ]]
@@ -259,7 +265,7 @@ detect::is_container() {
   if [[ -e $DETECT_DOCKERENV ]] || [[ -n ${container:-} ]]; then
     result=1
   elif detect::has_cmd systemd-detect-virt \
-    && [[ -n "$(detect::_run systemd-detect-virt -c 2>/dev/null || true)" ]]; then
+    && detect::_run systemd-detect-virt -c >/dev/null 2>&1; then
     result=1
   fi
   __DETECT_CACHE[is_container]=$result
