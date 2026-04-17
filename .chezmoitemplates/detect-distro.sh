@@ -838,6 +838,17 @@ detect::mgr_register transactional-update \
   'rpm -q --queryformat "%{VERSION}" {pkg}' \
   'sudo transactional-update -n pkg install {pkgs}'
 
+# Bulk-availability templates — enable warmup to batch pkg_avail probes.
+# Only apt + brew are registered as defaults today; they've been smoke-tested
+# against real hosts (Ubuntu 25.10 + Homebrew on Linux). dnf / zypper /
+# pacman / apk / rpm-ostree need LXD-matrix verification before their bulk
+# templates can ship; consumers who want warmup on those managers register
+# the templates themselves via detect::mgr_register_avail_bulk.
+detect::mgr_register_avail_bulk apt \
+  'apt-cache show {pkgs} 2>/dev/null | awk "/^Package:/ { print \$2 }"'
+detect::mgr_register_avail_bulk brew \
+  'brew info --formula {pkgs} 2>/dev/null | awk "/^==> [a-z]/ { gsub(/:/, \"\", \$2); print \$2 }"'
+
 #------------------------------------------------------------------------------
 # Candidate resolution
 #------------------------------------------------------------------------------
