@@ -202,6 +202,10 @@ if [ "$__INTERACTIVE" == yes ]; then
   command -v playbash &> /dev/null && eval "$(playbash --bash-completion)" || true
   [ -s ~/.config/broot/launcher/bash/br ] && \. ~/.config/broot/launcher/bash/br || true
 
+  # Disable XON/XOFF so Ctrl-S / Ctrl-Q reach readline (needed for
+  # fzf-git Ctrl-G Ctrl-S stashes and readline forward-i-search).
+  stty -ixon 2>/dev/null || true
+
   if command -v fzf &> /dev/null; then
     eval "$(fzf --bash)"
     if declare -F _fzf_setup_completion >/dev/null; then
