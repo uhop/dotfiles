@@ -42,7 +42,8 @@
       "Bash(echo \"status: $?\")",
       "Bash(git --no-pager diff --stat)",
       "Read(//home/eugene/.local/share/libs/**)",
-      "Read(//home/eugene/.local/share/libs/scripts/**)"
+      "Read(//home/eugene/.local/share/libs/scripts/**)",
+      "Bash(command -v vault-curl)"
     ]
   }
 }
