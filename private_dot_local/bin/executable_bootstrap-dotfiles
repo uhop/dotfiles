@@ -230,11 +230,18 @@ SCRIPT_HEADER
 if (( DETECT_LOADED )); then
   step "Installing prerequisites"
   info "These packages are needed to build tools from source and run chezmoi."
-  # apt needs an explicit index refresh before install; dnf/zypper/pacman/
-  # apk do it implicitly.
-  if [[ "$(detect::pkgmgr)" == "apt" ]]; then
-    run sudo env DEBIAN_FRONTEND=noninteractive apt update
-  fi
+  # Refresh the package index before resolving. apt and pacman require an
+  # explicit sync (pkg_avail would otherwise see a stale / empty cache);
+  # apk's own cache is fetched lazily by `add` but `apk search -e` (the
+  # avail probe) needs the index to be already populated. dnf / zypper
+  # refresh implicitly on install but an explicit cache is cheap.
+  case "$(detect::pkgmgr)" in
+    apt)    run sudo env DEBIAN_FRONTEND=noninteractive apt update ;;
+    dnf)    run sudo dnf -q makecache ;;
+    zypper) run sudo zypper -n ref ;;
+    pacman) run sudo pacman -Sy --noconfirm ;;
+    apk)    run sudo apk update ;;
+  esac
   # `brew_linux_prereqs` deliberately has no apt row in the candidate
   # table — on debian-family `build-essential` and the base image already
   # provide file/tar/gzip/etc., so pkg_ensure warns unresolved and
