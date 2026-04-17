@@ -600,6 +600,13 @@ declare -gA __DETECT_MGR_AVAIL=()
 declare -gA __DETECT_MGR_HAS=()
 declare -gA __DETECT_MGR_VERSION=()
 declare -gA __DETECT_MGR_INSTALL=()
+declare -gA __DETECT_MGR_AVAIL_BULK=()
+
+# Per-(mgr,pkg) availability cache populated by pkg_avail_bulk / warmup.
+# Consulted by pkg_avail before firing the single-pkg template, so a warmup
+# pass can turn N subprocess probes into 1 bulk call per manager
+# (design §3.6.1–3.6.2).
+declare -gA __DETECT_PKG_AVAIL_CACHE=()
 
 # Substitute every `{pkg}` in the template with the given package name.
 detect::_subst_pkg() {
@@ -647,16 +654,69 @@ detect::mgr_register() {
   __DETECT_MGR_INSTALL[$mgr]=$install
 }
 
+# Register a bulk-availability template for <mgr>. The template uses
+# `{pkgs}` (plural) and must print the names of the packages that exist
+# in the index — one per line — to stdout. Missing packages are inferred
+# by absence, so the template can rely on apt-cache / dnf info / etc.
+# silently dropping unknowns. Optional — managers without a bulk template
+# fall back to single-pkg probes through the cache-miss path.
+detect::mgr_register_avail_bulk() {
+  local mgr=$1 tmpl=${2:-}
+  __DETECT_MGR_AVAIL_BULK[$mgr]=$tmpl
+}
+
 #------------------------------------------------------------------------------
 # Single-package probes
 #------------------------------------------------------------------------------
 
-# 0 if <pkg> is available in <mgr>'s index.
+# 0 if <pkg> is available in <mgr>'s index. Consults the warmup-populated
+# __DETECT_PKG_AVAIL_CACHE first; falls back to the single-pkg avail
+# template on cache miss.
 detect::pkg_avail() {
   local mgr=$1 pkg=$2
+  local key="$mgr:$pkg"
+  if [[ ${__DETECT_PKG_AVAIL_CACHE[$key]+set} == set ]]; then
+    [[ ${__DETECT_PKG_AVAIL_CACHE[$key]} == 1 ]]
+    return
+  fi
   local tmpl=${__DETECT_MGR_AVAIL[$mgr]:-}
   [[ -z $tmpl ]] && return 1
   detect::_run_tmpl "$tmpl" "$pkg" >/dev/null 2>&1
+}
+
+# Bulk-probe <pkg…> against <mgr>'s index via the registered
+# avail_bulk template. Populates __DETECT_PKG_AVAIL_CACHE and echoes
+# uniform `name<TAB>avail|missing` lines to stdout so callers can also
+# consume the result directly. Returns 1 if <mgr> has no bulk template
+# registered.
+detect::pkg_avail_bulk() {
+  local mgr=$1
+  shift
+  local tmpl=${__DETECT_MGR_AVAIL_BULK[$mgr]:-}
+  [[ -z $tmpl ]] && return 1
+  (( $# == 0 )) && return 0
+
+  local cmd output
+  cmd=$(detect::_subst_pkgs "$tmpl" "$@")
+  output=$(detect::_run bash -c "$cmd" 2>/dev/null || true)
+
+  local -A found=()
+  local name
+  while IFS= read -r name; do
+    [[ -n $name ]] && found[$name]=1
+  done <<<"$output"
+
+  local pkg
+  for pkg; do
+    if [[ ${found[$pkg]:-0} == 1 ]]; then
+      __DETECT_PKG_AVAIL_CACHE["$mgr:$pkg"]=1
+      printf '%s\tavail\n' "$pkg"
+    else
+      __DETECT_PKG_AVAIL_CACHE["$mgr:$pkg"]=0
+      printf '%s\tmissing\n' "$pkg"
+    fi
+  done
+  return 0
 }
 
 # 0 if <pkg> is currently installed via <mgr>.
@@ -951,6 +1011,56 @@ detect::pkg_ensure() {
 }
 
 #------------------------------------------------------------------------------
+# Warmup — bulk-probe all candidate packages in one pass per manager
+#------------------------------------------------------------------------------
+
+# Walk __DETECT_CANDIDATES, group every referenced package by manager,
+# and fire one pkg_avail_bulk per active manager that has a bulk template
+# registered. After this returns, pkg_resolve / pkg_ensure can run
+# without spawning per-package subprocesses — the cache populated here
+# answers `pkg_avail` directly. Managers without a bulk template skip
+# warmup and still work via single-pkg probes (design §3.6.2).
+detect::warmup() {
+  local -A by_mgr=()
+  local cap line entry mgr rest name
+
+  for cap in "${!__DETECT_CANDIDATES[@]}"; do
+    while IFS= read -r line; do
+      entry=${line#"${line%%[![:space:]]*}"}
+      entry=${entry%"${entry##*[![:space:]]}"}
+      [[ -z $entry || $entry == \#* ]] && continue
+      mgr=${entry%%:*}
+      rest=${entry#*:}
+      if [[ $rest == *:* ]]; then
+        name=${rest%%:*}
+      else
+        name=$rest
+      fi
+      by_mgr[$mgr]="${by_mgr[$mgr]:+${by_mgr[$mgr]} }$name"
+    done <<<"${__DETECT_CANDIDATES[$cap]}"
+  done
+
+  for mgr in "${!by_mgr[@]}"; do
+    [[ -z ${__DETECT_MGR_AVAIL_BULK[$mgr]:-} ]] && continue
+
+    # Dedup package names within each manager (two capabilities may name
+    # the same pkg; no point querying twice).
+    local -A seen=()
+    local -a uniq=()
+    local pkg
+    for pkg in ${by_mgr[$mgr]}; do
+      if [[ ${seen[$pkg]:-0} == 0 ]]; then
+        uniq+=("$pkg")
+        seen[$pkg]=1
+      fi
+    done
+    # shellcheck disable=SC2086
+    detect::pkg_avail_bulk "$mgr" "${uniq[@]}" >/dev/null
+  done
+  return 0
+}
+
+#------------------------------------------------------------------------------
 # Decision-table overrides (design §3.8)
 #------------------------------------------------------------------------------
 #
@@ -1183,6 +1293,7 @@ detect::report_json() {
 detect::reset() {
   __DETECT_CACHE=()
   __DETECT_MGR_DISABLED=()
+  __DETECT_PKG_AVAIL_CACHE=()
   DETECTED_ID=""
   DETECTED_ID_LIKE=""
   DETECTED_VERSION_ID=""
