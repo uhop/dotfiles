@@ -839,13 +839,21 @@ detect::mgr_register transactional-update \
   'sudo transactional-update -n pkg install {pkgs}'
 
 # Bulk-availability templates — enable warmup to batch pkg_avail probes.
-# Only apt + brew are registered as defaults today; they've been smoke-tested
-# against real hosts (Ubuntu 25.10 + Homebrew on Linux). dnf / zypper /
-# pacman / apk / rpm-ostree need LXD-matrix verification before their bulk
-# templates can ship; consumers who want warmup on those managers register
-# the templates themselves via detect::mgr_register_avail_bulk.
+# Every default manager with a probe-able index has a template here;
+# each was verified inside a LXD container of the matching distro
+# (2026-04-17). rpm-ostree and transactional-update intentionally omit
+# a bulk template because they have no index of their own (both defer
+# to the underlying dnf/zypper layer).
 detect::mgr_register_avail_bulk apt \
   'apt-cache show {pkgs} 2>/dev/null | awk "/^Package:/ { print \$2 }"'
+detect::mgr_register_avail_bulk dnf \
+  'dnf -q repoquery --qf "%{name}\n" {pkgs} 2>/dev/null | sort -u'
+detect::mgr_register_avail_bulk zypper \
+  'zypper -q -n info {pkgs} 2>/dev/null | awk "/^Name/ { print \$NF }"'
+detect::mgr_register_avail_bulk pacman \
+  'pacman -Si {pkgs} 2>/dev/null | awk "/^Name/ { print \$3 }"'
+detect::mgr_register_avail_bulk apk \
+  "apk search -e {pkgs} 2>/dev/null | sed 's/-[^-]*-[^-]*\$//'"
 detect::mgr_register_avail_bulk brew \
   'brew info --formula {pkgs} 2>/dev/null | awk "/^==> [a-z]/ { gsub(/:/, \"\", \$2); print \$2 }"'
 
