@@ -6,10 +6,6 @@
 # dev-docs/bootstrap-detection-design.md for the full design; this file
 # is the implementation.
 #
-# Scope of this commit: Section 1 (Identity) + version utilities only.
-# Section 2 (Capabilities) and Section 3 (Package resolution) land in
-# follow-up commits within PR 1.
-#
 # Sourcing contract: no side effects. All behaviour is function-local.
 # Safe to source multiple times (idempotency guard below).
 
@@ -575,8 +571,170 @@ detect::_version_compare() {
 }
 
 #==============================================================================
-# Section 4 — Diagnostics (partial)
+# Section 4 — Diagnostics
 #==============================================================================
+
+# Print "yes" or "no" based on the exit status of the probe function passed
+# in. Convenience wrapper for summary output.
+detect::_yn() {
+  if "$@"; then echo yes; else echo no; fi
+}
+
+# Escape a string for safe embedding inside JSON double-quotes. Handles the
+# two characters that actually occur in probe output: backslash and quote.
+# Control characters (< 0x20) are not expected in any of our fields — if
+# they ever appear, json consumers will reject the output, which is the
+# signal we'd want.
+detect::_json_escape() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  printf '%s' "$s"
+}
+
+# Emit a JSON array of strings from the positional arguments. Empty argv
+# yields `[]`.
+detect::_json_arr() {
+  printf '['
+  local first=1 elem
+  for elem; do
+    if (( first )); then first=0
+    else printf ', '
+    fi
+    printf '"%s"' "$(detect::_json_escape "$elem")"
+  done
+  printf ']'
+}
+
+# Multi-line human-readable report of all probed values. Consumed by
+# bootstrap-dotfiles pre-flight (design §4.1); chezmoi reads report_json
+# instead. No ANSI color — output is often captured by templates.
+detect::summary() {
+  detect::identity
+
+  local pkgmgrs_str="" m
+  while IFS= read -r m; do
+    [[ -z $m ]] && continue
+    pkgmgrs_str+="${pkgmgrs_str:+ }$m"
+  done < <(detect::pkgmgrs_present)
+  [[ -z $pkgmgrs_str ]] && pkgmgrs_str="(none)"
+
+  local sudo_group
+  sudo_group=$(detect::sudo_group)
+  [[ -z $sudo_group ]] && sudo_group="(none)"
+
+  local -a lang_enabled=()
+  detect::has_npm_global  && lang_enabled+=(npm)
+  detect::has_pip_user    && lang_enabled+=(pip)
+  detect::has_uv_tool     && lang_enabled+=(uv)
+  detect::has_pipx        && lang_enabled+=(pipx)
+  detect::has_cargo       && lang_enabled+=(cargo)
+  detect::has_go_install  && lang_enabled+=(go)
+  local lang_str
+  if (( ${#lang_enabled[@]} )); then
+    lang_str="${lang_enabled[*]}"
+  else
+    lang_str="(none)"
+  fi
+
+  printf '%-20s %s\n' "Distro:"          "${DETECTED_ID:-unknown} ${DETECTED_VERSION_ID:-?} (${DETECTED_FAMILY} family)"
+  [[ -n ${DETECTED_NAME:-} ]] && \
+    printf '%-20s %s\n' "Pretty name:"   "$DETECTED_NAME"
+  printf '%-20s %s\n' "Kernel:"          "$(detect::uname_s) $(detect::arch)"
+  printf '%-20s %s\n' "Init:"            "$(detect::init_system)"
+  printf '%-20s %s\n' "Pkgmgrs:"         "$pkgmgrs_str"
+  printf '%-20s %s\n' "Primary pkgmgr:"  "$(detect::pkgmgr)"
+  printf '%-20s %s\n' "Family check:"    "$(detect::family_consistency)"
+  printf '%-20s %s\n' "Immutable FS:"    "$(detect::_yn detect::is_immutable)"
+  printf '%-20s %s\n' "Container:"       "$(detect::_yn detect::is_container)"
+  printf '%-20s %s\n' "WSL:"             "$(detect::_yn detect::is_wsl)"
+  printf '%-20s %s\n' "IPv6:"            "$(detect::_yn detect::has_ipv6)"
+  printf '%-20s %s\n' "Sudo group:"      "$sudo_group"
+  printf '%-20s %s\n' "Sudo nopasswd:"   "$(detect::_yn detect::can_sudo_nopasswd)"
+  printf '%-20s %s\n' "Brew:"            "$(detect::_yn detect::has_brew)"
+  printf '%-20s %s\n' "Flatpak:"         "$(detect::_yn detect::has_flatpak)"
+  printf '%-20s %s\n' "Snap:"            "$(detect::_yn detect::has_snap)"
+  printf '%-20s %s\n' "Nix:"             "$(detect::_yn detect::has_nix)"
+  printf '%-20s %s\n' "Lang pkgmgrs:"    "$lang_str"
+}
+
+# Full probe snapshot as a flat JSON object. Consumed by .chezmoi.toml.tmpl
+# via chezmoi's `output` template function — keys map to `.detect.*` data
+# keys in PR 2. Shape is intentionally flat; nested objects would complicate
+# chezmoi template access.
+#
+# Probe values are captured into locals up front (in the current shell) so
+# memoization writes aren't lost to command-substitution subshells.
+detect::report_json() {
+  detect::identity
+
+  # Identity + capability values (strings).
+  local pkgmgr_v family_v arch_v uname_v init_v cons_v sudo_group_v
+  pkgmgr_v=$(detect::pkgmgr)
+  family_v=${DETECTED_FAMILY:-unknown}
+  arch_v=$(detect::arch)
+  uname_v=$(detect::uname_s)
+  init_v=$(detect::init_system)
+  cons_v=$(detect::family_consistency)
+  sudo_group_v=$(detect::sudo_group)
+
+  # Bool probes — one call each, cache captured.
+  local b_immutable b_container b_wsl b_ipv6 b_nopasswd
+  local b_brew b_flatpak b_snap b_nix
+  local b_npm b_pip b_uv b_pipx b_cargo b_go
+  detect::is_immutable        && b_immutable=true || b_immutable=false
+  detect::is_container        && b_container=true || b_container=false
+  detect::is_wsl              && b_wsl=true       || b_wsl=false
+  detect::has_ipv6            && b_ipv6=true      || b_ipv6=false
+  detect::can_sudo_nopasswd   && b_nopasswd=true  || b_nopasswd=false
+  detect::has_brew            && b_brew=true      || b_brew=false
+  detect::has_flatpak         && b_flatpak=true   || b_flatpak=false
+  detect::has_snap            && b_snap=true      || b_snap=false
+  detect::has_nix             && b_nix=true       || b_nix=false
+  detect::has_npm_global      && b_npm=true       || b_npm=false
+  detect::has_pip_user        && b_pip=true       || b_pip=false
+  detect::has_uv_tool         && b_uv=true        || b_uv=false
+  detect::has_pipx            && b_pipx=true      || b_pipx=false
+  detect::has_cargo           && b_cargo=true     || b_cargo=false
+  detect::has_go_install      && b_go=true        || b_go=false
+
+  # pkgmgrs_present → args list for _json_arr.
+  local -a mgrs=()
+  local line
+  while IFS= read -r line; do
+    [[ -n $line ]] && mgrs+=("$line")
+  done < <(detect::pkgmgrs_present)
+
+  printf '{\n'
+  printf '  "pkgmgr": "%s",\n'            "$(detect::_json_escape "$pkgmgr_v")"
+  printf '  "pkgmgrsPresent": %s,\n'      "$(detect::_json_arr ${mgrs[@]+"${mgrs[@]}"})"
+  printf '  "family": "%s",\n'            "$(detect::_json_escape "$family_v")"
+  printf '  "familyConsistency": "%s",\n' "$(detect::_json_escape "$cons_v")"
+  printf '  "id": "%s",\n'                "$(detect::_json_escape "${DETECTED_ID:-}")"
+  printf '  "idLike": "%s",\n'            "$(detect::_json_escape "${DETECTED_ID_LIKE:-}")"
+  printf '  "versionId": "%s",\n'         "$(detect::_json_escape "${DETECTED_VERSION_ID:-}")"
+  printf '  "name": "%s",\n'              "$(detect::_json_escape "${DETECTED_NAME:-}")"
+  printf '  "arch": "%s",\n'              "$(detect::_json_escape "$arch_v")"
+  printf '  "uname": "%s",\n'             "$(detect::_json_escape "$uname_v")"
+  printf '  "initSystem": "%s",\n'        "$(detect::_json_escape "$init_v")"
+  printf '  "isImmutable": %s,\n'         "$b_immutable"
+  printf '  "isContainer": %s,\n'         "$b_container"
+  printf '  "isWsl": %s,\n'               "$b_wsl"
+  printf '  "hasIpv6": %s,\n'             "$b_ipv6"
+  printf '  "sudoGroup": "%s",\n'         "$(detect::_json_escape "$sudo_group_v")"
+  printf '  "canSudoNopasswd": %s,\n'     "$b_nopasswd"
+  printf '  "hasBrew": %s,\n'             "$b_brew"
+  printf '  "hasFlatpak": %s,\n'          "$b_flatpak"
+  printf '  "hasSnap": %s,\n'             "$b_snap"
+  printf '  "hasNix": %s,\n'              "$b_nix"
+  printf '  "hasNpmGlobal": %s,\n'        "$b_npm"
+  printf '  "hasPipUser": %s,\n'          "$b_pip"
+  printf '  "hasUvTool": %s,\n'           "$b_uv"
+  printf '  "hasPipx": %s,\n'             "$b_pipx"
+  printf '  "hasCargo": %s,\n'            "$b_cargo"
+  printf '  "hasGoInstall": %s\n'         "$b_go"
+  printf '}\n'
+}
 
 # Clear memoization caches + identity state. Intended for tests that swap
 # OS_RELEASE_PATH or the _* indirection points between calls.
