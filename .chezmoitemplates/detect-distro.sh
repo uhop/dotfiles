@@ -741,6 +741,80 @@ detect::mgr_register transactional-update \
   'rpm -q {pkg}' \
   'rpm -q --queryformat "%{VERSION}" {pkg}'
 
+#------------------------------------------------------------------------------
+# Candidate resolution
+#------------------------------------------------------------------------------
+#
+# Logical-capability → (manager, package_name[, min_version]) resolution.
+# The candidate table lives in detect-packages.sh (sourced separately by
+# consumers); this file owns the lookup logic only.
+
+declare -gA __DETECT_CANDIDATES=()
+
+# Echoes newline-separated list of manager names the resolver should
+# consider. Starts with sniffed primary system managers (detect::pkgmgrs_present,
+# which already includes brew and nix via __DETECT_MGR_SNIFFS). Snap is
+# opt-in via DETECT_ALLOW_SNAP=1 so CLI tooling doesn't accidentally route
+# through snap unless the user has said so (design §3.10.2 + plan #4).
+detect::active_managers() {
+  detect::pkgmgrs_present
+  if detect::has_snap && [[ ${DETECT_ALLOW_SNAP:-0} == 1 ]]; then
+    echo snap
+  fi
+}
+
+# Resolve a logical capability to a concrete (manager, name) pair.
+#
+# On success: echoes "<mgr> <name>" and returns 0.
+# On no match: echoes nothing and returns 1.
+#
+# Candidate entries are space/newline-separated "mgr:name[:min_version]"
+# tuples. Blank lines and lines starting with `#` are ignored.
+#
+# Filters applied in order:
+#   1. Manager must be in detect::active_managers.
+#   2. Manager must not appear in $DETECT_OPT_OUT (space-separated).
+#   3. Package must pass pkg_meets (or pkg_avail when no min_version given).
+detect::pkg_resolve() {
+  local capability=$1
+  local candidates=${__DETECT_CANDIDATES[$capability]:-}
+  [[ -z $candidates ]] && return 1
+
+  local active
+  active=" $(detect::active_managers | command tr '\n' ' ')"
+  local opt_out=" ${DETECT_OPT_OUT:-} "
+
+  local line entry mgr name rest minver
+  while IFS= read -r line; do
+    # Strip leading/trailing whitespace.
+    entry=${line#"${line%%[![:space:]]*}"}
+    entry=${entry%"${entry##*[![:space:]]}"}
+    [[ -z $entry || $entry == \#* ]] && continue
+
+    mgr=${entry%%:*}
+    rest=${entry#*:}
+    if [[ $rest == *:* ]]; then
+      name=${rest%%:*}
+      minver=${rest#*:}
+    else
+      name=$rest
+      minver=""
+    fi
+
+    [[ $active  == *" $mgr "* ]] || continue
+    [[ $opt_out == *" $mgr "* ]] && continue
+
+    if [[ -n $minver ]]; then
+      detect::pkg_meets "$mgr" "$name" "$minver" || continue
+    else
+      detect::pkg_avail "$mgr" "$name" || continue
+    fi
+    echo "$mgr $name"
+    return 0
+  done <<<"$candidates"
+  return 1
+}
+
 #==============================================================================
 # Section 4 — Diagnostics
 #==============================================================================
