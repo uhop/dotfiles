@@ -599,11 +599,21 @@ detect::_version_compare() {
 declare -gA __DETECT_MGR_AVAIL=()
 declare -gA __DETECT_MGR_HAS=()
 declare -gA __DETECT_MGR_VERSION=()
+declare -gA __DETECT_MGR_INSTALL=()
 
 # Substitute every `{pkg}` in the template with the given package name.
 detect::_subst_pkg() {
   local tmpl=$1 pkg=$2
   printf '%s' "${tmpl//\{pkg\}/$pkg}"
+}
+
+# Substitute every `{pkgs}` in the template with the (space-joined)
+# package list from the remaining args.
+detect::_subst_pkgs() {
+  local tmpl=$1
+  shift
+  local pkgs="$*"
+  printf '%s' "${tmpl//\{pkgs\}/$pkgs}"
 }
 
 # Run a templated shell command through the test-monkey-patchable `_run`
@@ -618,19 +628,23 @@ detect::_run_tmpl() {
 
 # Register a manager's command templates. Positional arguments:
 #   mgr      — canonical name (apt, dnf, ...).
-#   avail    — "in the index?" template. Empty string means the manager
-#              has no meaningful index query (e.g. rpm-ostree defers to
-#              the underlying dnf layer) — pkg_avail returns false.
-#   has      — "installed?" template. Empty = pkg_has returns false.
-#   version  — "what version?" template. Empty = pkg_version returns empty.
+#   avail    — "in the index?" template (uses `{pkg}`). Empty string means
+#              the manager has no meaningful index query — pkg_avail returns
+#              false.
+#   has      — "installed?" template (`{pkg}`). Empty = pkg_has returns false.
+#   version  — "what version?" template (`{pkg}`). Empty = pkg_version
+#              returns empty.
+#   install  — "install these packages" template. Uses `{pkgs}` (plural).
+#              Empty = pkg_install returns 1.
 #
 # Consumers may re-call this to override defaults (e.g. swapping apt-cache
 # for aptitude) before probing.
 detect::mgr_register() {
-  local mgr=$1 avail=${2:-} has=${3:-} version=${4:-}
+  local mgr=$1 avail=${2:-} has=${3:-} version=${4:-} install=${5:-}
   __DETECT_MGR_AVAIL[$mgr]=$avail
   __DETECT_MGR_HAS[$mgr]=$has
   __DETECT_MGR_VERSION[$mgr]=$version
+  __DETECT_MGR_INSTALL[$mgr]=$install
 }
 
 #------------------------------------------------------------------------------
@@ -662,6 +676,21 @@ detect::pkg_version() {
   local tmpl=${__DETECT_MGR_VERSION[$mgr]:-}
   [[ -z $tmpl ]] && return 0
   detect::_run_tmpl "$tmpl" "$pkg" 2>/dev/null || true
+}
+
+# Install one or more packages via <mgr>. Returns the install command's
+# exit status. Empty package list short-circuits to success (nothing to do).
+# Unknown/unregistered manager → return 1. Most templates begin with `sudo`
+# and will prompt on the TTY.
+detect::pkg_install() {
+  local mgr=$1
+  shift
+  local tmpl=${__DETECT_MGR_INSTALL[$mgr]:-}
+  [[ -z $tmpl ]] && return 1
+  (( $# == 0 )) && return 0
+  local cmd
+  cmd=$(detect::_subst_pkgs "$tmpl" "$@")
+  detect::_run bash -c "$cmd"
 }
 
 # 0 if <mgr> has <pkg> at a normalized version >= <min>.
@@ -697,49 +726,57 @@ detect::pkg_meets() {
 detect::mgr_register apt \
   'apt-cache show {pkg}' \
   'dpkg-query -W -f=\${Status} {pkg} 2>/dev/null | grep -q "ok installed"' \
-  'dpkg-query -W -f=\${Version} {pkg}'
+  'dpkg-query -W -f=\${Version} {pkg}' \
+  'sudo apt-get install -y {pkgs}'
 
 # dnf / rpm family.
 detect::mgr_register dnf \
   'dnf info -q {pkg}' \
   'rpm -q {pkg}' \
-  'rpm -q --queryformat "%{VERSION}" {pkg}'
+  'rpm -q --queryformat "%{VERSION}" {pkg}' \
+  'sudo dnf install -y {pkgs}'
 
 # zypper shares rpm for installed state + versions.
 detect::mgr_register zypper \
   'zypper -n info {pkg}' \
   'rpm -q {pkg}' \
-  'rpm -q --queryformat "%{VERSION}" {pkg}'
+  'rpm -q --queryformat "%{VERSION}" {pkg}' \
+  'sudo zypper -n install {pkgs}'
 
 # pacman — -Si probes the index, -Qq the local db.
 detect::mgr_register pacman \
   'pacman -Si {pkg}' \
   'pacman -Qq {pkg}' \
-  'pacman -Q {pkg} | awk "{ print \$2 }"'
+  'pacman -Q {pkg} | awk "{ print \$2 }"' \
+  'sudo pacman -S --noconfirm --needed {pkgs}'
 
 # apk — `apk info -e` for installed, `apk search -e` for the index.
 detect::mgr_register apk \
   'apk search -e {pkg} | grep -q .' \
   'apk info -e {pkg}' \
-  'apk info -ws {pkg} 2>/dev/null | awk "/-/ { print \$0; exit }"'
+  'apk info -ws {pkg} 2>/dev/null | awk "/-/ { print \$0; exit }"' \
+  'sudo apk add {pkgs}'
 
 # brew — formula-only for now; casks are an orthogonal axis handled later.
 detect::mgr_register brew \
   'brew info --formula {pkg}' \
   'brew list --formula --versions {pkg}' \
-  'brew list --formula --versions {pkg} | awk "{ print \$2 }"'
+  'brew list --formula --versions {pkg} | awk "{ print \$2 }"' \
+  'brew install {pkgs}'
 
 # rpm-ostree — immutable: no index query of its own; installed state via rpm.
 detect::mgr_register rpm-ostree \
   '' \
   'rpm -q {pkg}' \
-  'rpm -q --queryformat "%{VERSION}" {pkg}'
+  'rpm -q --queryformat "%{VERSION}" {pkg}' \
+  'sudo rpm-ostree install -A {pkgs}'
 
 # transactional-update (MicroOS) — shares zypper index + rpm db.
 detect::mgr_register transactional-update \
   'zypper -n info {pkg}' \
   'rpm -q {pkg}' \
-  'rpm -q --queryformat "%{VERSION}" {pkg}'
+  'rpm -q --queryformat "%{VERSION}" {pkg}' \
+  'sudo transactional-update -n pkg install {pkgs}'
 
 #------------------------------------------------------------------------------
 # Candidate resolution
