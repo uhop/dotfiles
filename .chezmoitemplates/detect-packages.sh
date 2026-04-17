@@ -28,11 +28,15 @@ __DETECT_PACKAGES_LOADED=1
 # sourcing-order mistakes don't produce a silent failure at resolve time.
 declare -gA __DETECT_CANDIDATES 2>/dev/null || true
 
-# ---- c_toolchain — gcc / make / headers, enough to build C sources ----
+# ---- c_toolchain — gcc + g++ + make + libc headers, enough to build C/C++ ----
+# On debian-family, `build-essential` bundles everything. On rpm-family the
+# three components come as separate packages; we ship them as a comma-
+# separated group so pkg_resolve returns all three and pkg_ensure installs
+# them in one batched call.
 __DETECT_CANDIDATES[c_toolchain]='
 apt:build-essential
-dnf:gcc
-zypper:gcc
+dnf:gcc,gcc-c++,make
+zypper:gcc,gcc-c++,make
 pacman:base-devel
 apk:build-base
 brew:gcc
@@ -81,4 +85,50 @@ snap:kubectl
 apt:kubectl
 dnf:kubectl
 brew:kubernetes-cli
+'
+
+# ---- curl — network fetcher; consumer scripts assume it's present for
+# Homebrew install, chezmoi bootstrap, etc. Most distros ship it pre-
+# installed; RHEL minimal images have `curl-minimal` which provides the
+# `curl` binary and conflicts with the full `curl` package, so we route
+# to the *binary* presence rather than the package name on dnf (handled
+# via a wrapper package `curl-minimal` that also satisfies the need). ----
+__DETECT_CANDIDATES[curl]='
+apt:curl
+dnf:curl
+zypper:curl
+pacman:curl
+apk:curl
+brew:curl
+'
+
+# ---- git_gui — `git-gui` GUI commit browser ----
+__DETECT_CANDIDATES[git_gui]='
+apt:git-gui
+dnf:git-gui
+zypper:git-gui
+pacman:tk
+apk:git-gui
+brew:git-gui
+'
+
+# ---- gitk — `gitk` commit-graph viewer ----
+__DETECT_CANDIDATES[gitk]='
+apt:gitk
+dnf:gitk
+zypper:git-gui
+pacman:tk
+apk:git-gui
+brew:git-gui
+'
+
+# ---- brew_linux_prereqs — files Homebrew needs on RHEL-minimal hosts that
+# debian-family images already bundle. Only surfaces on dnf/zypper/pacman/
+# apk-based hosts where these tools aren't guaranteed; pkg_resolve simply
+# returns empty for debian-family (no `apt:` candidate row). ----
+__DETECT_CANDIDATES[brew_linux_prereqs]='
+dnf:file,ca-certificates,tar,gzip,bzip2,xz,unzip,procps-ng,util-linux
+zypper:file,ca-certificates,tar,gzip,bzip2,xz,unzip,procps,util-linux
+pacman:file,ca-certificates,tar,gzip,bzip2,xz,unzip,procps-ng,util-linux
+apk:file,ca-certificates,tar,gzip,bzip2,xz,unzip,procps,util-linux
 '

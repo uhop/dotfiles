@@ -271,3 +271,104 @@ else
   printf '  FAIL detect-packages.sh: re-source errored\n'
   ASSERT_FAIL_LOCAL=$((ASSERT_FAIL_LOCAL + 1))
 fi
+
+# ---------- Multi-package candidates ----------
+
+# Single-capability that maps to multiple packages (comma-separated) on
+# fedora-like managers. `name` in the resolver output comes back
+# space-separated.
+
+setup_resolver_host
+__DETECT_CANDIDATES[toolchain]='
+dnf:gcc,gcc-c++,make
+apt:build-essential
+'
+# Use dnf + stubs. Register a fake dnf so we can control pkg_avail.
+detect::mgr_register dnf 'dnf info -q {pkg}' 'dnf-has {pkg}' '' 'dnf install -y {pkgs}'
+detect::_which() { case "$1" in dnf) return 0 ;; *) return 1 ;; esac; }
+detect::_run() {
+  if [[ $1 == bash && $2 == -c ]]; then
+    case "$3" in
+      'dnf info -q gcc'|'dnf info -q gcc-c++'|'dnf info -q make') return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+  return 1
+}
+out=$(detect::pkg_resolve toolchain)
+assert::eq "$out" "dnf gcc gcc-c++ make" \
+  "pkg_resolve: multi-pkg → space-joined output"
+
+# One of the multi-pkg entries missing → skip to next candidate row.
+setup_resolver_host
+detect::mgr_register dnf 'dnf info -q {pkg}' '' '' 'dnf install -y {pkgs}'
+detect::mgr_register apt 'apt-cache show {pkg}' 'apt-has {pkg}' '' 'apt-install {pkgs}'
+detect::_which() { case "$1" in dnf|apt-get) return 0 ;; *) return 1 ;; esac; }
+__DETECT_CANDIDATES[toolchain]='
+dnf:gcc,gcc-c++,make
+apt:build-essential
+'
+detect::_run() {
+  if [[ $1 == bash && $2 == -c ]]; then
+    case "$3" in
+      # dnf: gcc + make present, gcc-c++ MISSING → row fails.
+      'dnf info -q gcc'|'dnf info -q make') return 0 ;;
+      'dnf info -q gcc-c++') return 1 ;;
+      # apt: build-essential present → row matches.
+      'apt-cache show build-essential') return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+  return 1
+}
+out=$(detect::pkg_resolve toolchain)
+assert::eq "$out" "apt build-essential" \
+  "pkg_resolve: multi-pkg with one missing → falls through to next row"
+
+# ---------- pkg_ensure with multi-pkg capability ----------
+
+setup_ensure_host_for_multi() {
+  detect::reset
+  detect::mgr_register dnf 'dnf info {pkg}' 'dnf-has {pkg}' '' 'dnf-install {pkgs}'
+  detect::_which() { case "$1" in dnf) return 0 ;; *) return 1 ;; esac; }
+  unset DETECT_ALLOW_SNAP DETECT_OPT_OUT
+}
+
+setup_ensure_host_for_multi
+__DETECT_CANDIDATES[toolchain]='dnf:gcc,gcc-c++,make'
+captured=()
+detect::_run() {
+  if [[ $1 == bash && $2 == -c ]]; then
+    case "$3" in
+      'dnf info gcc'|'dnf info gcc-c++'|'dnf info make') return 0 ;;
+      'dnf-has '*) return 1 ;;   # none installed
+      'dnf-install '*) captured+=("$3"); return 0 ;;
+    esac
+  fi
+  return 1
+}
+detect::pkg_ensure toolchain 2>/dev/null
+assert::eq "${#captured[@]}" "1" \
+  "pkg_ensure: multi-pkg → single batched install call"
+assert::eq "${captured[0]}" "dnf-install gcc gcc-c++ make" \
+  "pkg_ensure: multi-pkg batch contains all packages"
+
+# Multi-pkg: pkg_has skip-logic is bypassed (can't cleanly check multi-pkg
+# installed state); install fires even if packages are present (manager
+# is idempotent).
+setup_ensure_host_for_multi
+__DETECT_CANDIDATES[toolchain]='dnf:gcc,gcc-c++,make'
+captured=()
+detect::_run() {
+  if [[ $1 == bash && $2 == -c ]]; then
+    case "$3" in
+      'dnf info gcc'|'dnf info gcc-c++'|'dnf info make') return 0 ;;
+      'dnf-has '*) return 0 ;;   # pretend all installed — should NOT short-circuit multi-pkg
+      'dnf-install '*) captured+=("$3"); return 0 ;;
+    esac
+  fi
+  return 1
+}
+detect::pkg_ensure toolchain 2>/dev/null
+assert::eq "${#captured[@]}" "1" \
+  "pkg_ensure: multi-pkg doesn't short-circuit on pkg_has (install always runs)"

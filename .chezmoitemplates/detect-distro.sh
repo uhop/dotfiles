@@ -902,7 +902,16 @@ detect::active_managers() {
 # Filters applied in order:
 #   1. Manager must be in detect::active_managers.
 #   2. Manager must not appear in $DETECT_OPT_OUT (space-separated).
-#   3. Package must pass pkg_meets (or pkg_avail when no min_version given).
+#   3. Package(s) must pass pkg_meets (or pkg_avail when no min_version given).
+#
+# Multi-package candidates: the `name` field may be comma-separated when a
+# single logical capability maps to multiple packages on a given manager
+# (e.g. fedora's `c_toolchain` is `gcc,gcc-c++,make`; debian's is just
+# `build-essential`). All listed packages must pass the availability check
+# for the candidate row to match; the `min_version` gate, if present,
+# applies to each package. Output echoes the packages space-separated
+# (`mgr pkg1 pkg2 pkg3`) so `pkg_ensure` / `pkg_install` consume them
+# directly without re-parsing commas.
 detect::pkg_resolve() {
   local capability=$1
   local candidates=${__DETECT_CANDIDATES[$capability]:-}
@@ -932,12 +941,20 @@ detect::pkg_resolve() {
     [[ $active  == *" $mgr "* ]] || continue
     [[ $opt_out == *" $mgr "* ]] && continue
 
-    if [[ -n $minver ]]; then
-      detect::pkg_meets "$mgr" "$name" "$minver" || continue
-    else
-      detect::pkg_avail "$mgr" "$name" || continue
-    fi
-    echo "$mgr $name"
+    # Check availability for every package in the (possibly multi-pkg) name.
+    local -a pkgs_list=()
+    IFS=',' read -ra pkgs_list <<<"$name"
+    local pkg all_ok=1
+    for pkg in "${pkgs_list[@]}"; do
+      if [[ -n $minver ]]; then
+        detect::pkg_meets "$mgr" "$pkg" "$minver" || { all_ok=0; break; }
+      else
+        detect::pkg_avail "$mgr" "$pkg" || { all_ok=0; break; }
+      fi
+    done
+    (( all_ok )) || continue
+
+    echo "$mgr ${name//,/ }"
     return 0
   done <<<"$candidates"
   return 1
@@ -993,8 +1010,15 @@ detect::pkg_ensure() {
       echo "detect[warn]: no candidate resolved for '$cap'" >&2
       continue
     fi
+    # Resolver emits "$mgr $pkg1 $pkg2 ..." — first word is the manager,
+    # the rest are one-or-more package names (space-separated).
     read -r mgr name <<<"$result"
-    if detect::pkg_has "$mgr" "$name"; then
+    # Skip-if-installed only applies when the capability maps to a single
+    # package on this manager. Multi-package bundles can't be cleanly
+    # short-circuited without per-package pkg_has loops; we rely on the
+    # manager being idempotent about re-installing already-present
+    # packages (apt/dnf/zypper/pacman/apk/brew all are).
+    if [[ "$name" != *" "* ]] && detect::pkg_has "$mgr" "$name"; then
       echo "detect[skip] $cap: $mgr/$name (already installed)" >&2
       continue
     fi
