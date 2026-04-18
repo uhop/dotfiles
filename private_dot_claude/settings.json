@@ -7,6 +7,7 @@
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true
   },
-  "effortLevel": "high",
-  "tui": "fullscreen"
+  "effortLevel": "xhigh",
+  "tui": "fullscreen",
+  "skipAutoPermissionPrompt": true
 }
