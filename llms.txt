@@ -21,6 +21,31 @@ Sniffed values under `.detect.*` (from the detection library at `~/.local/libs/d
 - `.detect.hasIpv6`, `.detect.sudoGroup`, `.detect.canSudoNopasswd`
 - `.detect.hasBrew`, `.detect.hasFlatpak`, `.detect.hasSnap`, `.detect.hasNix`
 
+## Entry points for fresh machines
+
+Two layers, both end in `chezmoi init --apply uhop/dotfiles`.
+
+### install.sh (curl-pipe)
+
+`install.sh` at the repo root is the authoritative bootstrap entry:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/uhop/dotfiles/main/install.sh | sh
+# unattended:
+curl -fsSL https://raw.githubusercontent.com/uhop/dotfiles/main/install.sh | sh -s -- --yes
+```
+
+POSIX `sh` (so it works on Alpine / minimal images). Capability-probes `apt-get` / `dnf` / `pacman` / `zypper` / `apk` / `uname -s = Darwin` to route prereq install — **not** ID-based case statements (same principle as the detect library: pkgmgr presence drives behavior, ID is at most a banner hint). Installs curl + git + bash-4 + build tools if missing, then Homebrew (non-interactive), then chezmoi, then runs `chezmoi init --apply`. Flags: `-y/--yes`, `--repo owner/repo`, `--branch <br>`, `-h/--help`.
+
+### bootstrap-dotfiles (thin wrapper in bin/)
+
+`bootstrap-dotfiles` is a ~170-line wrapper around `install.sh` for two flows the curl-pipe doesn't cover:
+
+- **Remote provisioning:** `bootstrap-dotfiles <host>` — checks SSH reachability, then `ssh <host> "curl -fsSL <raw>/install.sh | sh -s -- --yes"`. One command from the operator's box.
+- **Self-bootstrap with secrets:** `bootstrap-dotfiles --from-jot <prefix>` — pre-flights that `~/.env` + an age decryption key are on local disk, downloads + runs `install.sh` locally unattended, then invokes `jot-deploy <prefix>` to pull S3-hosted system files.
+
+All OS-specific logic lives in `install.sh`; the wrapper owns only the surrounding flow (SSH check, jot pre-flight, jot-deploy tail).
+
 ## Bootstrap: bootstrap.sh
 
 `~/.local/libs/bootstrap.sh` auto-updates options.bash and sources core modules:
@@ -170,7 +195,7 @@ Probes live under `detect::flatpak_*` in `~/.local/libs/detect-distro.sh` (absor
 
 ### Bootstrap detection library
 
-Location: `.chezmoitemplates/detect-distro.sh` + `.chezmoitemplates/detect-packages.sh` — reusable chezmoi template fragments sourced into `bootstrap-dotfiles` (via `curl` or local-checkout inline), `.chezmoi.toml.tmpl` (via `output "bash" "-c" (includeTemplate ...)`), and `run_onchange_*` scripts (via `{{ template ... }}`). Single source of truth for OS identity + capability detection + package-resolution. Full design in [`dev-docs/bootstrap-detection-design.md`](./dev-docs/bootstrap-detection-design.md).
+Location: `.chezmoitemplates/detect-distro.sh` + `.chezmoitemplates/detect-packages.sh` — reusable chezmoi template fragments deployed at `~/.local/libs/detect-*.sh` (via thin target `.tmpl` wrappers) and sourced into `.chezmoi.toml.tmpl` (via `output "bash" "-c" (includeTemplate ...)`) and `run_onchange_*` scripts (via `{{ template ... }}`). Single source of truth for OS identity + capability detection + package-resolution. Full design in [`dev-docs/bootstrap-detection-design.md`](./dev-docs/bootstrap-detection-design.md).
 
 The library is capability-driven — declared family (`DETECTED_FAMILY`) is a diagnostic label, never a router. Package operations are driven by sniffed package-manager presence + per-capability candidate tables.
 
@@ -232,7 +257,7 @@ Internals:
 
 #### Section 4 — Diagnostics
 
-- `detect::summary` — multi-line human-readable probe snapshot (for `bootstrap-dotfiles` pre-flight).
+- `detect::summary` — multi-line human-readable probe snapshot (for debugging; `chezmoi data` consumes `report_json` instead).
 - `detect::report_json` — same state as a flat JSON object (for `.chezmoi.toml.tmpl` to ingest via `output` → `.detect.*` data keys).
 - `detect::reset` — clears memoization + applied overrides. Test-only escape hatch.
 - `detect::_assert_no_sudo` — falsifiability guard: library must not be invoked via sudo during sniffing.

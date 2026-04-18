@@ -77,7 +77,6 @@ declare -gA __DETECT_CACHE=()
 #          DETECTED_VARIANT_ID, DETECTED_NAME, DETECTED_FAMILY
 detect::identity() {
   [[ -n ${__DETECT_CACHE[identity]:-} ]] && return 0
-  detect::_sudo_guard || return 1
 
   DETECTED_ID=""
   DETECTED_ID_LIKE=""
@@ -342,7 +341,6 @@ detect::sudo_group() {
     [[ $v == __NONE__ ]] && echo "" || echo "$v"
     return 0
   fi
-  detect::_sudo_guard || return 1
   local user groups group
   user=$(detect::_user)
   groups=$(detect::_run id -nG "$user" 2>/dev/null || echo "")
@@ -363,7 +361,6 @@ detect::can_sudo_nopasswd() {
     [[ ${__DETECT_CACHE[can_sudo_nopasswd]} == 1 ]]
     return
   fi
-  detect::_sudo_guard || return 1
   local result=0
   if detect::has_cmd sudo && detect::_run sudo -n true 2>/dev/null; then
     result=1
@@ -1473,23 +1470,23 @@ detect::reset() {
   DETECTED_FAMILY=""
 }
 
-# Falsifiability guard per design §5.5: the library must not be invoked
-# via sudo during sniffing. Running as actual root is FINE (container
-# bootstrap scenarios); only the sudo-escalation path is rejected, since
-# a sudo'd library would pick up root-scoped file permissions and mask
-# real unprivileged-user probe failures (e.g. `id -nG` returning root's
-# groups instead of the real user's).
+# Falsifiability guard per design §5.5: returns non-zero when SUDO_USER
+# is set and EUID is not root. Intended to detect the hypothetical case of
+# "user ran the library via sudo as a different user and got misleading
+# probe results."
 #
-# Escape hatch: set DETECT_ALLOW_SUDO=1 for the rare legitimate case (e.g.
-# a probing workflow that genuinely needs escalation). Use sparingly — it
-# disables the invariant that makes the user-facing probes meaningful.
+# NOT invoked from any public entry point. Real-world testing (2026-04-17)
+# showed the SUDO_USER signal is too blunt: common automation patterns
+# (`sudo -u <target> -i`, Ansible become, `lxc exec` + sudo) set SUDO_USER
+# even when EUID has dropped cleanly to the target user — and at that
+# point every probe correctly reflects the target user's view (detect::_user
+# uses `id -un`, groups come from `id -nG`, $HOME is target's home under
+# `-i`). Enforcing on SUDO_USER blocks legitimate unattended flows without
+# catching any correctness problem that isn't already covered by the
+# EUID=0 allow rule above.
 #
-# This function is a pure predicate: it re-evaluates on every call (tests
-# depend on that). The one-shot gating lives in detect::_sudo_guard, which
-# is what public entry points call.
-#
-# CI test: `sudo -n -u nobody bash -c '. detect-distro.sh; detect::summary'`
-# must succeed. If it fails, we've regressed.
+# Kept available as a predicate for anyone who wants to opt in (tests,
+# diagnostics, bespoke validation). Escape hatch: DETECT_ALLOW_SUDO=1.
 detect::_assert_no_sudo() {
   [[ ${DETECT_ALLOW_SUDO:-} == 1 ]] && return 0
   [[ ${EUID:-$(id -u)} -eq 0 ]] && return 0

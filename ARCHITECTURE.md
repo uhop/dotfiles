@@ -6,6 +6,7 @@ Personal dotfiles managed by [chezmoi](https://www.chezmoi.io/). Bash-based CLI 
 
 ```
 dotfiles/                                          # chezmoi source directory
+├── install.sh                                     # curl-pipe bootstrap entry: `curl ... | sh`, POSIX sh, capability-probes pkgmgr
 ├── .chezmoi.toml.tmpl                             # chezmoi config: OS detection, GUI flag
 ├── .chezmoiignore                                 # excluded from deployment
 ├── .editorconfig                                  # 2-space indent, UTF-8, LF
@@ -35,7 +36,7 @@ dotfiles/                                          # chezmoi source directory
 ├── private_dot_local/
 │   ├── bin/                                       # → ~/.local/bin/ (CLI utilities)
 │   │   ├── executable_arx                         # archive viewer/extractor
-│   │   ├── executable_bootstrap-dotfiles          # remote host dotfiles installer
+│   │   ├── executable_bootstrap-dotfiles          # thin wrapper: SSH+curl-pipe for remote, or local self-bootstrap (--from-jot)
 │   │   ├── executable_bootstrap-remote            # SSH access setup for remote hosts
 │   │   ├── executable_clean-completions           # remove options.bash completion files
 │   │   ├── executable_cln.tmpl                    # system cleanup
@@ -121,7 +122,7 @@ options.bash (external)
 bootstrap.sh                  ← auto-updates options.bash, sources ansi.sh + args.sh + args-help.sh + args-version.sh
     ↑
 executable_arx                ← archive viewer/extractor
-executable_bootstrap-dotfiles ← remote host dotfiles installer
+executable_bootstrap-dotfiles ← thin wrapper: remote `ssh + curl install.sh | sh --yes`, or local `--from-jot` with jot-deploy tail
 executable_bootstrap-remote   ← SSH access setup for remote hosts
 executable_clean-completions  ← remove options.bash completion files
 executable_cln.tmpl           ← system cleanup (apt/dnf, brew, flatpak, docker, node) → maintenance.sh

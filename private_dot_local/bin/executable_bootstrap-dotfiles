@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+#
+# bootstrap-dotfiles — thin wrapper over install.sh for remote or self-bootstrap.
+#
+# Remote mode (default):   ssh to <host>, pipe install.sh over, run it unattended.
+# Self-bootstrap:          run install.sh locally, then jot-deploy <prefix>.
+#
+# The heavy lifting — OS-specific prerequisite install, Homebrew, chezmoi init
+# --apply — lives in install.sh at the repo root. This wrapper owns the
+# surrounding flow: SSH reachability check, install.sh invocation, and the
+# optional --from-jot tail that pulls secrets via jot-deploy after apply.
 
 set -euCo pipefail
 shopt -s expand_aliases
@@ -7,20 +17,25 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-deps::need ssh scp
+deps::need ssh curl
 
-args::program "$script_name" "1.1.0" "Prepare a remote host (or this host) for dotfiles installation"
+args::program "$script_name" "2.0.0" "Thin wrapper over install.sh for remote or self-bootstrap"
 
-args_program_header="${BOLD}bootstrap-dotfiles${RESET_BOLD} detects the target OS and generates a self-contained
-install script. Default: SSH to a remote ${BOLD}<host>${RESET_BOLD} and upload the script.
-With ${BOLD}--from-jot <prefix>${RESET_BOLD}: self-bootstrap the local machine and pull
-system files from S3 via ${BOLD}jot-deploy${RESET_BOLD} when chezmoi finishes."
+args_program_header="${BOLD}bootstrap-dotfiles${RESET_BOLD} provisions a fresh machine by running
+${BOLD}install.sh${RESET_BOLD} — either remotely via SSH or locally with --from-jot.
 
-args_program_usage="${BOLD}bootstrap-dotfiles${RESET_BOLD} <host> [options]
-       ${BOLD}bootstrap-dotfiles${RESET_BOLD} --from-jot <s3-prefix> [options]"
+Default: SSH to ${BOLD}<host>${RESET_BOLD}, pipe install.sh over, run it unattended. install.sh
+is fetched from the GitHub raw URL; override the repo or branch if needed.
 
-args::option "--github-user" "GitHub username for chezmoi (default: \$GITHUB_USERNAME or uhop)" "name"
-args::option "--from-jot" "Self-bootstrap on this host; pull system files from <prefix> via jot-deploy" "prefix"
+With ${BOLD}--from-jot <prefix>${RESET_BOLD}: run install.sh locally (self-bootstrap), then
+invoke ${BOLD}jot-deploy${RESET_BOLD} to pull secrets + system files from S3."
+
+args_program_usage="${BOLD}bootstrap-dotfiles${RESET_BOLD} <host> [--branch <br>]
+       ${BOLD}bootstrap-dotfiles${RESET_BOLD} --from-jot <prefix> [--branch <br>]"
+
+args::option "--github-user" "GitHub user owning the dotfiles repo (default: \$GITHUB_USERNAME or uhop)" "name"
+args::option "--branch" "Branch of the dotfiles repo to fetch install.sh from (default: main)" "branch"
+args::option "--from-jot" "Self-bootstrap locally; run jot-deploy <prefix> after chezmoi apply" "prefix"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 args::option "--bash-completion" "Show bash completion"
@@ -33,52 +48,23 @@ DIM="$FG_WHITE"
 GITHUB_USER="${GITHUB_USERNAME:-uhop}"
 [[ -v args_options["--github-user"] ]] && GITHUB_USER="${args_options["--github-user"]}"
 
+BRANCH="main"
+[[ -v args_options["--branch"] ]] && BRANCH="${args_options["--branch"]}"
+
 FROM_JOT=""
-if [[ -v args_options["--from-jot"] ]]; then
-  FROM_JOT="${args_options["--from-jot"]}"
-fi
+[[ -v args_options["--from-jot"] ]] && FROM_JOT="${args_options["--from-jot"]}"
 
 HOST="${1:-}"
 
-if [[ -n "$FROM_JOT" ]]; then
-  # --- Self-bootstrap mode ---
-  if [[ -n "$HOST" ]]; then
-    ansi::warn "${ERROR}--from-jot ignores the <host> argument (always operates locally).${RESET_ALL}"
-  fi
+INSTALL_URL="https://raw.githubusercontent.com/${GITHUB_USER}/dotfiles/${BRANCH}/install.sh"
+REPO_ARG="${GITHUB_USER}/dotfiles"
 
-  # Chicken-and-egg pre-flight: the bundle is encrypted, so we need both
-  # AWS credentials and the decryption key locally before this can do anything.
-  missing=()
-  [[ ! -f "$HOME/.env" ]] && missing+=("~/.env (AWS credentials)")
-  have_decryption_key=false
-  [[ -f "$HOME/.ssh/age.key" ]] && have_decryption_key=true
-  for _b in id_ed25519 id_rsa id_ecdsa; do
-    [[ -f "$HOME/.ssh/$_b" ]] && have_decryption_key=true && break
-  done
-  $have_decryption_key || missing+=("~/.ssh/age.key or ~/.ssh/{id_ed25519,id_rsa,id_ecdsa} (decryption key)")
-  if (( ${#missing[@]} > 0 )); then
-    ansi::warn "${ERROR}--from-jot pre-flight failed. Missing files:${RESET_ALL}"
-    for m in "${missing[@]}"; do
-      ansi::warn "  - $m"
-    done
-    ansi::warn ""
-    ansi::warn "These secrets must arrive out-of-band (USB, password manager, scp from another machine)"
-    ansi::warn "before --from-jot can pull anything from S3. See:"
-    ansi::warn "  ${BOLD}https://github.com/uhop/dotfiles/wiki/Jot#bootstrap-sequence${RESET_ALL}"
-    exit 1
-  fi
+# ---------------------------------------------------------------------------
+# Remote mode
+# ---------------------------------------------------------------------------
 
-  ansi::out "${INFO}Detecting local OS...${RESET_ALL}"
-  REMOTE_OS=$(uname -s)
-  REMOTE_ID="unknown"
-  if [ "$REMOTE_OS" = "Linux" ] && [ -r /etc/os-release ]; then
-    REMOTE_ID=$(. /etc/os-release && echo "${ID:-linux}")
-  fi
-  ansi::out "${OK}Local: $REMOTE_OS ($REMOTE_ID)${RESET_ALL}"
-  ansi::out "${INFO}Bundle: ${BOLD}$FROM_JOT${RESET_ALL}"
-else
-  # --- Remote-operator mode (original) ---
-  if [ -z "$HOST" ]; then
+if [[ -z "$FROM_JOT" ]]; then
+  if [[ -z "$HOST" ]]; then
     ansi::warn "${ERROR}No host specified${RESET_ALL}"
     args::try_help
     exit 1
@@ -92,416 +78,100 @@ else
   fi
   ansi::out "${OK}SSH access OK${RESET_ALL}"
 
-  ansi::out "${INFO}Detecting remote OS...${RESET_ALL}"
-  REMOTE_OS=$(ssh "$HOST" "uname -s" 2>/dev/null)
-  REMOTE_ID="unknown"
-  if [ "$REMOTE_OS" = "Linux" ]; then
-    REMOTE_ID=$(ssh "$HOST" ". /etc/os-release 2>/dev/null && echo \$ID" 2>/dev/null || echo "linux")
-  fi
-  ansi::out "${OK}Remote: $REMOTE_OS ($REMOTE_ID)${RESET_ALL}"
+  ansi::out "${INFO}Running install.sh on $HOST (unattended)...${RESET_ALL}"
+  ansi::out "${DIM}  URL:    $INSTALL_URL${RESET_ALL}"
+  ansi::out "${DIM}  Takes:  ~5-15 min depending on network${RESET_ALL}"
+  ansi::out "${DIM}  Needs:  passwordless sudo on $HOST${RESET_ALL}"
+  echo
+
+  # --yes is mandatory over SSH because the target has no TTY for prompts.
+  # -t on ssh allocates a pseudo-tty so the user sees live output.
+  echoRun ssh -t "$HOST" \
+    "curl -fsSL '$INSTALL_URL' | sh -s -- --yes --repo '$REPO_ARG' --branch '$BRANCH'"
+
+  echo
+  ansi::out "${OK}Bootstrap complete on $HOST${RESET_ALL}"
+  ansi::out "${DIM}Open a new shell to use it:${RESET_ALL}"
+  ansi::out "  ${BOLD}ssht $HOST${RESET_ALL}"
+  exit 0
 fi
 
-# --- Place the detection library at /tmp on the target ---
-#
-# bootstrap-dotfiles runs on a machine that already has `~/.local/libs/
-# detect-distro.sh` (chezmoi-deployed from `.chezmoitemplates/`). The
-# target machine (fresh host in remote mode, or the local machine in
-# --from-jot mode) doesn't have it yet — chezmoi hasn't applied there.
-# Rather than inline the library into the generated install script via
-# heredoc (fragile quoting, 1300-line generated scripts), we copy the
-# two files over alongside the install script so the script can just
-# `source /tmp/detect-*.sh` at runtime.
-#
-# Upload uses the same `ssh ... cat >` idiom as the install script
-# upload below — no scp dep, works with any SSH server, matches style.
+# ---------------------------------------------------------------------------
+# Self-bootstrap mode (--from-jot)
+# ---------------------------------------------------------------------------
 
-LIB_SRC="$HOME/.local/libs"
-LIB_FILES=(detect-distro.sh detect-packages.sh)
+if [[ -n "$HOST" ]]; then
+  ansi::warn "${WARN}--from-jot ignores the <host> argument (always operates locally).${RESET_ALL}"
+fi
 
-place_detect_library() {
-  # Only place if the source files exist — degrades gracefully on
-  # operator machines that haven't pulled the library yet. The install
-  # script's source-the-library stanza is also tolerant of missing files.
-  local missing=0
-  for f in "${LIB_FILES[@]}"; do
-    [[ -r "$LIB_SRC/$f" ]] || { missing=1; break; }
+# Chicken-and-egg pre-flight: jot-deploy needs AWS credentials and an age
+# decryption key on local disk before it can pull anything. Those must have
+# arrived out-of-band (USB, scp from another machine, password manager).
+missing=()
+[[ ! -f "$HOME/.env" ]] && missing+=("~/.env (AWS credentials)")
+have_decryption_key=false
+[[ -f "$HOME/.ssh/age.key" ]] && have_decryption_key=true
+for _b in id_ed25519 id_rsa id_ecdsa; do
+  [[ -f "$HOME/.ssh/$_b" ]] && have_decryption_key=true && break
+done
+$have_decryption_key || missing+=("~/.ssh/age.key or ~/.ssh/{id_ed25519,id_rsa,id_ecdsa} (decryption key)")
+
+if (( ${#missing[@]} > 0 )); then
+  ansi::warn "${ERROR}--from-jot pre-flight failed. Missing files:${RESET_ALL}"
+  for m in "${missing[@]}"; do
+    ansi::warn "  - $m"
   done
-  if (( missing )); then
-    ansi::warn "${WARN}Detection library not found at $LIB_SRC — install script will skip its code paths.${RESET_ALL}"
-    ansi::warn "${DIM}Hint: run \`chezmoi apply\` on this machine so \$LIB_SRC/detect-distro.sh is deployed.${RESET_ALL}"
-    return
-  fi
-
-  if [[ -n "$FROM_JOT" ]]; then
-    ansi::out "${INFO}Placing detection library in /tmp...${RESET_ALL}"
-    for f in "${LIB_FILES[@]}"; do
-      command cp "$LIB_SRC/$f" "/tmp/$f"
-    done
-    ansi::out "${OK}Placed${RESET_ALL}"
-  else
-    ansi::out "${INFO}Uploading detection library to $HOST:/tmp...${RESET_ALL}"
-    for f in "${LIB_FILES[@]}"; do
-      ssh "$HOST" "cat > /tmp/$f" < "$LIB_SRC/$f"
-    done
-    ansi::out "${OK}Uploaded${RESET_ALL}"
-  fi
-}
-
-place_detect_library
-
-# --- Generate install script ---
-
-REMOTE_SCRIPT="/tmp/install-dotfiles.sh"
-
-generate_script() {
-  cat <<'SCRIPT_HEADER'
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Source the detection library if it was placed alongside us by
-# bootstrap-dotfiles. Bash 4+ is required (associative arrays); macOS's
-# default bash 3.2 will skip the source and fall back to the original
-# case-based install logic below. Clean up the library files on exit so
-# /tmp doesn't accumulate cruft across re-runs.
-DETECT_LOADED=0
-if (( BASH_VERSINFO[0] >= 4 )); then
-  for d in /tmp "$HOME/.local/libs"; do
-    if [[ -r "$d/detect-distro.sh" ]]; then
-      # shellcheck disable=SC1091
-      source "$d/detect-distro.sh"
-      [[ -r "$d/detect-packages.sh" ]] && source "$d/detect-packages.sh"
-      detect::apply_overrides 2>/dev/null || true
-      DETECT_LOADED=1
-      break
-    fi
-  done
-fi
-trap 'rm -f /tmp/detect-distro.sh /tmp/detect-packages.sh' EXIT
-
-BOLD="\033[1m"
-GREEN="\033[32m"
-CYAN="\033[36m"
-YELLOW="\033[33m"
-RED="\033[31m"
-RESET="\033[0m"
-
-step() {
-  echo -e "\n${GREEN}${BOLD}=== $1 ===${RESET}"
-}
-
-info() {
-  echo -e "${CYAN}$1${RESET}"
-}
-
-warn() {
-  echo -e "${YELLOW}$1${RESET}"
-}
-
-run() {
-  echo -e "${CYAN}$ $*${RESET}"
-  "$@"
-}
-
-ask_yn() {
-  local prompt="$1" default="${2:-y}"
-  local yn
-  if [ "$default" = "y" ]; then
-    read -rp "$(echo -e "${YELLOW}${prompt} [Y/n]: ${RESET}")" yn
-    yn="${yn:-y}"
-  else
-    read -rp "$(echo -e "${YELLOW}${prompt} [y/N]: ${RESET}")" yn
-    yn="${yn:-n}"
-  fi
-  [[ "$yn" =~ ^[Yy] ]]
-}
-SCRIPT_HEADER
-
-  # Platform-specific prerequisites.
-  #
-  # Two paths emitted: a library-first path (runs when DETECT_LOADED==1 on
-  # the remote — bash ≥4 + detect-*.sh present) and the legacy case-based
-  # path as fallback. The library path handles every distro through one
-  # unified `detect::pkg_ensure` call; the fallback preserves the original
-  # per-distro heredocs for bash 3.x / missing-library situations.
-  case "$REMOTE_OS" in
-    Linux)
-      cat <<'SCRIPT_LIBRARY_INSTALL'
-
-if (( DETECT_LOADED )); then
-  step "Installing prerequisites"
-  info "These packages are needed to build tools from source and run chezmoi."
-  # Refresh the package index before resolving. apt and pacman require an
-  # explicit sync (pkg_avail would otherwise see a stale / empty cache);
-  # apk's own cache is fetched lazily by `add` but `apk search -e` (the
-  # avail probe) needs the index to be already populated. dnf / zypper
-  # refresh implicitly on install but an explicit cache is cheap.
-  case "$(detect::pkgmgr)" in
-    apt)    run sudo env DEBIAN_FRONTEND=noninteractive apt update ;;
-    dnf)    run sudo dnf -q makecache ;;
-    zypper) run sudo zypper -n ref ;;
-    pacman) run sudo pacman -Sy --noconfirm ;;
-    apk)    run sudo apk update ;;
-  esac
-  # `brew_linux_prereqs` deliberately has no apt row in the candidate
-  # table — on debian-family `build-essential` and the base image already
-  # provide file/tar/gzip/etc., so pkg_ensure warns unresolved and
-  # continues. On rpm/zypper/pacman/apk hosts it resolves to the
-  # comma-separated bundle.
-  detect::pkg_ensure c_toolchain git git_gui gitk curl brew_linux_prereqs micro_editor
-
-  step "Installing Homebrew"
-  info "Homebrew manages CLI tools across Linux and macOS."
-  info "(chezmoi will manage your shell init; ignore Homebrew's 'Next steps' output.)"
-  if command -v brew &>/dev/null; then
-    info "Homebrew is already installed, skipping."
-  else
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-  fi
-else
-SCRIPT_LIBRARY_INSTALL
-      case "$REMOTE_ID" in
-        ubuntu|debian|pop|linuxmint)
-          cat <<'SCRIPT_DEBIAN'
-
-step "Installing prerequisites"
-info "These packages are needed to build tools from source and run chezmoi."
-run sudo env DEBIAN_FRONTEND=noninteractive apt update
-run sudo env DEBIAN_FRONTEND=noninteractive apt install -y build-essential curl git git-gui gitk micro
-
-step "Installing Homebrew"
-info "Homebrew manages CLI tools across Linux and macOS."
-info "(chezmoi will manage your shell init; ignore Homebrew's 'Next steps' output.)"
-if command -v brew &>/dev/null; then
-  info "Homebrew is already installed, skipping."
-else
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-fi
-SCRIPT_DEBIAN
-          ;;
-        fedora|rhel|centos|rocky|almalinux|ol|amzn)
-          cat <<'SCRIPT_RHEL'
-
-step "Installing prerequisites"
-info "These packages are needed to build tools from source and run chezmoi."
-# Homebrew's documented Linux prereqs (https://docs.brew.sh/Homebrew-on-Linux#requirements):
-#   gcc/g++/make + curl + git + file + ca-certificates.
-# Minimal RHEL container images skip POSIX basics (tar/bzip2/xz) that Homebrew
-# needs to extract bottles; add them explicitly here so bootstrap works from any base.
-# Note: curl is NOT listed — Amazon Linux 2023 ships curl-minimal which provides curl
-# and conflicts with the full curl package. All RHEL-family minimal installs have
-# curl (via curl-minimal or the full package) already.
-run sudo dnf install -y gcc gcc-c++ make git git-gui gitk \
-  file ca-certificates tar gzip bzip2 xz unzip \
-  procps-ng util-linux
-
-step "Installing Homebrew"
-info "Homebrew manages CLI tools across Linux and macOS."
-info "(chezmoi will manage your shell init; ignore Homebrew's 'Next steps' output.)"
-if command -v brew &>/dev/null; then
-  info "Homebrew is already installed, skipping."
-else
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-fi
-SCRIPT_RHEL
-          ;;
-        *)
-          cat <<SCRIPT_GENERIC_LINUX
-
-step "Installing prerequisites"
-warn "Unsupported Linux distribution: $REMOTE_ID"
-warn "Install your distro's equivalents of:"
-warn "  - a C/C++ toolchain and make (Debian: build-essential, Arch: base-devel, Alpine: build-base)"
-warn "  - git, plus git's GUI/viewer if you want them (git-gui, gitk)"
-warn "  - curl"
-warn "  - a modern terminal editor (this project uses micro; nano/vim also fine)"
-warn "Then install Homebrew: https://brew.sh/"
-info "Press Enter to continue after installing prerequisites, or Ctrl+C to abort."
-read -r
-
-# Homebrew on Linux installs to /home/linuxbrew/.linuxbrew/ but doesnt get added to
-# PATH until the shell is re-sourced. Try the standard location so users who just
-# installed it (or have it in an unusual location) dont need to re-login first.
-# Escaped \$ so the heredoc doesnt expand these at script-generation time.
-if ! command -v brew &>/dev/null; then
-  if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
-    eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-  elif [ -x "\$HOME/.linuxbrew/bin/brew" ]; then
-    eval "\$("\$HOME/.linuxbrew/bin/brew" shellenv)"
-  fi
-fi
-if ! command -v brew &>/dev/null; then
-  warn "Homebrew not found. Install it first: https://brew.sh/"
+  ansi::warn ""
+  ansi::warn "These secrets must arrive out-of-band (USB, password manager, scp from another machine)"
+  ansi::warn "before --from-jot can pull anything from S3. See:"
+  ansi::warn "  ${BOLD}https://github.com/$GITHUB_USER/dotfiles/wiki/Jot#bootstrap-sequence${RESET_ALL}"
   exit 1
 fi
-SCRIPT_GENERIC_LINUX
-          ;;
-      esac
-      cat <<'SCRIPT_LIBRARY_INSTALL_END'
-fi
-SCRIPT_LIBRARY_INSTALL_END
-      ;;
-    Darwin)
-      cat <<'SCRIPT_MACOS'
 
-step "Installing prerequisites"
-if ! xcode-select -p &>/dev/null; then
-  info "Installing Xcode Command Line Tools..."
-  run xcode-select --install
-  info "Wait for the installation to complete, then press Enter."
-  read -r
-else
-  info "Xcode CLT already installed."
-fi
+# Download and run install.sh locally (unattended).
+INSTALL_SH="/tmp/install-dotfiles.sh"
+ansi::out "${INFO}Downloading install.sh...${RESET_ALL}"
+ansi::out "${DIM}  $INSTALL_URL${RESET_ALL}"
+echoRun curl -fsSL -o "$INSTALL_SH" "$INSTALL_URL"
+command chmod +x "$INSTALL_SH"
 
-step "Installing Homebrew"
-if command -v brew &>/dev/null; then
-  info "Homebrew is already installed, skipping."
-else
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  if [ -s /opt/homebrew/bin/brew ]; then
-    eval "$(/opt/homebrew/bin/brew shellenv)"
-  elif [ -s /usr/local/bin/brew ]; then
-    eval "$(/usr/local/bin/brew shellenv)"
-  fi
-fi
-
-step "Switching default shell to bash"
-info "macOS ships an old bash. Installing a modern version via brew."
-if ! brew list bash &>/dev/null; then
-  run brew install bash
-fi
-BREW_BASH="$(brew --prefix)/bin/bash"
-if ! grep -qF "$BREW_BASH" /private/etc/shells; then
-  info "Adding $BREW_BASH to /etc/shells"
-  echo "$BREW_BASH" | sudo tee -a /private/etc/shells
-fi
-if [ "$SHELL" != "$BREW_BASH" ]; then
-  run chsh -s "$BREW_BASH"
-fi
-SCRIPT_MACOS
-      ;;
-    *)
-      ansi::err "${ERROR}Unsupported OS: $REMOTE_OS${RESET_ALL}"
-      exit 1
-      ;;
-  esac
-
-  # Common: chezmoi install + apply
-  cat <<SCRIPT_CHEZMOI
-
-step "Installing chezmoi"
-if command -v chezmoi &>/dev/null; then
-  info "chezmoi is already installed, skipping."
-else
-  run brew install chezmoi
-fi
-
-step "Applying dotfiles"
-info "chezmoi will ask a few questions (name, email, GitHub username, GUI)."
-info "Accept the defaults or enter your own values."
+ansi::out "${INFO}Running install.sh (unattended, ~5-15 min)...${RESET_ALL}"
 echo
-run chezmoi init --apply --recurse-submodules=false ${GITHUB_USER}
+echoRun "$INSTALL_SH" --yes --repo "$REPO_ARG" --branch "$BRANCH"
 
-step "Done!"
-info "The dotfiles are installed. A reboot is recommended."
-SCRIPT_CHEZMOI
+# After install.sh completes, chezmoi has deployed ~/.local/bin (jot, jot-deploy)
+# and brew has installed aws. Neither is in our running shell's PATH — add
+# the known locations so the jot-deploy call below resolves.
+for d in "$HOME/.local/bin" /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin; do
+  [[ -d "$d" ]] && PATH="$d:$PATH"
+done
+export PATH
 
-  if [[ -n "$FROM_JOT" ]]; then
-    cat <<SCRIPT_JOT_DEPLOY
-
-step "Deploying system files from jot bundle"
-info "Pulling ${FROM_JOT} from S3 and installing per its embedded manifest."
-# chezmoi added ~/.local/bin (jot, jot-deploy) and brew added aws to PATH, but
-# those changes only take effect in new shells. Source them into this one.
-export PATH="\$HOME/.local/bin:\$PATH"
-if [ -s "\$HOME/.bashrc" ]; then
-  # shellcheck disable=SC1091
-  . "\$HOME/.bashrc" 2>/dev/null || true
-fi
+echo
+ansi::out "${INFO}Deploying system files from jot bundle: ${BOLD}$FROM_JOT${RESET_ALL}"
 
 if ! command -v jot-deploy >/dev/null 2>&1; then
-  warn "jot-deploy not found — chezmoi may not have finished installing it."
-  warn "Run manually after dotfiles install completes:"
-  warn "  jot-deploy ${FROM_JOT}            # report-only (default)"
-  warn "  jot-deploy ${FROM_JOT} --apply    # install"
-else
-  info "Report (dry-run) first:"
-  run jot-deploy "${FROM_JOT}"
-  echo
-  if ask_yn "Apply these changes?"; then
-    run jot-deploy "${FROM_JOT}" --apply
-  else
-    info "Skipped --apply. Re-run manually when ready: jot-deploy ${FROM_JOT} --apply"
-  fi
+  ansi::warn "${WARN}jot-deploy not found on PATH after install.sh.${RESET_ALL}"
+  ansi::warn "Open a new shell and run manually:"
+  ansi::warn "  ${BOLD}jot-deploy $FROM_JOT --apply${RESET_ALL}"
+  exit 0
 fi
-SCRIPT_JOT_DEPLOY
-  fi
 
-  cat <<'SCRIPT_REBOOT'
+ansi::out "${DIM}Report (dry-run) first:${RESET_ALL}"
 echo
-if ask_yn "Reboot now?"; then
-  sudo reboot
-else
-  echo -e "${YELLOW}Remember to reboot before using the new environment.${RESET}"
-fi
-SCRIPT_REBOOT
-}
+echoRun jot-deploy "$FROM_JOT"
+echo
 
-# --- Generate, upload (or write locally), instruct ---
+ansi::prompt "Apply these changes? [Y/n] "
+read -r response
+case "${response^^}" in
+  N|NO|NOPE)
+    ansi::out "Skipped. Re-run manually when ready: ${BOLD}jot-deploy $FROM_JOT --apply${RESET_ALL}"
+    ;;
+  *)
+    echoRun jot-deploy "$FROM_JOT" --apply
+    ;;
+esac
 
-ansi::out "${INFO}Generating install script...${RESET_ALL}"
-SCRIPT_CONTENT=$(generate_script)
-
-if [[ -n "$FROM_JOT" ]]; then
-  ansi::out "${INFO}Writing $REMOTE_SCRIPT...${RESET_ALL}"
-  echo "$SCRIPT_CONTENT" > "$REMOTE_SCRIPT"
-  chmod +x "$REMOTE_SCRIPT"
-  ansi::out "${OK}Written${RESET_ALL}"
-
-  echo
-  ansi::out "${OK}=================================================${RESET_ALL}"
-  ansi::out "${OK} Install script is ready: $REMOTE_SCRIPT${RESET_ALL}"
-  ansi::out "${OK}=================================================${RESET_ALL}"
-  echo
-  ansi::out "${DIM}What to expect (~5-15 min depending on network):${RESET_ALL}"
-  ansi::out "${DIM}  - one sudo password prompt early (for Homebrew's installer)${RESET_ALL}"
-  ansi::out "${DIM}  - four chezmoi questions: hasGui (y/n), Full name, Email, GitHub username${RESET_ALL}"
-  ansi::out "${DIM}    (defaults are fine if you're $GITHUB_USER)${RESET_ALL}"
-  ansi::out "${DIM}  - jot-deploy report, then 'Apply these changes?' prompt for $FROM_JOT${RESET_ALL}"
-  ansi::out "${DIM}  - a final 'Reboot now?' prompt (default yes)${RESET_ALL}"
-  echo
-
-  ansi::prompt "Run ${BOLD}$REMOTE_SCRIPT${RESET_ALL} now? [Y/n] "
-  read -r response
-  case "${response^^}" in
-    N|NO|NOPE)
-      ansi::out "Run it manually when ready: ${BOLD}$REMOTE_SCRIPT${RESET_ALL}"
-      ;;
-    *)
-      exec "$REMOTE_SCRIPT"
-      ;;
-  esac
-else
-  ansi::out "${INFO}Uploading to $HOST:$REMOTE_SCRIPT ...${RESET_ALL}"
-  echo "$SCRIPT_CONTENT" | ssh "$HOST" "cat > $REMOTE_SCRIPT && chmod +x $REMOTE_SCRIPT"
-  ansi::out "${OK}Uploaded${RESET_ALL}"
-
-  echo
-  ansi::out "${OK}=================================================${RESET_ALL}"
-  ansi::out "${OK} Install script is ready on $HOST${RESET_ALL}"
-  ansi::out "${OK}=================================================${RESET_ALL}"
-  echo
-  ansi::out "Open another terminal and run:"
-  echo
-  ansi::out "  ${BOLD}ssht $HOST${RESET_ALL}"
-  ansi::out "  ${BOLD}$REMOTE_SCRIPT${RESET_ALL}"
-  echo
-  ansi::out "${DIM}What to expect (~5-15 min depending on network):${RESET_ALL}"
-  ansi::out "${DIM}  - one sudo password prompt early (for Homebrew's installer)${RESET_ALL}"
-  ansi::out "${DIM}  - four chezmoi questions: hasGui (y/n), Full name, Email, GitHub username${RESET_ALL}"
-  ansi::out "${DIM}    (defaults are fine if you're $GITHUB_USER)${RESET_ALL}"
-  ansi::out "${DIM}  - a final 'Reboot now?' prompt (default yes)${RESET_ALL}"
-fi
+echo
+ansi::out "${OK}Self-bootstrap complete. A reboot is recommended.${RESET_ALL}"
