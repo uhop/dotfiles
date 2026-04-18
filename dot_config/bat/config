@@ -1,0 +1,4 @@
+# bat config — shared theme with delta (see ~/.gitconfig [delta] syntax-theme).
+# Both tools resolve theme names against the same bundled set, so keeping them
+# in sync means `git diff` and `cat`/`bat` render syntax identically.
+--theme="Monokai Extended"

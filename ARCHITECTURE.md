@@ -22,6 +22,7 @@ dotfiles/                                          # chezmoi source directory
 │
 ├── dot_config/                                    # → ~/.config/
 │   ├── alacritty/alacritty.toml.tmpl              # terminal config (templated)
+│   ├── bat/config                                 # bat theme — shared with delta
 │   ├── cheat/conf.yml.tmpl                        # cheat config (templated)
 │   ├── fastfetch/config.jsonc.tmpl                # system info (templated)
 │   ├── ghostty/private_config.tmpl                # terminal config (templated)
