@@ -389,4 +389,26 @@ kssht() {
 #   wp mini gnome-calculator
 #   wp mini nautilus
 #   wp mini -- bash -c 'cd ~/project && code .'
-wp() { waypipe --no-gpu ssh "$@"; }
+#
+# Unavailable on macOS/Windows clients (no Wayland). Guard tells the user
+# which alternative to reach for instead of leaving them to interpret a
+# bare "command not found".
+wp() {
+  if ! command -v waypipe >/dev/null 2>&1; then
+    echo "wp: waypipe not installed on this host." >&2
+    case "${OSTYPE:-}" in
+      darwin*)
+        echo "wp: macOS has no Wayland — waypipe cannot render remote Wayland surfaces here." >&2
+        echo "wp: Alternatives: xfreerdp3 (brew install freerdp), or ssh -Y + XQuartz for one-off X11 apps." >&2
+        ;;
+      linux-gnu|linux*)
+        echo "wp: Install with: sudo apt install waypipe (or dnf/pacman/zypper equivalent)." >&2
+        ;;
+      *)
+        echo "wp: Platform '${OSTYPE:-unknown}' not supported for waypipe." >&2
+        ;;
+    esac
+    return 127
+  fi
+  waypipe --no-gpu ssh "$@"
+}
