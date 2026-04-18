@@ -375,3 +375,18 @@ kssht() {
   local TMUX="(command -v tmux &> /dev/null && tmux new -As $session_name)"
   kitten ssh -t "$1" "$TMUX || bash"
 }
+
+## remote-GUI helpers
+
+# Run a remote app and display its window locally over SSH via waypipe.
+# --no-gpu skips DMA-BUF sharing (which needs render-node access on the
+# remote, and SSH'd users don't have that unless they're in group `render`
+# AND the host has a logind-granted ACL or a group-writable /dev/dri/render*).
+# Shared-memory transport works for most apps; noticeable only on GPU-heavy
+# ones (video, 3D), which are better served by full-desktop RDP anyway.
+#
+# Usage: wp <host> <app> [args...]
+#   wp mini gnome-calculator
+#   wp mini nautilus
+#   wp mini -- bash -c 'cd ~/project && code .'
+wp() { waypipe --no-gpu ssh "$@"; }

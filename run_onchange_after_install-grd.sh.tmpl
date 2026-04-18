@@ -1,68 +1,141 @@
-{{- /* Enable gnome-remote-desktop on GNOME hosts the user flagged as RDP servers.
+{{- /* Configure the GRD system daemon on GNOME hosts flagged as RDP servers.
        Runs only when .detect.desktop == "gnome" AND .remoteDesktop is "server"
        or "both". Idempotent; chezmoi re-runs only when this rendered content
        changes (tied to .detect.desktop / .remoteDesktop values).
 
-       Not automated: GRD credentials. Setting username+password programmatically
-       would either bake them into chezmoi source (secrets in the repo — no) or
-       require a prompt-on-apply flow that complicates unattended bootstrap.
-       User sets credentials interactively via Settings → Remote Desktop or
-       `grdctl rdp set-credentials <user> <password>`; the script prints the
-       reminder at the end. */ -}}
+       We use the SYSTEM daemon (`grdctl --system`) rather than the user daemon
+       because:
+       - The user daemon stores credentials in the GNOME keyring (libsecret).
+         Over SSH without a live GUI login, the default collection is locked
+         and can't be unlocked without the user's Unix password — no clean
+         automation path.
+       - The system daemon stores credentials in /etc/gnome-remote-desktop/,
+         root-owned, mode 0600, encrypted with a TPM-backed key when a TPM is
+         present or GKeyFile otherwise. No keyring dance.
+       - "server" role semantically means "accept RDP connections, including
+         when nobody's logged in on the console." That's the system daemon's
+         job. The user daemon is for attaching to a live desktop.
+
+       What this script AUTOMATES:
+       - TLS cert + key generation (self-signed, 10-year) at
+         /etc/gnome-remote-desktop/rdp-tls.{crt,key}.
+       - `grdctl --system rdp enable / disable-view-only / set-port 3389
+         / set-tls-cert / set-tls-key`.
+       - `systemctl enable --now gnome-remote-desktop.service`.
+       - Disabling the user-mode daemon so it doesn't fight for port 3389.
+
+       What it does NOT automate:
+       - `grdctl --system rdp set-credentials <user> <password>` — we won't
+         bake a password into chezmoi source. The script prints the exact
+         command at the end; user runs once.
+
+       Sudo: uses `sudo -n` and bails gracefully if passwordless sudo isn't
+       available, printing the sudo'd commands for the user to run manually.
+       The fleet's /etc/sudoers.d/chezmoi provides NOPASSWD for apt/dnf and a
+       few system tools; grdctl isn't in the allowlist yet, so this will
+       typically fall through to the manual path on first apply and become a
+       no-op thereafter once state is correct. */ -}}
 {{- if and (eq .detect.desktop "gnome") (or (eq .remoteDesktop "server") (eq .remoteDesktop "both")) -}}
 #!/usr/bin/env bash
 {{ template "install-prelude.sh" . }}
 
 step() { echo -e "\n${BOLD}${PROMPT}==> $1${RESET}"; }
 
-step "Configuring gnome-remote-desktop (user wanted role: {{ .remoteDesktop }})"
+# Echo each command before running it — nothing in the script goes through
+# sudo invisibly. Mirrors bootstrap.sh's echoRun but stays local (this script
+# doesn't source bootstrap.sh).
+run() { echo -e "${PROMPT}\$ $*${RESET}"; "$@"; }
+
+step "Configuring gnome-remote-desktop system daemon (role: {{ .remoteDesktop }})"
 
 if ! command -v grdctl >/dev/null 2>&1; then
   echo "${WARN}grdctl not installed; install gnome-remote-desktop and re-run chezmoi apply.${RESET}"
   exit 0
 fi
 
-# User D-Bus session is required for grdctl to write to dconf. On an SSH-only
-# host without a logged-in GNOME session (and no user-manager lingering), the
-# bus is absent — skip gracefully with actionable guidance.
-if ! systemctl --user is-active --quiet dbus.socket 2>/dev/null; then
+# Detect whether we can escalate non-interactively. If not, print the manual
+# steps instead of running them — keeps chezmoi apply unattended-safe.
+if ! sudo -n true 2>/dev/null; then
   cat <<MSG
-${WARN}No user D-Bus session available; skipping grdctl configuration.${RESET}
+${WARN}Passwordless sudo not available on this host; skipping system-daemon setup.${RESET}
 
-To apply on this host, either log in once via GNOME, or enable user lingering
-so the session manager runs without an active login:
+Run these once to finish server-role setup (you'll be prompted for a password):
 
-  sudo loginctl enable-linger "\$USER"
+  sudo mkdir -p /etc/gnome-remote-desktop
+  sudo openssl req -newkey rsa:4096 -nodes -x509 -days 3650 \\
+    -keyout /etc/gnome-remote-desktop/rdp-tls.key \\
+    -out   /etc/gnome-remote-desktop/rdp-tls.crt \\
+    -subj  "/CN=\$(hostname)"
+  sudo chown gnome-remote-desktop:gnome-remote-desktop /etc/gnome-remote-desktop/rdp-tls.*
+  sudo chmod 640 /etc/gnome-remote-desktop/rdp-tls.key
+  sudo chmod 644 /etc/gnome-remote-desktop/rdp-tls.crt
+  systemctl --user disable --now gnome-remote-desktop.service 2>/dev/null || true
+  grdctl rdp disable 2>/dev/null || true
+  sudo grdctl --system rdp enable
+  sudo grdctl --system rdp disable-view-only
+  sudo grdctl --system rdp set-port 3389
+  sudo grdctl --system rdp set-tls-cert /etc/gnome-remote-desktop/rdp-tls.crt
+  sudo grdctl --system rdp set-tls-key  /etc/gnome-remote-desktop/rdp-tls.key
+  sudo grdctl --system rdp set-credentials <grd-user> <grd-password>
+  sudo systemctl enable --now gnome-remote-desktop.service
 
-Then run this once:
-  grdctl rdp enable
-  grdctl rdp disable-view-only
-  grdctl rdp set-port 3389
-  grdctl rdp set-credentials <grd-user> <grd-password>
-  systemctl --user restart gnome-remote-desktop.service
+See: https://github.com/uhop/dotfiles/wiki/Remote-GUI
 MSG
   exit 0
 fi
 
-# Idempotent grdctl calls — each is safe to re-run.
-grdctl rdp enable
-grdctl rdp disable-view-only
-grdctl rdp set-port 3389
+# Generate the TLS cert+key if missing. Self-signed, 10-year, host-local;
+# xfreerdp3 clients connect with /cert:tofu and pin on first connect.
+grd_tls_dir=/etc/gnome-remote-desktop
+grd_tls_crt="$grd_tls_dir/rdp-tls.crt"
+grd_tls_key="$grd_tls_dir/rdp-tls.key"
+if [ ! -f "$grd_tls_crt" ] || [ ! -f "$grd_tls_key" ]; then
+  echo "${PROMPT}Generating GRD TLS cert + key at $grd_tls_dir...${RESET}"
+  run sudo -n mkdir -p "$grd_tls_dir"
+  run sudo -n openssl req -newkey rsa:4096 -nodes -x509 -days 3650 \
+    -keyout "$grd_tls_key" \
+    -out    "$grd_tls_crt" \
+    -subj   "/CN=$(hostname)" 2>/dev/null
+  run sudo -n chown gnome-remote-desktop:gnome-remote-desktop "$grd_tls_crt" "$grd_tls_key"
+  run sudo -n chmod 640 "$grd_tls_key"
+  run sudo -n chmod 644 "$grd_tls_crt"
+fi
 
-# Restart only when enabled, so the updated settings take effect. Ignore
-# failures — the service auto-activates on first connect anyway.
-systemctl --user restart gnome-remote-desktop.service 2>/dev/null || true
+# Yield port 3389 from any stray user-mode daemon so the system daemon can bind.
+run systemctl --user disable --now gnome-remote-desktop.service 2>/dev/null || true
+run grdctl rdp disable 2>/dev/null || true
+
+# Configure the system daemon. All grdctl --system calls are idempotent.
+run sudo -n grdctl --system rdp enable
+run sudo -n grdctl --system rdp disable-view-only
+run sudo -n grdctl --system rdp set-port 3389
+run sudo -n grdctl --system rdp set-tls-cert "$grd_tls_crt"
+run sudo -n grdctl --system rdp set-tls-key  "$grd_tls_key"
+
+run sudo -n systemctl enable --now gnome-remote-desktop.service
 
 echo
-grdctl status
+run sudo -n grdctl --system status
 echo
-cat <<MSG
-${BOLD}${PROMPT}Next step:${RESET} set GRD credentials (NOT your Unix password):
 
-  ${BOLD}grdctl rdp set-credentials <grd-user> <grd-password>${RESET}
+# Credentials are the one thing we can't automate — we won't bake a password
+# into chezmoi source. The system daemon stores them via GKeyFile (or TPM),
+# so there's no keyring-unlock gotcha here; just interactive `set-credentials`.
+if ! sudo -n grdctl --system status --show-credentials 2>/dev/null | grep -qE '^\s+Username: [^(]'; then
+  cat <<MSG
+${BOLD}${PROMPT}Credentials not yet set.${RESET} Run once:
 
-Or use Settings → System → Remote Desktop. The username defaults to your Unix
-username; the password is a separate GRD-managed credential stored in the
-GNOME keyring. See: https://github.com/uhop/dotfiles/wiki/Remote-GUI
+  ${BOLD}sudo grdctl --system rdp set-credentials <grd-user> <grd-password>${RESET}
+
+(Interactive password entry requires a TTY; unattended chezmoi apply skips
+this step. The username is GRD-specific — doesn't have to match any Unix
+account. Password is stored under /etc/gnome-remote-desktop/, root-owned 0600,
+encrypted with TPM if available else GKeyFile.)
+
+Test from a client:
+  ${BOLD}xfreerdp3 /u:<grd-user> /p:<grd-password> /v:$(hostname) +clipboard +dynamic-resolution /cert:tofu${RESET}
+
+See: https://github.com/uhop/dotfiles/wiki/Remote-GUI
 MSG
+fi
 {{ end -}}
