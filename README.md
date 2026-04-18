@@ -58,7 +58,8 @@ The following tools are installed and aliased:
 - `wget`, `httpie` &mdash; like `curl`.
 - `age`, `gpg` &mdash; encryption utilities.
 - `meld` &mdash; a visual diff/merge utility.
-- `diff-so-fancy` &mdash; a nice `diff` pager.
+- `delta` (`git-delta`) &mdash; syntax-highlighting `git diff` pager (replaces `diff-so-fancy`). Inline by default; `git dw` for side-by-side.
+- `difftastic` &mdash; structural/AST diff, on demand via `git dft`.
 - `tealdeer`, `cheat` &mdash; a `man` replacement. Alternatives: `tldr`.
 - `eza` &mdash; better `ls` (maintained fork of the abandoned `exa`).
 - `lsr` &mdash; better and faster `ls` (uses `io_uring` on Linux).

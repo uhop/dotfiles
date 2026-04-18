@@ -5,14 +5,14 @@
 [github]
   user = {{ .githubUsername }}
 [core]
-	pager = diff-so-fancy | less --tabs=4 -RFX
+	pager = delta
 	# editor intentionally left unset — git falls back to $EDITOR / $VISUAL
 	# / `vi` in order. The bashrc picks the best available (micro / nvim /
 	# vim / vi), so hosts without micro still get a sane default.
 	autocrlf = input
 	whitespace = trailing-space,-space-before-tab,cr-at-eol
 [interactive]
-	diffFilter = diff-so-fancy --patch
+	diffFilter = delta --color-only
 [init]
 	defaultBranch = main
 [pull]
@@ -32,13 +32,39 @@
 	old = red bold
 	new = green bold
 	whitespace = red reverse
-[pager]
-	diff = diff-so-fancy | less --tabs=2 -RFXS --pattern '^(Date|added|deleted|modified): '
+# Delta (syntax-highlighting pager). Default: inline, laptop-friendly.
+# Wide (side-by-side) layout available on demand via the `dw` alias below,
+# or ad-hoc as `git -c delta.features=wide <cmd>`.
+[delta]
+	syntax-theme = GitHub
+	navigate = true
+	line-numbers = true
+	side-by-side = false
+[delta "wide"]
+	side-by-side = true
+	line-numbers = true
+[diff]
+	colorMoved = default
+# Difftastic is an on-demand structural (AST) diff tool, exposed via
+# `git difftool` / the `dft` alias. Not wired into `git diff`, which stays
+# line-based through delta — structural diffs are the exception, not the rule.
+	tool = difftastic
+[difftool]
+	prompt = false
+[difftool "difftastic"]
+	cmd = difft "$LOCAL" "$REMOTE"
 [pretty]
   better-oneline = "format:%C(auto)%h%d %s %Cgreen(%cr) %Cblue[%cn]"
   detailed-commit = "format:%C(bold)commit:%Creset %C(bold yellow)%h%Creset %C(yellow)<%H>%Creset %C(auto)%d%Creset%n%C(bold)date:%Creset   %C(bold green)%cd%Creset %C(green)%cr%Creset%n%C(bold)author:%Creset %C(bold blue)%an%Creset %Cblue<%ae>%Creset%n%n%C(cyan)%s%Creset%n%n%C(auto)%b%Creset"
 [alias]
 	patch = !git --no-pager diff --no-color
+	# `dw` = wide (side-by-side) diff via delta's `wide` feature — handy on
+	# a big monitor. For wide on any other command, use `-c delta.features=wide`
+	# ad-hoc, e.g. `git -c delta.features=wide show`.
+	dw = "-c delta.features=wide diff"
+	# Structural (AST) diff via difftastic. Separate from `git diff` — that
+	# stays line-based through delta.
+	dft = difftool
 	ls = log --oneline --pretty=better-oneline
 	ll = log --oneline --pretty=better-oneline --numstat
 	lsf = log --oneline --pretty=better-oneline --graph --follow
