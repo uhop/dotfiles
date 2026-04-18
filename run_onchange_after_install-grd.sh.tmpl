@@ -9,7 +9,7 @@
        User sets credentials interactively via Settings → Remote Desktop or
        `grdctl rdp set-credentials <user> <password>`; the script prints the
        reminder at the end. */ -}}
-{{- if and (eq .detect.desktop "gnome") (or (eq .remoteDesktop "server") (eq .remoteDesktop "both")) }}
+{{- if and (eq .detect.desktop "gnome") (or (eq .remoteDesktop "server") (eq .remoteDesktop "both")) -}}
 #!/usr/bin/env bash
 {{ template "install-prelude.sh" . }}
 

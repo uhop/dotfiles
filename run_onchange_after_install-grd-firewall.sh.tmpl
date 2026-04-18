@@ -7,7 +7,7 @@
        Trust scope: opens 3389/tcp from anywhere. On an untrusted network,
        restrict to a CIDR manually: `sudo ufw allow from <cidr> to any port 3389`.
        This script is safe to re-run — `ufw allow` is idempotent by rule. */ -}}
-{{- if or (eq .remoteDesktop "server") (eq .remoteDesktop "both") }}
+{{- if or (eq .remoteDesktop "server") (eq .remoteDesktop "both") -}}
 #!/usr/bin/env bash
 {{ template "install-prelude.sh" . }}
 
