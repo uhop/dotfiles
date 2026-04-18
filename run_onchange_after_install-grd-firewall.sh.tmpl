@@ -1,0 +1,51 @@
+{{- /* Open RDP port 3389 on hosts that serve a remote desktop AND have UFW
+       active. UFW only for now — Debian/Ubuntu family is the fleet's server
+       footprint. Fedora/RHEL (firewalld) and Arch (iptables/nftables) print
+       a hint instead of auto-configuring; add branches here if a non-UFW
+       server enters the fleet.
+
+       Trust scope: opens 3389/tcp from anywhere. On an untrusted network,
+       restrict to a CIDR manually: `sudo ufw allow from <cidr> to any port 3389`.
+       This script is safe to re-run — `ufw allow` is idempotent by rule. */ -}}
+{{- if or (eq .remoteDesktop "server") (eq .remoteDesktop "both") }}
+#!/usr/bin/env bash
+{{ template "install-prelude.sh" . }}
+
+step() { echo -e "\n${BOLD}${PROMPT}==> $1${RESET}"; }
+
+step "Opening RDP port 3389 for gnome-remote-desktop (role: {{ .remoteDesktop }})"
+
+if ! command -v ufw >/dev/null 2>&1; then
+  cat <<'MSG'
+UFW not installed on this host. Open port 3389/tcp via your firewall tool of
+choice:
+
+  # firewalld:
+  sudo firewall-cmd --permanent --add-port=3389/tcp && sudo firewall-cmd --reload
+  # iptables:
+  sudo iptables -A INPUT -p tcp --dport 3389 -j ACCEPT
+  # nftables:
+  sudo nft 'add rule inet filter input tcp dport 3389 accept'
+
+Restrict to a CIDR on untrusted networks.
+MSG
+  exit 0
+fi
+
+if ! sudo -n ufw status 2>/dev/null | grep -qi "^Status: active"; then
+  echo "${WARN}UFW is not active; skipping port-3389 rule (firewall is off, nothing to open).${RESET}"
+  echo "Enable UFW manually if you want firewall management: ${BOLD}sudo ufw enable${RESET}"
+  exit 0
+fi
+
+# Idempotent: ufw dedupes matching rules by (action, direction, port, protocol).
+sudo ufw allow 3389/tcp comment "gnome-remote-desktop"
+
+echo
+echo "${BOLD}${PROMPT}Current UFW rules for port 3389:${RESET}"
+sudo ufw status numbered | grep -F 3389 || true
+echo
+echo "${WARN}To restrict to a trusted network:${RESET}"
+echo "  ${BOLD}sudo ufw delete allow 3389/tcp${RESET}"
+echo "  ${BOLD}sudo ufw allow from <cidr> to any port 3389 proto tcp${RESET}"
+{{ end -}}

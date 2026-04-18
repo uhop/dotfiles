@@ -218,3 +218,81 @@ detect::_run() {
   esac
 }
 assert::eq "$(detect::sudo_group)" "wheel" "sudo_group: wheel wins over sudo+admin"
+
+# ---------- desktop ----------
+
+detect::reset
+detect::_run() { case "$*" in "uname -s") echo Darwin ;; esac; }
+detect::_which() { return 1; }
+unset XDG_CURRENT_DESKTOP DESKTOP_SESSION DISPLAY WAYLAND_DISPLAY
+assert::eq "$(detect::desktop)" "aqua" "desktop: Darwin → aqua"
+
+detect::reset
+detect::_run() { case "$*" in "uname -s") echo Linux ;; esac; }
+detect::_which() { return 1; }
+XDG_CURRENT_DESKTOP="GNOME"; unset DESKTOP_SESSION DISPLAY WAYLAND_DISPLAY
+assert::eq "$(detect::desktop)" "gnome" "desktop: XDG=GNOME"
+
+detect::reset
+XDG_CURRENT_DESKTOP="ubuntu:GNOME"
+assert::eq "$(detect::desktop)" "gnome" "desktop: XDG=ubuntu:GNOME → gnome"
+
+detect::reset
+XDG_CURRENT_DESKTOP="KDE"
+assert::eq "$(detect::desktop)" "kde" "desktop: XDG=KDE"
+
+detect::reset
+XDG_CURRENT_DESKTOP="Budgie:GNOME"
+assert::eq "$(detect::desktop)" "budgie" "desktop: Budgie:GNOME → budgie (first match wins)"
+
+detect::reset
+XDG_CURRENT_DESKTOP="X-Cinnamon"
+assert::eq "$(detect::desktop)" "cinnamon" "desktop: X-Cinnamon → cinnamon"
+
+detect::reset
+XDG_CURRENT_DESKTOP="Hyprland"
+assert::eq "$(detect::desktop)" "hyprland" "desktop: Hyprland → hyprland"
+
+detect::reset
+unset XDG_CURRENT_DESKTOP
+DESKTOP_SESSION="xfce"
+assert::eq "$(detect::desktop)" "xfce" "desktop: falls through to DESKTOP_SESSION"
+
+detect::reset
+unset XDG_CURRENT_DESKTOP DESKTOP_SESSION
+detect::_which() { case "$1" in gnome-shell) return 0 ;; *) return 1 ;; esac; }
+assert::eq "$(detect::desktop)" "gnome" "desktop: binary-presence fallback → gnome-shell"
+
+detect::reset
+detect::_which() { return 1; }
+DISPLAY=":0"
+assert::eq "$(detect::desktop)" "unknown" "desktop: GUI env present but no known DE"
+
+detect::reset
+unset DISPLAY WAYLAND_DISPLAY
+assert::eq "$(detect::desktop)" "headless" "desktop: no GUI markers → headless"
+
+# ---------- has_grd / has_sunshine / has_xrdp ----------
+
+# Point DETECT_GRD_DAEMON_PATHS at a nonexistent path so the has_grd
+# daemon-fallback doesn't hit the real filesystem on the test host.
+DETECT_GRD_DAEMON_PATHS="$tmpd/grd-daemon-nonexistent"
+
+detect::reset
+detect::_which() { case "$1" in grdctl) return 0 ;; *) return 1 ;; esac; }
+assert::ok   "has_grd: grdctl present"      detect::has_grd
+assert::fail "has_sunshine: absent"          detect::has_sunshine
+assert::fail "has_xrdp: absent"              detect::has_xrdp
+
+detect::reset
+detect::_which() { case "$1" in sunshine|xrdp) return 0 ;; *) return 1 ;; esac; }
+assert::fail "has_grd: grdctl absent and no binary"  detect::has_grd
+assert::ok   "has_sunshine: sunshine binary present" detect::has_sunshine
+assert::ok   "has_xrdp: xrdp binary present"         detect::has_xrdp
+
+# has_grd: grdctl absent, daemon binary present at a custom path
+detect::reset
+detect::_which() { return 1; }
+command touch "$tmpd/grd-daemon" && command chmod +x "$tmpd/grd-daemon"
+DETECT_GRD_DAEMON_PATHS="$tmpd/grd-daemon"
+assert::ok   "has_grd: daemon binary at overridden path" detect::has_grd

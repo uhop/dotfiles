@@ -239,6 +239,76 @@ detect::init_system() {
   echo "$result"
 }
 
+# Echoes the desktop environment identifier: gnome|kde|xfce|cinnamon|mate|
+# lxqt|lxde|sway|hyprland|i3|budgie|aqua|headless|unknown. Memoized.
+#
+# Priority:
+#   1. Darwin → aqua (Mac's native GUI; no Linux-style DE distinction).
+#   2. $XDG_CURRENT_DESKTOP — colon-separated; scan tokens for a known DE.
+#      Examples: `ubuntu:GNOME` → gnome; `Budgie:GNOME` → budgie (first match).
+#   3. $DESKTOP_SESSION — fallback if XDG_CURRENT_DESKTOP isn't set.
+#   4. Binary-presence heuristics (gnome-shell, plasmashell, sway, Hyprland, ...)
+#      for cases where the shell is running but env vars weren't inherited
+#      (e.g. invoked via `sudo -i` or systemd service).
+#   5. GUI markers present ($DISPLAY / $WAYLAND_DISPLAY) but nothing matches
+#      → unknown (GUI is running but we can't name it).
+#   6. Otherwise → headless.
+detect::desktop() {
+  if [[ ${__DETECT_CACHE[desktop]+set} == set ]]; then
+    echo "${__DETECT_CACHE[desktop]}"
+    return 0
+  fi
+  local result=""
+  if [[ $(detect::uname_s) == Darwin ]]; then
+    result=aqua
+  else
+    # Pass 1 — env var XDG_CURRENT_DESKTOP (colon-separated).
+    local raw="${XDG_CURRENT_DESKTOP:-${DESKTOP_SESSION:-}}"
+    if [[ -n $raw ]]; then
+      local token lower
+      local IFS=':'
+      for token in $raw; do
+        lower=$(echo "$token" | command tr '[:upper:]' '[:lower:]')
+        case $lower in
+          gnome|gnome-shell|gnome-classic) result=gnome; break ;;
+          kde|plasma|kde-plasma) result=kde; break ;;
+          xfce|xfce4) result=xfce; break ;;
+          x-cinnamon|cinnamon) result=cinnamon; break ;;
+          mate) result=mate; break ;;
+          lxqt) result=lxqt; break ;;
+          lxde) result=lxde; break ;;
+          sway) result=sway; break ;;
+          hyprland) result=hyprland; break ;;
+          i3) result=i3; break ;;
+          budgie|budgie-desktop) result=budgie; break ;;
+        esac
+      done
+    fi
+    # Pass 2 — binary presence fallback (runs even with empty env).
+    if [[ -z $result ]]; then
+      if   detect::has_cmd gnome-shell;     then result=gnome
+      elif detect::has_cmd plasmashell;     then result=kde
+      elif detect::has_cmd xfce4-session;   then result=xfce
+      elif detect::has_cmd cinnamon-session; then result=cinnamon
+      elif detect::has_cmd mate-session;    then result=mate
+      elif detect::has_cmd sway;            then result=sway
+      elif detect::has_cmd Hyprland;        then result=hyprland
+      elif detect::has_cmd budgie-wm;       then result=budgie
+      fi
+    fi
+    # Pass 3 — GUI present but unidentified, or truly headless.
+    if [[ -z $result ]]; then
+      if [[ -n ${DISPLAY:-} || -n ${WAYLAND_DISPLAY:-} ]]; then
+        result=unknown
+      else
+        result=headless
+      fi
+    fi
+  fi
+  __DETECT_CACHE[desktop]=$result
+  echo "$result"
+}
+
 # 0 if the root filesystem is immutable (read-only /usr family).
 # Read-only signals only — never attempts a write (§5.2 in design).
 detect::is_immutable() {
@@ -468,6 +538,29 @@ detect::has_snap() {
 detect::has_nix() {
   detect::has_cmd nix-env || detect::has_cmd nix
 }
+
+# Remote-desktop / remote-GUI servers. Presence probes only — enable state
+# (systemctl --user status, gsettings toggles) is out of scope for the
+# detection library; consumers who need to know "is GRD actually running"
+# should run their own systemctl probe.
+#
+# DETECT_GRD_DAEMON_PATHS — space-separated list of absolute paths to the
+# gnome-remote-desktop daemon binary. Overridable so tests can point it at
+# a nonexistent path to exercise the "grdctl absent" branch cleanly.
+: "${DETECT_GRD_DAEMON_PATHS:=/usr/libexec/gnome-remote-desktop-daemon /usr/lib/gnome-remote-desktop/gnome-remote-desktop-daemon}"
+
+detect::has_grd() {
+  # gnome-remote-desktop ships `grdctl` (the CLI) + the daemon binary.
+  # Either presence is proof of install.
+  detect::has_cmd grdctl && return 0
+  local p
+  for p in $DETECT_GRD_DAEMON_PATHS; do
+    [[ -x $p ]] && return 0
+  done
+  return 1
+}
+detect::has_sunshine() { detect::has_cmd sunshine; }
+detect::has_xrdp()     { detect::has_cmd xrdp; }
 
 # Language-scoped package managers (design §3.10.4). Presence only —
 # detailed "is this usable here" checks (writable bin dir, $GOBIN set,
@@ -1373,6 +1466,10 @@ detect::summary() {
   printf '%-20s %s\n' "Flatpak:"         "$(detect::_yn detect::has_flatpak)"
   printf '%-20s %s\n' "Snap:"            "$(detect::_yn detect::has_snap)"
   printf '%-20s %s\n' "Nix:"             "$(detect::_yn detect::has_nix)"
+  printf '%-20s %s\n' "Desktop:"         "$(detect::desktop)"
+  printf '%-20s %s\n' "GRD:"             "$(detect::_yn detect::has_grd)"
+  printf '%-20s %s\n' "Sunshine:"        "$(detect::_yn detect::has_sunshine)"
+  printf '%-20s %s\n' "xrdp:"            "$(detect::_yn detect::has_xrdp)"
   printf '%-20s %s\n' "Lang pkgmgrs:"    "$lang_str"
 }
 
@@ -1387,7 +1484,7 @@ detect::report_json() {
   detect::identity
 
   # Identity + capability values (strings).
-  local pkgmgr_v family_v arch_v uname_v init_v cons_v sudo_group_v
+  local pkgmgr_v family_v arch_v uname_v init_v cons_v sudo_group_v desktop_v
   pkgmgr_v=$(detect::pkgmgr)
   family_v=${DETECTED_FAMILY:-unknown}
   arch_v=$(detect::arch)
@@ -1395,10 +1492,12 @@ detect::report_json() {
   init_v=$(detect::init_system)
   cons_v=$(detect::family_consistency)
   sudo_group_v=$(detect::sudo_group)
+  desktop_v=$(detect::desktop)
 
   # Bool probes — one call each, cache captured.
   local b_immutable b_container b_wsl b_ipv6 b_nopasswd
   local b_brew b_flatpak b_snap b_nix
+  local b_grd b_sunshine b_xrdp
   local b_npm b_pip b_uv b_pipx b_cargo b_go
   detect::is_immutable        && b_immutable=true || b_immutable=false
   detect::is_container        && b_container=true || b_container=false
@@ -1409,6 +1508,9 @@ detect::report_json() {
   detect::has_flatpak         && b_flatpak=true   || b_flatpak=false
   detect::has_snap            && b_snap=true      || b_snap=false
   detect::has_nix             && b_nix=true       || b_nix=false
+  detect::has_grd             && b_grd=true       || b_grd=false
+  detect::has_sunshine        && b_sunshine=true  || b_sunshine=false
+  detect::has_xrdp            && b_xrdp=true      || b_xrdp=false
   detect::has_npm_global      && b_npm=true       || b_npm=false
   detect::has_pip_user        && b_pip=true       || b_pip=false
   detect::has_uv_tool         && b_uv=true        || b_uv=false
@@ -1445,6 +1547,10 @@ detect::report_json() {
   printf '  "hasFlatpak": %s,\n'          "$b_flatpak"
   printf '  "hasSnap": %s,\n'             "$b_snap"
   printf '  "hasNix": %s,\n'              "$b_nix"
+  printf '  "desktop": "%s",\n'           "$(detect::_json_escape "$desktop_v")"
+  printf '  "hasGrd": %s,\n'              "$b_grd"
+  printf '  "hasSunshine": %s,\n'         "$b_sunshine"
+  printf '  "hasXrdp": %s,\n'             "$b_xrdp"
   printf '  "hasNpmGlobal": %s,\n'        "$b_npm"
   printf '  "hasPipUser": %s,\n'          "$b_pip"
   printf '  "hasUvTool": %s,\n'           "$b_uv"

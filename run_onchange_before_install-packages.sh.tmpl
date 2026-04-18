@@ -27,6 +27,11 @@ fi
 if [ "$hasSudo" -eq 0 ]; then
   echo "${PROMPT}Installing GUI apps: sudo apt install...${RESET}"
   sudo env DEBIAN_FRONTEND=noninteractive apt install -y meld alacritty flatpak gnome-software-plugin-flatpak ttf-mscorefonts-installer firetools
+  # Remote-GUI client. Ubuntu 24.04+ / Debian 13+ ship freerdp3-x11; older releases
+  # have freerdp2-x11 (binary is `xfreerdp` instead of `xfreerdp3`).
+  sudo env DEBIAN_FRONTEND=noninteractive apt install -y freerdp3-x11 2>/dev/null \
+    || sudo env DEBIAN_FRONTEND=noninteractive apt install -y freerdp2-x11 \
+    || true
 fi
 {{- end }}
 {{- else if eq .detect.pkgmgr "dnf" -}}
@@ -57,13 +62,14 @@ if [ "$hasSudo" -eq 0 ]; then
   sudo dnf install -y --skip-broken micro mosh dialog bat ncdu \
     the_silver_searcher tig htop parallel tree brotli mc ripgrep \
     nginx ShellCheck clang-tools-extra git-lfs etckeeper \
-    fuse-sshfs lnav age || true
+    fuse-sshfs lnav age waypipe || true
   command -v gh &>/dev/null || sudo dnf install -y gh || true
 fi
 {{ if .hasGui -}}
 if [ "$hasSudo" -eq 0 ]; then
   echo "${PROMPT}Installing GUI apps: sudo dnf install...${RESET}"
-  sudo dnf install -y meld flatpak
+  # Remote-GUI client (freerdp); waypipe is in the general list above (matches apt).
+  sudo dnf install -y meld flatpak freerdp
 fi
 {{- end }}
 {{- end }}

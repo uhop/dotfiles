@@ -17,11 +17,17 @@
 {{-   $githubUsernameDefault = env "GITHUB_USERNAME" -}}
 {{- end -}}
 {{- $githubUsername := promptStringOnce . "githubUsername" "GitHub username" $githubUsernameDefault -}}
+{{/* Remote-desktop role. Default "client" on GUI hosts, "none" otherwise.
+     Set to "server" or "both" on GNOME hosts that should accept RDP. */ -}}
+{{- $remoteDesktopDefault := "none" -}}
+{{- if $hasGui -}}{{- $remoteDesktopDefault = "client" -}}{{- end -}}
+{{- $remoteDesktop := promptStringOnce . "remoteDesktop" "Remote-desktop role (none/client/server/both)" $remoteDesktopDefault -}}
 
 [data]
 osFamily = {{ $osFamily | quote }}
 codespaces = {{ $codespaces }}
 hasGui = {{ $hasGui }}
+remoteDesktop = {{ $remoteDesktop | quote }}
 name = {{ $name | quote }}
 email = {{ $email | quote }}
 githubUsername = {{ $githubUsername | quote }}
@@ -47,6 +53,10 @@ hasBrew = {{ $detect.hasBrew }}
 hasFlatpak = {{ $detect.hasFlatpak }}
 hasSnap = {{ $detect.hasSnap }}
 hasNix = {{ $detect.hasNix }}
+desktop = {{ $detect.desktop | quote }}
+hasGrd = {{ $detect.hasGrd }}
+hasSunshine = {{ $detect.hasSunshine }}
+hasXrdp = {{ $detect.hasXrdp }}
 
 [diff]
 pager = "diff-so-fancy"

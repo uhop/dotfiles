@@ -1,0 +1,68 @@
+{{- /* Enable gnome-remote-desktop on GNOME hosts the user flagged as RDP servers.
+       Runs only when .detect.desktop == "gnome" AND .remoteDesktop is "server"
+       or "both". Idempotent; chezmoi re-runs only when this rendered content
+       changes (tied to .detect.desktop / .remoteDesktop values).
+
+       Not automated: GRD credentials. Setting username+password programmatically
+       would either bake them into chezmoi source (secrets in the repo — no) or
+       require a prompt-on-apply flow that complicates unattended bootstrap.
+       User sets credentials interactively via Settings → Remote Desktop or
+       `grdctl rdp set-credentials <user> <password>`; the script prints the
+       reminder at the end. */ -}}
+{{- if and (eq .detect.desktop "gnome") (or (eq .remoteDesktop "server") (eq .remoteDesktop "both")) }}
+#!/usr/bin/env bash
+{{ template "install-prelude.sh" . }}
+
+step() { echo -e "\n${BOLD}${PROMPT}==> $1${RESET}"; }
+
+step "Configuring gnome-remote-desktop (user wanted role: {{ .remoteDesktop }})"
+
+if ! command -v grdctl >/dev/null 2>&1; then
+  echo "${WARN}grdctl not installed; install gnome-remote-desktop and re-run chezmoi apply.${RESET}"
+  exit 0
+fi
+
+# User D-Bus session is required for grdctl to write to dconf. On an SSH-only
+# host without a logged-in GNOME session (and no user-manager lingering), the
+# bus is absent — skip gracefully with actionable guidance.
+if ! systemctl --user is-active --quiet dbus.socket 2>/dev/null; then
+  cat <<MSG
+${WARN}No user D-Bus session available; skipping grdctl configuration.${RESET}
+
+To apply on this host, either log in once via GNOME, or enable user lingering
+so the session manager runs without an active login:
+
+  sudo loginctl enable-linger "\$USER"
+
+Then run this once:
+  grdctl rdp enable
+  grdctl rdp disable-view-only
+  grdctl rdp set-port 3389
+  grdctl rdp set-credentials <grd-user> <grd-password>
+  systemctl --user restart gnome-remote-desktop.service
+MSG
+  exit 0
+fi
+
+# Idempotent grdctl calls — each is safe to re-run.
+grdctl rdp enable
+grdctl rdp disable-view-only
+grdctl rdp set-port 3389
+
+# Restart only when enabled, so the updated settings take effect. Ignore
+# failures — the service auto-activates on first connect anyway.
+systemctl --user restart gnome-remote-desktop.service 2>/dev/null || true
+
+echo
+grdctl status
+echo
+cat <<MSG
+${BOLD}${PROMPT}Next step:${RESET} set GRD credentials (NOT your Unix password):
+
+  ${BOLD}grdctl rdp set-credentials <grd-user> <grd-password>${RESET}
+
+Or use Settings → System → Remote Desktop. The username defaults to your Unix
+username; the password is a separate GRD-managed credential stored in the
+GNOME keyring. See: https://github.com/uhop/dotfiles/wiki/Remote-GUI
+MSG
+{{ end -}}
