@@ -4,14 +4,22 @@
 
 ## Chezmoi config
 
-Template data from `.chezmoi.toml.tmpl`:
-- `osId` — exact OS (e.g., `linux-ubuntu`, `linux-fedora`, `darwin`)
-- `osIdLike` — OS family (e.g., `linux-debian`, `linux-rhel`, `darwin`)
+Template data from `.chezmoi.toml.tmpl`.
+
+Top-level keys:
 - `osFamily` — `linux` or `darwin`
-- `pkgManager` — `apt`, `dnf`, or `brew-only` (derived from `osIdLike`)
-- `wsl` — bool, running under WSL
 - `codespaces` — bool, running in GitHub Codespaces
 - `hasGui` — bool, machine has GUI
+- `name`, `email`, `githubUsername` — user identity
+
+Sniffed values under `.detect.*` (from the detection library at `~/.local/libs/detect-distro.sh`; see `dev-docs/bootstrap-detection-design.md`):
+- `.detect.pkgmgr` — `apt`, `dnf`, `pacman`, `zypper`, `apk`, `brew`, …
+- `.detect.family` — `debian`, `rhel`, `arch`, `suse`, `darwin`, …
+- `.detect.id`, `.detect.idLike` — raw os-release identifiers
+- `.detect.versionId`, `.detect.name`, `.detect.arch`, `.detect.uname`
+- `.detect.initSystem`, `.detect.isImmutable`, `.detect.isContainer`, `.detect.isWsl`
+- `.detect.hasIpv6`, `.detect.sudoGroup`, `.detect.canSudoNopasswd`
+- `.detect.hasBrew`, `.detect.hasFlatpak`, `.detect.hasSnap`, `.detect.hasNix`
 
 ## Bootstrap: bootstrap.sh
 

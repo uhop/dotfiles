@@ -108,14 +108,21 @@ Chezmoi uses special prefixes in source file names:
 - **`run_onchange_before_`** → script runs before apply when its content changes
 - **`run_once_after_`** → script runs once after apply
 
-Template data is defined in `.chezmoi.toml.tmpl`:
-- `osId` — e.g., `linux-ubuntu`, `linux-fedora`, `darwin`
-- `osIdLike` — e.g., `linux-debian`, `linux-rhel`, `linux-fedora`, `darwin`
+Template data is defined in `.chezmoi.toml.tmpl`. Top-level keys:
 - `osFamily` — `linux` or `darwin`
-- `pkgManager` — `apt`, `dnf`, or `brew-only` (derived from `osIdLike`)
-- `wsl` — true if running under WSL
 - `codespaces` — true if running in GitHub Codespaces
 - `hasGui` — whether the machine has a GUI
+- `name`, `email`, `githubUsername` — user identity
+
+Sniffed values from the detection library under `.detect.*` (see `dev-docs/bootstrap-detection-design.md` for the full list):
+- `.detect.pkgmgr` — `apt`, `dnf`, `pacman`, `zypper`, `apk`, `brew`, `pkg`, …
+- `.detect.family` — `debian`, `rhel`, `arch`, `suse`, `alpine`, `darwin`, `bsd`, …
+- `.detect.id` — exact distro ID from `/etc/os-release` (e.g., `ubuntu`, `fedora`, `ol`)
+- `.detect.idLike` — ID_LIKE space-separated tokens
+- `.detect.versionId`, `.detect.name`, `.detect.arch`, `.detect.uname`
+- `.detect.initSystem`, `.detect.isImmutable`, `.detect.isContainer`, `.detect.isWsl`
+- `.detect.hasIpv6`, `.detect.sudoGroup`, `.detect.canSudoNopasswd`
+- `.detect.hasBrew`, `.detect.hasFlatpak`, `.detect.hasSnap`, `.detect.hasNix`
 
 ## Critical rules
 
@@ -126,7 +133,7 @@ Template data is defined in `.chezmoi.toml.tmpl`:
 - **Do not modify or delete test scripts** without understanding what they verify.
 - **Bash utilities with options or non-trivial output must use `options.bash`** (via `. ~/.local/libs/bootstrap.sh`). It handles option parsing, help screens, colored output, terminal-aware formatting, and shell completions (bash today; zsh/fish in the future). It is a controlled dependency (same author) and should be the default choice over hand-rolled argument parsing or raw `echo`/`printf` for user-facing output. If a utility pattern exposes a generic gap in options.bash, flag it — improvements flow back to the library.
 - **`args_cleaned` is an array.** Use `set -- "${args_cleaned[@]}"` (not `eval set -- "${args_cleaned}"`).
-- Templates (`.tmpl` files) use Go template syntax with chezmoi data. Guard package-manager blocks with `{{ if eq .pkgManager "apt" }}` / `{{ if eq .pkgManager "dnf" }}`; use `{{ if eq .osFamily "linux" }}` / `{{ if eq .osFamily "darwin" }}` for OS-level conditionals.
+- Templates (`.tmpl` files) use Go template syntax with chezmoi data. Guard package-manager blocks with `{{ if eq .detect.pkgmgr "apt" }}` / `{{ if eq .detect.pkgmgr "dnf" }}`; use `{{ if eq .osFamily "linux" }}` / `{{ if eq .osFamily "darwin" }}` for OS-level conditionals; use `{{ if eq .detect.id "fedora" }}` (or `.detect.family`) for distro-specific checks.
 - Files listed in `.chezmoiignore` are not deployed to target machines.
 - `doas` is aliased to `sudo` when available (in `dot_bash_aliases` and `bootstrap.sh`).
 

@@ -38,7 +38,7 @@ if [[ -v args_options["-r"] ]]; then RESTART_SERVICES=1; fi
 # now before doing anything else. No-op if no marker exists.
 maintenance::cleanup_apparmor_if_marked
 
-{{ if eq .pkgManager "apt" -}}
+{{ if eq .detect.pkgmgr "apt" -}}
 apt_snapshot=$(maintenance::snapshot_apt)
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
@@ -46,7 +46,7 @@ if [ "$hasSudo" -eq 0 ]; then
   echoRun --bold sudo apt upgrade $ASSUME_YES
 fi
 maintenance::check_apt_since "$apt_snapshot" "$RESTART_SERVICES"
-{{- else if eq .pkgManager "dnf" -}}
+{{- else if eq .detect.pkgmgr "dnf" -}}
 if [ "$hasSudo" -eq 0 ]; then
   ansi::out "${WARN}dnf may require sudo: expect asking for the sudo password.${RESET_ALL}"
   echoRun --bold sudo dnf upgrade $ASSUME_YES

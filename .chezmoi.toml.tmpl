@@ -7,28 +7,7 @@
 {{- $detectJSON := output "bash" "-c" (printf "%s\ndetect::report_json" $detectScript) -}}
 {{- $detect := fromJson $detectJSON -}}
 
-{{/* Derive the legacy top-level data keys from the library's output so
-     existing consumer templates (run_onchange_before_install-packages.sh.tmpl
-     and friends) keep working byte-identically. These keys will migrate to
-     `.detect.*` in PR 3. */ -}}
-{{- $osId := .chezmoi.os -}}
-{{- if $detect.id -}}
-{{-   $osId = printf "%s-%s" .chezmoi.os $detect.id -}}
-{{- end -}}
-{{- $osIdLike := $osId -}}
-{{- if $detect.idLike -}}
-{{-   $osIdLike = printf "%s-%s" .chezmoi.os (splitList " " $detect.idLike | first) -}}
-{{- end -}}
 {{- $osFamily := .chezmoi.os -}}
-{{- $pkgManager := "brew-only" -}}
-{{- if eq $osFamily "linux" -}}
-{{-   if eq $detect.family "debian" -}}
-{{-     $pkgManager = "apt" -}}
-{{-   else if eq $detect.family "rhel" -}}
-{{-     $pkgManager = "dnf" -}}
-{{-   end -}}
-{{- end -}}
-{{- $wsl := $detect.isWsl -}}
 {{- $codespaces := env "CODESPACES" | not | not -}}
 {{- $hasGui := promptBoolOnce . "hasGui" "Does this machine have GUI" false -}}
 {{- $name := promptStringOnce . "name" "Full name" "Eugene Lazutkin" -}}
@@ -40,11 +19,7 @@
 {{- $githubUsername := promptStringOnce . "githubUsername" "GitHub username" $githubUsernameDefault -}}
 
 [data]
-osId = {{ $osId | quote }}
-osIdLike = {{ $osIdLike | quote }}
 osFamily = {{ $osFamily | quote }}
-pkgManager = {{ $pkgManager | quote }}
-wsl = {{ $wsl }}
 codespaces = {{ $codespaces }}
 hasGui = {{ $hasGui }}
 name = {{ $name | quote }}

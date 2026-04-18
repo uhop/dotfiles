@@ -217,17 +217,31 @@ run_onchange_before_install-packages.sh.tmpl
 
 ## Template data
 
-Defined in `.chezmoi.toml.tmpl`:
+Defined in `.chezmoi.toml.tmpl`.
+
+**Top-level keys** (user identity + high-level flags):
 
 | Variable | Type | Example | Purpose |
 |---|---|---|---|
-| `osId` | string | `linux-ubuntu`, `linux-fedora`, `darwin` | Exact OS identifier |
-| `osIdLike` | string | `linux-debian`, `linux-rhel`, `darwin` | OS family for conditionals |
-| `osFamily` | string | `linux`, `darwin` | Broad OS family |
-| `pkgManager` | string | `apt`, `dnf`, `brew-only` | System package manager (derived from `osIdLike`) |
-| `wsl` | bool | `false` | Running under WSL |
+| `osFamily` | string | `linux`, `darwin` | Broad OS family (from `.chezmoi.os`) |
 | `codespaces` | bool | `false` | Running in GitHub Codespaces |
 | `hasGui` | bool | `true` | Machine has a GUI |
+| `name`, `email`, `githubUsername` | string | — | User identity |
+
+**Sniffed values** under `.detect.*`, populated from the detection library (see `dev-docs/bootstrap-detection-design.md` for the full spec):
+
+| Variable | Type | Example | Purpose |
+|---|---|---|---|
+| `.detect.pkgmgr` | string | `apt`, `dnf`, `pacman`, `apk`, `brew`, … | System package manager |
+| `.detect.family` | string | `debian`, `rhel`, `arch`, `suse`, `darwin`, … | Distro family (normalised) |
+| `.detect.id` | string | `ubuntu`, `fedora`, `ol` | Exact distro ID from `/etc/os-release` |
+| `.detect.idLike` | string | `debian`, `fedora rhel`, … | ID_LIKE tokens, space-separated |
+| `.detect.versionId`, `.detect.name`, `.detect.arch`, `.detect.uname` | string | — | Assorted identity fields |
+| `.detect.initSystem` | string | `systemd`, `launchd`, `openrc`, … | Service manager |
+| `.detect.isImmutable`, `.detect.isContainer`, `.detect.isWsl` | bool | — | Environment flags |
+| `.detect.hasIpv6` | bool | — | Working IPv6 egress |
+| `.detect.sudoGroup`, `.detect.canSudoNopasswd` | string, bool | `sudo` / `wheel` / `admin`, — | Privilege shape |
+| `.detect.hasBrew`, `.detect.hasFlatpak`, `.detect.hasSnap`, `.detect.hasNix` | bool | — | Optional package managers |
 
 ## Bootstrap: bootstrap.sh
 
@@ -257,13 +271,13 @@ Defined in `.chezmoi.toml.tmpl`:
 Templates use Go conditionals:
 
 ```
-{{ if eq .pkgManager "apt" }}
+{{ if eq .detect.pkgmgr "apt" }}
   # Debian/Ubuntu-specific code
-{{ else if eq .pkgManager "dnf" }}
+{{ else if eq .detect.pkgmgr "dnf" }}
   # Red Hat-like (Fedora, RHEL, CentOS, etc.) code
 {{ else if eq .osFamily "darwin" }}
   # macOS-specific code
 {{ end }}
 ```
 
-GUI-dependent code uses `{{ if .hasGui }}`. Use `osIdLike` for finer-grained OS checks when needed.
+GUI-dependent code uses `{{ if .hasGui }}`. Use `.detect.id` (exact distro) or `.detect.family` (normalised family) for finer-grained checks.

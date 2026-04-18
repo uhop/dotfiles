@@ -7,7 +7,7 @@
 
 {{ template "install-prelude.sh" . }}
 
-{{ if eq .pkgManager "apt" -}}
+{{ if eq .detect.pkgmgr "apt" -}}
 if [ "$hasSudo" -eq 0 ]; then
   echo "${WARN}Both apt and snap require sudo: expect asking for the sudo password.${RESET}"
   echo "${PROMPT}Installing command line apps: sudo apt install...${RESET}"
@@ -29,14 +29,14 @@ if [ "$hasSudo" -eq 0 ]; then
   sudo env DEBIAN_FRONTEND=noninteractive apt install -y meld alacritty flatpak gnome-software-plugin-flatpak ttf-mscorefonts-installer firetools
 fi
 {{- end }}
-{{- else if eq .pkgManager "dnf" -}}
+{{- else if eq .detect.pkgmgr "dnf" -}}
 if [ "$hasSudo" -eq 0 ]; then
   echo "${WARN}dnf requires sudo: expect asking for the sudo password.${RESET}"
-{{/* Enable EPEL + CRB on RHEL clones. Check .osId (not .osIdLike) so clones
-     whose ID_LIKE happens to start with or equal "fedora" (e.g., Oracle Linux's
-     ID_LIKE="fedora") still get EPEL enabled. Real Fedora has .osId=linux-fedora
-     and doesnt need EPEL. */ -}}
-{{ if ne .osId "linux-fedora" -}}
+{{/* Enable EPEL + CRB on RHEL clones. Check .detect.id (not .detect.idLike) so
+     clones whose ID_LIKE happens to start with or equal "fedora" (e.g., Oracle
+     Linux's ID_LIKE="fedora") still get EPEL enabled. Real Fedora has
+     .detect.id=fedora and doesn't need EPEL. */ -}}
+{{ if ne .detect.id "fedora" -}}
   if ! dnf repolist --enabled | grep -q epel; then
     echo "${PROMPT}Enabling EPEL repository...${RESET}"
     # Best-effort: Amazon Linux 2023 and some minimal RHEL rebuilds don't ship
@@ -84,7 +84,7 @@ if command -v brew &>/dev/null && [ -w "$(brew --cellar)" ]; then
 {{ template "Brewfile.common" . -}}
 {{ if eq .osFamily "darwin" -}}
 {{ template "Brewfile.Darwin" . -}}
-{{- else if eq .pkgManager "dnf" -}}
+{{- else if eq .detect.pkgmgr "dnf" -}}
 {{ template "Brewfile.RedHat" . -}}
 {{- end }}
 EOF

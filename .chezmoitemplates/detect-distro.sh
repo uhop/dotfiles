@@ -13,6 +13,17 @@
 [[ ${__DETECT_DISTRO_LOADED:-} == 1 ]] && return 0
 __DETECT_DISTRO_LOADED=1
 
+# Bash version gate. The library uses associative arrays (declare -gA) which
+# require bash >= 4.0. macOS ships /bin/bash 3.2; the bootstrap installs
+# brew-bash first, but a stale PATH on subsequent `chezmoi apply` can land
+# on /bin/bash and produce a cryptic `declare: -A: invalid option` error
+# 50 lines downstream. Fail loud here with a clear remediation instead.
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  echo "detect: requires bash >= 4 (found ${BASH_VERSION:-unknown})" >&2
+  echo "detect: on macOS, run 'brew install bash' and ensure \$(brew --prefix)/bin is ahead of /usr/bin in PATH" >&2
+  return 2
+fi
+
 # Overridable path to /etc/os-release. Tests point this at fixtures.
 : "${OS_RELEASE_PATH:=/etc/os-release}"
 

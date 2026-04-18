@@ -35,12 +35,12 @@ managed_rules=$(cat <<'RULES'
   Group name for sudoers rules. Each platform has a different default sudo group.
 */ -}}
 {{- $sudoGroup := "" -}}
-{{- if eq .pkgManager "apt" -}}{{- $sudoGroup = "sudo" -}}{{- end -}}
-{{- if eq .pkgManager "dnf" -}}{{- $sudoGroup = "wheel" -}}{{- end -}}
+{{- if eq .detect.pkgmgr "apt" -}}{{- $sudoGroup = "sudo" -}}{{- end -}}
+{{- if eq .detect.pkgmgr "dnf" -}}{{- $sudoGroup = "wheel" -}}{{- end -}}
 {{- if eq .osFamily "darwin" -}}{{- $sudoGroup = "admin" -}}{{- end -}}
 # Managed by chezmoi — passwordless rules for upd/cln/playbash automation.
 # Do not edit by hand; edit run_onchange_after_install-sudoers.sh.tmpl instead.
-{{ if eq .pkgManager "apt" -}}
+{{ if eq .detect.pkgmgr "apt" -}}
 # apt + Debian-stack tools (snap, AppArmor)
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt update
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt upgrade
@@ -54,7 +54,7 @@ managed_rules=$(cat <<'RULES'
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/apt autoclean -y
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/snap refresh
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/sbin/aa-remove-unknown
-{{- else if eq .pkgManager "dnf" -}}
+{{- else if eq .detect.pkgmgr "dnf" -}}
 # dnf
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf upgrade
 %{{ $sudoGroup }} ALL=(ALL) NOPASSWD: /usr/bin/dnf -y upgrade
