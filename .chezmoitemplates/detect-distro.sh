@@ -66,6 +66,7 @@ declare -gA __DETECT_CACHE=()
 #          DETECTED_VARIANT_ID, DETECTED_NAME, DETECTED_FAMILY
 detect::identity() {
   [[ -n ${__DETECT_CACHE[identity]:-} ]] && return 0
+  detect::_sudo_guard || return 1
 
   DETECTED_ID=""
   DETECTED_ID_LIKE=""
@@ -318,12 +319,19 @@ detect::can_reach() {
 
 # Echoes the first sudo-capable group the user belongs to, or empty if none.
 # Candidates (in priority order): wheel, sudo, admin. Memoized.
+#
+# `admin` is included because it is the canonical sudo-granting group on
+# macOS (the default admin account). On every supported Mac host this is
+# what the user belongs to. Linux-only consumers that must NOT treat admin
+# as authorization — notably flatpak scope dispatch — filter it explicitly;
+# see detect::flatpak_in_sudo_group.
 detect::sudo_group() {
   if [[ ${__DETECT_CACHE[sudo_group]+set} == set ]]; then
     local v=${__DETECT_CACHE[sudo_group]}
     [[ $v == __NONE__ ]] && echo "" || echo "$v"
     return 0
   fi
+  detect::_sudo_guard || return 1
   local user groups group
   user=$(detect::_user)
   groups=$(detect::_run id -nG "$user" 2>/dev/null || echo "")
@@ -344,6 +352,7 @@ detect::can_sudo_nopasswd() {
     [[ ${__DETECT_CACHE[can_sudo_nopasswd]} == 1 ]]
     return
   fi
+  detect::_sudo_guard || return 1
   local result=0
   if detect::has_cmd sudo && detect::_run sudo -n true 2>/dev/null; then
     result=1
@@ -1268,15 +1277,28 @@ detect::_yn() {
   if "$@"; then echo yes; else echo no; fi
 }
 
-# Escape a string for safe embedding inside JSON double-quotes. Handles the
-# two characters that actually occur in probe output: backslash and quote.
-# Control characters (< 0x20) are not expected in any of our fields — if
-# they ever appear, json consumers will reject the output, which is the
-# signal we'd want.
+# Escape a string for safe embedding inside JSON double-quotes. Handles
+# backslash + quote (the two that realistically occur in probe output) and
+# the three common whitespace control chars (newline, tab, CR) that could
+# appear if a source file trails a stray blank line or a future probe
+# captures multi-line output. Other control chars (< 0x20) are not expected
+# in any of our fields — if one ever slips through, we fail here with a
+# clear error rather than producing a JSON document that the consumer
+# rejects with an opaque "invalid character in string literal" much later.
 detect::_json_escape() {
   local s=$1
   s=${s//\\/\\\\}
   s=${s//\"/\\\"}
+  s=${s//$'\n'/\\n}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\t'/\\t}
+  # Any remaining control character is a bug in the probe (bracket-range
+  # globs don't treat $'\x01'-$'\x1f' as a char range reliably; use the
+  # POSIX cntrl class via =~).
+  if [[ $s =~ [[:cntrl:]] ]]; then
+    echo "detect[error]: _json_escape: control character in field value: $(printf '%q' "$1")" >&2
+    return 1
+  fi
   printf '%s' "$s"
 }
 
@@ -1444,15 +1466,38 @@ detect::reset() {
 # via sudo during sniffing. Running as actual root is FINE (container
 # bootstrap scenarios); only the sudo-escalation path is rejected, since
 # a sudo'd library would pick up root-scoped file permissions and mask
-# real unprivileged-user probe failures.
+# real unprivileged-user probe failures (e.g. `id -nG` returning root's
+# groups instead of the real user's).
+#
+# Escape hatch: set DETECT_ALLOW_SUDO=1 for the rare legitimate case (e.g.
+# a probing workflow that genuinely needs escalation). Use sparingly — it
+# disables the invariant that makes the user-facing probes meaningful.
+#
+# This function is a pure predicate: it re-evaluates on every call (tests
+# depend on that). The one-shot gating lives in detect::_sudo_guard, which
+# is what public entry points call.
 #
 # CI test: `sudo -n -u nobody bash -c '. detect-distro.sh; detect::summary'`
 # must succeed. If it fails, we've regressed.
 detect::_assert_no_sudo() {
+  [[ ${DETECT_ALLOW_SUDO:-} == 1 ]] && return 0
   [[ ${EUID:-$(id -u)} -eq 0 ]] && return 0
   if [[ -n ${SUDO_USER:-} ]]; then
     echo "detect[error]: library must not be invoked via sudo during sniffing phase" >&2
+    echo "detect[error]: set DETECT_ALLOW_SUDO=1 to bypass (rare; disables a correctness invariant)" >&2
     return 1
   fi
   return 0
+}
+
+# One-shot internal wrapper: run the sudo guard exactly once per shell, on
+# the first public-API call. Subsequent calls are a no-op so hot paths stay
+# cheap. Honors detect::reset (cache cleared → guard re-fires on next call).
+detect::_sudo_guard() {
+  [[ ${__DETECT_CACHE[sudo_guarded]:-} == 1 ]] && return 0
+  if detect::_assert_no_sudo; then
+    __DETECT_CACHE[sudo_guarded]=1
+    return 0
+  fi
+  return 1
 }
