@@ -142,9 +142,32 @@ Save a session log.
 
 Rebuild context from the vault.
 
-1. Read the 3 most recent session logs in `logs/`
-2. Read relevant project notes for the current working directory
-3. Summarize current state and what's left to do
+1. **Drift check first.** Run `~/.claude/skills/vault-check-drift/check-drift.sh`
+   from the current project directory (see the `vault-check-drift` skill for
+   details). If drift is detected, surface the report at the top of the
+   resume output before reading logs — the vault's view of the project may
+   be stale, and the recorded logs reflect that stale view.
+2. Read the 3 most recent session logs in `logs/`.
+3. Read relevant project notes for the current working directory.
+4. Summarize current state and what's left to do. If `check-drift` flagged
+   new commits / tags / publishes that aren't reflected in `projects/<name>`
+   notes, update those notes to match (or at minimum flag the divergence in
+   the summary).
+5. After syncing, run `check-drift --update` so the baseline captures the
+   refreshed view and the next resume starts from a clean slate.
+
+### /vault check [--update]
+
+Run the drift check standalone. Typically used mid-session to re-sync
+after a user-driven commit, push, or publish.
+
+```bash
+~/.claude/skills/vault-check-drift/check-drift.sh            # report only
+~/.claude/skills/vault-check-drift/check-drift.sh --update   # report + refresh baseline
+```
+
+The skill file at `~/.claude/skills/vault-check-drift/SKILL.md` documents
+the signal sources, baseline file format, and report shape.
 
 ### /vault (no subcommand)
 
