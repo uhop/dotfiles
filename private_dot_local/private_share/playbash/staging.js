@@ -26,10 +26,12 @@ import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {basename as pathBasename, join} from 'node:path';
 import {spawn} from 'node:child_process';
+import {createZstdCompress, createZstdDecompress} from 'node:zlib';
 
 import {STAGING_DIR} from './paths.js';
 import {registerChild} from './runner.js';
 import {shellQuote} from './shell-escape.js';
+import {hostHasZstd} from './capabilities.js';
 
 const WRAPPER_LOCAL   = join(homedir(), '.local', 'libs', 'playbash-wrap.py');
 const HELPER_LOCAL    = join(homedir(), '.local', 'libs', 'playbash.sh');
@@ -104,10 +106,13 @@ function saveCache(hostName, entry) {
 // Push the local wrapper to the remote staging directory. Throws on failure.
 async function stageWrapper(address, hostName) {
   const content = readFileSync(WRAPPER_LOCAL);
+  const compress = await hostHasZstd(address, hostName);
+  const body = compress ? await compressBuffer(content) : content;
+  const receive = compress ? `zstd -d > ${WRAPPER_STAGED}` : `cat > ${WRAPPER_STAGED}`;
   const r = await sshRun(
     address,
-    `mkdir -p ${STAGING_DIR} && cat > ${WRAPPER_STAGED} && chmod +x ${WRAPPER_STAGED}`,
-    {input: content},
+    `mkdir -p ${STAGING_DIR} && ${receive} && chmod +x ${WRAPPER_STAGED}`,
+    {input: body},
   );
   if (r.code !== 0) {
     throw new Error(`failed to stage wrapper on ${hostName}: ${r.stderr.trim() || `exit ${r.code}`}`);
@@ -159,16 +164,25 @@ async function uploadStagedFiles(address, hostName, files) {
   const needed = files.filter(f => remoteShas.get(f.name) !== f.sha);
   if (needed.length === 0) return;
 
-  const stageOne = ({name, content, executable}) => {
+  // Decide compression once per batch. `hostHasZstd` reads the per-host
+  // cache (or probes once + writes), so parallel uploads below share the
+  // same answer without racing on the probe.
+  const compress = await hostHasZstd(address, hostName);
+
+  const stageOne = async ({name, content, executable}) => {
     // `name` may be pathBasename(customLocalPath) for single-file custom
     // playbooks and can contain spaces/quotes/metacharacters — quote it
     // against the trusted STAGING_DIR prefix. STAGING_DIR itself starts
     // with `~` and must stay unquoted so the remote shell expands home.
     const qName = shellQuote(name);
+    const body = compress ? await compressBuffer(content) : content;
+    const receive = compress
+      ? `zstd -d > ${STAGING_DIR}/${qName}`
+      : `cat > ${STAGING_DIR}/${qName}`;
     const cmd = executable
-      ? `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${qName} && chmod +x ${STAGING_DIR}/${qName}`
-      : `mkdir -p ${STAGING_DIR} && cat > ${STAGING_DIR}/${qName}`;
-    return sshRun(address, cmd, {input: content});
+      ? `mkdir -p ${STAGING_DIR} && ${receive} && chmod +x ${STAGING_DIR}/${qName}`
+      : `mkdir -p ${STAGING_DIR} && ${receive}`;
+    return sshRun(address, cmd, {input: body});
   };
   const results = await Promise.all(needed.map(stageOne));
   for (let i = 0; i < results.length; i++) {
@@ -242,21 +256,17 @@ export async function stagePlaybookDir(address, hostName, localDir) {
 
   // Tar the directory contents (the . at the end captures dotfiles too) and
   // upload + extract in one ssh call. Wipe any previous stage of the same
-  // dir so stale files from a previous push don't linger.
-  const tarBuf = await new Promise((resolve, reject) => {
-    const chunks = [];
-    const p = spawn('tar', ['cf', '-', '-C', localDir, '.'], {stdio: ['ignore', 'pipe', 'pipe']});
-    p.stdout.on('data', c => chunks.push(c));
-    p.on('error', reject);
-    p.on('close', code =>
-      code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`tar exit ${code}`)),
-    );
-  });
+  // dir so stale files from a previous push don't linger. Pipe through zstd
+  // when both ends support it — typical playbook trees are shell scripts, so
+  // compression cuts bytes 3-5× at a CPU cost smaller than LAN transfer time.
+  const compress = await hostHasZstd(address, hostName);
+  const tarBuf = await tarDirToBuffer(localDir, compress);
 
   const remoteDir = `${STAGING_DIR}/${dirName}`;
+  const extractCmd = compress ? `zstd -d | tar xf - -C ${remoteDir}` : `tar xf - -C ${remoteDir}`;
   const cmd =
     `mkdir -p ${STAGING_DIR} && rm -rf ${remoteDir} && ` +
-    `mkdir -p ${remoteDir} && tar xf - -C ${remoteDir}`;
+    `mkdir -p ${remoteDir} && ${extractCmd}`;
   const r = await sshRun(address, cmd, {input: tarBuf});
   if (r.code !== 0) {
     throw new Error(
@@ -265,6 +275,93 @@ export async function stagePlaybookDir(address, hostName, localDir) {
   }
 
   return `${dirName}/main.sh`;
+}
+
+// Spawn `tar cf - -C <dir> .` and collect stdout into a Buffer, optionally
+// piping through Node's native zstd compressor. Exported so transfer.js
+// uses the same plumbing for put-directory.
+//
+// Node's `zlib.createZstdCompress` defaults to compression level 3 — the
+// sweet spot for LAN transfers (~500 MB/s encode on modern CPUs, typical
+// ratio 3-5× on text). No params override needed.
+//
+// Resolution waits for both tar exit AND the stream end, so a truncated
+// archive (tar non-zero exit) surfaces as a reject even if the compressed
+// prefix was already emitted to the collector.
+export function tarDirToBuffer(localDir, compress) {
+  return new Promise((resolve, reject) => {
+    const tar = spawn('tar', ['cf', '-', '-C', localDir, '.'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    tar.on('error', reject);
+
+    const source = compress ? tar.stdout.pipe(createZstdCompress()) : tar.stdout;
+    source.on('error', reject);
+
+    const chunks = [];
+    source.on('data', c => chunks.push(c));
+
+    let tarCode = null, ended = false;
+    const maybeSettle = () => {
+      if (tarCode === null || !ended) return;
+      if (tarCode !== 0) reject(new Error(`tar exit ${tarCode}`));
+      else resolve(Buffer.concat(chunks));
+    };
+    tar.on('close', code => { tarCode = code; maybeSettle(); });
+    source.on('end', () => { ended = true; maybeSettle(); });
+  });
+}
+
+// Buffer-in, compressed-buffer-out. Used by single-file `put` and every
+// `uploadStagedFiles` / `stageWrapper` send path whenever the remote has
+// zstd. Overhead on incompressible content is ~1-2% (frame header + random
+// block framing); accepted as the cost of the simpler "always compress"
+// policy for single-file transfers.
+export function compressBuffer(data) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const z = createZstdCompress();
+    z.on('data', c => chunks.push(c));
+    z.on('end', () => resolve(Buffer.concat(chunks)));
+    z.on('error', reject);
+    z.end(data);
+  });
+}
+
+// Inverse of compressBuffer. Used by single-file `get`.
+export function decompressBuffer(data) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const z = createZstdDecompress();
+    z.on('data', c => chunks.push(c));
+    z.on('end', () => resolve(Buffer.concat(chunks)));
+    z.on('error', reject);
+    z.end(data);
+  });
+}
+
+// Inverse of tarDirToBuffer: write `data` into a `tar xf - -C <localPath>`
+// process, optionally decoding with Node's native zstd decompressor first.
+// Used by transfer.js for get-directory.
+export function extractTarFromBuffer(data, localPath, decompress) {
+  return new Promise((resolve, reject) => {
+    const tar = spawn('tar', ['xf', '-', '-C', localPath], {
+      stdio: ['pipe', 'ignore', 'pipe'],
+    });
+    tar.on('error', reject);
+    tar.on('close', code =>
+      code === 0 ? resolve() : reject(new Error(`tar extract exit ${code}`)),
+    );
+
+    if (decompress) {
+      const dec = createZstdDecompress();
+      dec.on('error', reject);
+      dec.pipe(tar.stdin);
+      dec.end(data);
+    } else {
+      tar.stdin.end(data);
+    }
+  });
 }
 
 // --- public API ---

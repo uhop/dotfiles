@@ -39,6 +39,7 @@ import {INVENTORY_PATH, isSelfAddress, loadInventory} from './inventory.js';
 import {HELPER_LIB, LOG_DIR, PLAYBOOK_DIR, PLAYBOOK_PREFIX, PTY_WRAPPER} from './paths.js';
 import {parseHostNames} from './ssh-config.js';
 import {run} from './subprocess.js';
+import {localHasZstd, refreshHostZstd} from './capabilities.js';
 
 const SSH_DIR      = join(homedir(), '.ssh');
 const SSH_CONFIG   = join(SSH_DIR, 'config');
@@ -266,6 +267,18 @@ async function checkEnv() {
     ));
   }
 
+  // Local-side zstd is served by Node's zlib (node:zlib.createZstdCompress,
+  // Node 22.15+). Absence is a warning, not a failure — transfers fall
+  // through to raw tar.
+  if (localHasZstd()) {
+    checks.push(result('zstd (Node zlib)', 'ok', `available via ${process.version}`));
+  } else {
+    checks.push(result(
+      'zstd (Node zlib)', 'warn', `${process.version} lacks zlib.createZstdCompress`,
+      'upgrade Node to ≥22.15 (current LTS is ≥22) to enable compressed transfers; falls back to raw tar meanwhile',
+    ));
+  }
+
   // python3 on PATH (operator side; needed for --self runs)
   const py = await run('python3', ['--version'], {timeoutMs: 3000});
   if (py.code === 0) {
@@ -323,6 +336,27 @@ async function checkHost(name, address, configHostNames) {
 
   if (r.code === 0) {
     out.items.push({status: 'ok', label: `reachable in ${elapsed}s`});
+
+    // Probe + refresh the zstd capability cache. Only meaningful when the
+    // operator side has zstd too (refreshHostZstd short-circuits and writes
+    // a "local missing" note if not). Skipped on an unreachable host — no
+    // point probing through a failing ssh.
+    if (localHasZstd()) {
+      try {
+        const hasZstd = await refreshHostZstd(address, name);
+        if (hasZstd) {
+          out.items.push({status: 'ok', label: 'zstd: present (compressed transfers)'});
+        } else {
+          out.items.push({
+            status: 'warn',
+            label: 'zstd: missing on remote',
+            hint: `install zstd on ${name} to enable compressed put/get/staging (falls through to raw tar without it)`,
+          });
+        }
+      } catch {
+        // Probe failure is non-fatal; the capability cache is best-effort.
+      }
+    }
   } else {
     const {category, hint} = classifySshError(r.stderr, r.timedOut);
     out.items.push({status: 'fail', label: category, hint});

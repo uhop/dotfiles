@@ -149,6 +149,7 @@ private_share/playbash/staging.js      ← SSH helpers (sshRun), file staging fo
 private_share/playbash/transfer.js     ← put/get file transfer over ssh
 private_share/playbash/commands.js     ← list, hosts, log, __complete-targets, --bash-completion
 private_share/playbash/doctor.js       ← playbash doctor env + per-host diagnostic
+private_share/playbash/capabilities.js ← per-host zstd capability probe + on-disk cache
 private_share/playbash/errors.js       ← die() — user-facing error exit
 private_share/playbash/paths.js        ← shared path constants (LOG_DIR, PLAYBOOK_DIR, etc.)
 private_share/playbash/shell-escape.js ← shellQuote / shellQuotePath for remote command lines
