@@ -7,17 +7,17 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Pre-compress text/compressible files into sibling variants" "https://github.com/uhop/dotfiles/wiki/Txop"
+args::program "$script_name" "1.0.0" "Pre-compress files into sibling .gz/.br/.zst variants" "https://github.com/uhop/dotfiles/wiki/Cxop"
 
-args_program_header="${BOLD}txop${RESET_BOLD} produces ${BOLD}.gz${RESET_BOLD} / ${BOLD}.br${RESET_BOLD} / ${BOLD}.zst${RESET_BOLD} siblings next to each source file.
+args_program_header="${BOLD}cxop${RESET_BOLD} produces ${BOLD}.gz${RESET_BOLD} / ${BOLD}.br${RESET_BOLD} / ${BOLD}.zst${RESET_BOLD} siblings next to each source file.
 Intended for Accept-Encoding content negotiation (CloudFront, nginx gzip_static, etc.).
 Decompression: use ${BOLD}arx${RESET_BOLD}."
 
-args_program_usage="${BOLD}txop${RESET_BOLD} file.html                   # Compress one file to siblings
-${BOLD}txop${RESET_BOLD} public/                     # Walk a directory tree
-${BOLD}txop${RESET_BOLD} --only html,css,js public/  # Restrict to an allowlist
-${BOLD}txop${RESET_BOLD} --formats br,zst public/    # Skip gzip
-${BOLD}txop${RESET_BOLD} clean public/               # Remove .gz/.br/.zst siblings"
+args_program_usage="${BOLD}cxop${RESET_BOLD} file.html                   # Compress one file to siblings
+${BOLD}cxop${RESET_BOLD} public/                     # Walk a directory tree
+${BOLD}cxop${RESET_BOLD} --only html,css,js public/  # Restrict to an allowlist
+${BOLD}cxop${RESET_BOLD} --formats br,zst public/    # Skip gzip
+${BOLD}cxop${RESET_BOLD} clean public/               # Remove .gz/.br/.zst siblings"
 
 args_program_default_command="auto"
 
@@ -33,7 +33,7 @@ args::option "--include" "Force-include extensions from the default blocklist" "
 args::option "-q, --quality" "Quality 0-100, default 100 (max)" "N"
 args::option "--best" "Slow-but-best: zopfli for gz, --ultra -22 for zst"
 args::option "--min-size" "Skip sources smaller than N bytes (default: 150)" "N"
-args::option "--min-ratio" "Drop variant unless at least N% smaller (default: 0)" "PCT"
+args::option "--min-ratio" "Drop variant unless at least PCT% smaller; 0 = no check (default: 0)" "PCT"
 args::option "--force" "Re-compress even if sibling is up-to-date"
 args::option "--keep-larger" "Don't delete existing siblings that fail the size check"
 args::option "-j, --jobs" "Parallel jobs (default: 1, 0 = nproc)" "N"
@@ -244,11 +244,11 @@ is_fresh() { # usage: is_fresh <src> <sibling>; 0 = sibling is not older than sr
 }
 
 should_keep() { # usage: should_keep <src_size> <variant_size>
+  # --min-ratio 0 (default) => unconditional: always keep the variant.
+  # --min-ratio N (>0)     => keep only when variant is at least N% smaller than source.
+  [ "$MIN_RATIO" -le 0 ] && return 0
   local sz_in="$1" sz_var="$2"
-  local threshold=$sz_in
-  if [ "$MIN_RATIO" -gt 0 ]; then
-    threshold=$(( sz_in - (sz_in * MIN_RATIO / 100) ))
-  fi
+  local threshold=$(( sz_in - (sz_in * MIN_RATIO / 100) ))
   [ "$sz_var" -lt "$threshold" ]
 }
 

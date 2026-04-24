@@ -89,14 +89,14 @@ Options: `-v, --version`, `-h, --help`
 
 Supported formats: `.tar.br`, `.tar.bz2`, `.tar.gz`, `.tar.xz`, `.tar.zst`, `.tar`, `.tbz2`, `.tgz`, `.7z`, `.deb`, `.rar`, `.zip`, `.br`, `.bz2`, `.gz`, `.xz`, `.zst`, `.Z`
 
-### txop
+### cxop
 
-Text/compressible-file pre-compressor. Produces `.gz`, `.br`, `.zst` sibling variants next to each source for Accept-Encoding content negotiation (CloudFront + edge Lambda, nginx `gzip_static`, etc.). Decompression pairs with `arx`.
+Compression pre-processor. Produces `.gz`, `.br`, `.zst` sibling variants next to each source for Accept-Encoding content negotiation (CloudFront + edge Lambda, nginx `gzip_static`, etc.). Sibling-shaped to `imop` (batch-producer with options.bash); decompression pairs with `arx`.
 
 Commands:
-- `txop file.html` — single-file (infer from path)
-- `txop public/` — walk a directory tree, produce siblings
-- `txop clean public/` — remove all `.gz`/`.br`/`.zst` siblings under a tree
+- `cxop file.html` — single-file (infer from path)
+- `cxop public/` — walk a directory tree, produce siblings
+- `cxop clean public/` — remove all `.gz`/`.br`/`.zst` siblings under a tree
 - Explicit subcommands: `compress` / `c`, `batch` / `b`, `clean`
 
 File selection is negative-list by default — every file is a compression candidate *except* known self-compressed extensions (images `jpg/png/gif/webp/avif/heic/ico`; media `mp3/mp4/m4a/mkv/webm/mov/flac`; archives `gz/br/zst/xz/bz2/7z/zip/rar`; fonts `woff/woff2`; `pdf`; ebook/office `epub/docx/xlsx/pptx/…`; disk images `iso/dmg/…`; existing age/gpg/pgp). A size-check safety net discards any variant that fails to shrink the source (`--min-ratio PCT` tightens the threshold; default keeps any strictly-smaller variant). Overrides: `--only EXT,…` (allowlist), `--exclude EXT,…` (add to blocklist), `--include EXT,…` (force-in blocklisted extensions).
@@ -117,7 +117,7 @@ Options:
 
 Re-runs skip sources whose siblings are already up-to-date by mtime — fast incremental deploys. Use `--force` after `find -exec touch` scenarios where mtimes lie.
 
-Intended downstream: the `aws-website-cdn-cdk` edge Lambda (`lambda/index.mjs`) reads `<original> + .br|.zst|.gz` from S3 keyed on `Accept-Encoding`. `txop` is the producer; the Lambda is the consumer. Current Lambda content-type dispatch covers text/plain, text/html, text/css, application/javascript, application/json, application/xml — broadening it to more text-ish types is a separate Lambda change; `txop` itself is not constrained by that narrower set.
+Intended downstream: the `aws-website-cdn-cdk` edge Lambda (`lambda/index.mjs`) reads `<original> + .br|.zst|.gz` from S3 keyed on `Accept-Encoding`. `cxop` is the producer; the Lambda is the consumer. Current Lambda content-type dispatch covers text/plain, text/html, text/css, application/javascript, application/json, application/xml — broadening it to more text-ish types is a separate Lambda change; `cxop` itself is not constrained by that narrower set.
 
 ### Playbash Server Management
 

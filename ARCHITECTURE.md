@@ -48,7 +48,7 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_gpurr                       # git pull all repos
 │   │   ├── executable_gpwiki                      # git push wiki
 │   │   ├── executable_imop                        # image optimizer/converter
-│   │   ├── executable_txop                        # text/compressible file pre-compressor (.gz/.br/.zst siblings)
+│   │   ├── executable_cxop                        # compression pre-processor (.gz/.br/.zst siblings for HTTP content-negotiation)
 │   │   ├── executable_jot                         # encrypted S3 notes
 │   │   ├── executable_mount-raid.tmpl             # NFS mount helper
 │   │   ├── executable_ollama-sync                 # update ollama models
@@ -131,7 +131,7 @@ executable_cln.tmpl           ← system cleanup (apt/dnf, brew, flatpak, docker
 executable_goup               ← run command in current + parent dirs
 executable_imop               ← image optimizer/converter
 executable_jot                ← encrypted S3 notes (age, brotli, gzip, etc.)
-executable_txop               ← text/compressible pre-compressor (gzip/brotli/zstd sibling variants)
+executable_cxop               ← compression pre-processor (gzip/brotli/zstd sibling variants for HTTP content-negotiation)
 executable_mount-raid.tmpl    ← NFS mount
 executable_ollama-sync        ← ollama model updater
 executable_pick               ← interactive command reference (fzf)
