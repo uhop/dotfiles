@@ -138,7 +138,7 @@ current_json=$(jq -n \
     },
     submodules: $subs,
     publishable: {
-      npm: ($npm_name | select(length > 0) | {name: ., latest: $npm_latest, versions: $npm_versions})
+      npm: (if ($npm_name | length) > 0 then {name: $npm_name, latest: $npm_latest, versions: $npm_versions} else null end)
     }
   }')
 

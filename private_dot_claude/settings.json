@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(vault-curl:*)"
-    ]
+    ],
+    "defaultMode": "auto"
   },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true
