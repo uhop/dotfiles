@@ -58,6 +58,7 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── executable_gpurr           # Git pull all repos
 │   │   ├── executable_gpwiki          # Git push wiki
 │   │   ├── executable_imop            # Image optimizer/converter
+│   │   ├── executable_txop            # Text/compressible file pre-compressor (.gz/.br/.zst siblings)
 │   │   ├── executable_jot             # Encrypted S3 notes editor
 │   │   ├── executable_mount-raid.tmpl # NFS mount helper
 │   │   ├── executable_ollama-sync     # Update all ollama models

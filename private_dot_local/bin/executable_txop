@@ -1,0 +1,631 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+. ~/.local/libs/bootstrap.sh
+
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0.0" "Pre-compress text/compressible files into sibling variants" "https://github.com/uhop/dotfiles/wiki/Txop"
+
+args_program_header="${BOLD}txop${RESET_BOLD} produces ${BOLD}.gz${RESET_BOLD} / ${BOLD}.br${RESET_BOLD} / ${BOLD}.zst${RESET_BOLD} siblings next to each source file.
+Intended for Accept-Encoding content negotiation (CloudFront, nginx gzip_static, etc.).
+Decompression: use ${BOLD}arx${RESET_BOLD}."
+
+args_program_usage="${BOLD}txop${RESET_BOLD} file.html                   # Compress one file to siblings
+${BOLD}txop${RESET_BOLD} public/                     # Walk a directory tree
+${BOLD}txop${RESET_BOLD} --only html,css,js public/  # Restrict to an allowlist
+${BOLD}txop${RESET_BOLD} --formats br,zst public/    # Skip gzip
+${BOLD}txop${RESET_BOLD} clean public/               # Remove .gz/.br/.zst siblings"
+
+args_program_default_command="auto"
+
+args::option "auto" "Auto-detect: file → compress; dir → batch" "path"
+args::option "compress, c" "Compress one file to sibling variants" "file"
+args::option "batch, b" "Walk a directory and compress eligible files" "dir"
+args::option "clean" "Remove .gz/.br/.zst siblings from a tree" "dir"
+
+args::option "--formats" "Codec subset: gz,br,zst (default: all available)" "LIST"
+args::option "--only" "Restrict to these extensions (allowlist)" "LIST"
+args::option "--exclude" "Skip these extensions in addition to the blocklist" "LIST"
+args::option "--include" "Force-include extensions from the default blocklist" "LIST"
+args::option "-q, --quality" "Quality 0-100, default 100 (max)" "N"
+args::option "--best" "Slow-but-best: zopfli for gz, --ultra -22 for zst"
+args::option "--min-size" "Skip sources smaller than N bytes (default: 150)" "N"
+args::option "--min-ratio" "Drop variant unless at least N% smaller (default: 0)" "PCT"
+args::option "--force" "Re-compress even if sibling is up-to-date"
+args::option "--keep-larger" "Don't delete existing siblings that fail the size check"
+args::option "-j, --jobs" "Parallel jobs (default: 1, 0 = nproc)" "N"
+args::option "-n, --dry-run" "Show commands without writing"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+# --- Option extraction ---
+
+OPT_FORMATS=""
+[[ -v args_options["--formats"] ]] && OPT_FORMATS="${args_options["--formats"]}"
+OPT_ONLY=""
+[[ -v args_options["--only"] ]] && OPT_ONLY="${args_options["--only"]}"
+OPT_EXCLUDE=""
+[[ -v args_options["--exclude"] ]] && OPT_EXCLUDE="${args_options["--exclude"]}"
+OPT_INCLUDE=""
+[[ -v args_options["--include"] ]] && OPT_INCLUDE="${args_options["--include"]}"
+
+QUALITY=100
+[[ -v args_options["-q"] ]] && QUALITY="${args_options["-q"]}"
+if ! [[ "$QUALITY" =~ ^[0-9]+$ ]] || [ "$QUALITY" -gt 100 ]; then
+  ansi::err "${ERROR}--quality must be 0-100${RESET_ALL}"
+  exit 1
+fi
+
+OPT_BEST=0
+[[ -v args_options["--best"] ]] && OPT_BEST=1
+
+MIN_SIZE=150
+[[ -v args_options["--min-size"] ]] && MIN_SIZE="${args_options["--min-size"]}"
+
+MIN_RATIO=0
+[[ -v args_options["--min-ratio"] ]] && MIN_RATIO="${args_options["--min-ratio"]}"
+
+FORCE=0
+[[ -v args_options["--force"] ]] && FORCE=1
+
+KEEP_LARGER=0
+[[ -v args_options["--keep-larger"] ]] && KEEP_LARGER=1
+
+DRY_RUN=0
+[[ -v args_options["-n"] ]] && DRY_RUN=1
+
+OPT_JOBS=1
+if [[ -v args_options["-j"] ]]; then
+  OPT_JOBS="${args_options["-j"]}"
+  [ "$OPT_JOBS" -eq 0 ] && OPT_JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+fi
+
+# --- Tool detection ---
+
+TOOL_GZIP=""
+TOOL_ZOPFLI=""
+TOOL_BROTLI=""
+TOOL_ZSTD=""
+
+detect_tools() {
+  command -v gzip   &>/dev/null && TOOL_GZIP="gzip"     || true
+  command -v zopfli &>/dev/null && TOOL_ZOPFLI="zopfli" || true
+  command -v brotli &>/dev/null && TOOL_BROTLI="brotli" || true
+  command -v zstd   &>/dev/null && TOOL_ZSTD="zstd"     || true
+}
+
+# --- Codec selection ---
+
+# 1 = this codec runs, 0 = skip. Populated from --formats and availability.
+declare -A CODECS=( [gz]=0 [br]=0 [zst]=0 )
+
+declare -A WARNED=()
+warn_once() {
+  local key="$1" msg="$2"
+  [[ -v WARNED["$key"] ]] && return
+  ansi::warn "${WARN}$msg${RESET_ALL}"
+  WARNED["$key"]=1
+}
+
+select_codecs() {
+  local requested=""
+  if [ -n "$OPT_FORMATS" ]; then
+    requested="${OPT_FORMATS//,/ }"
+  else
+    requested="gz br zst"
+  fi
+
+  for c in $requested; do
+    case "$c" in
+      gz|gzip)
+        if [ -n "$TOOL_GZIP" ] || [ -n "$TOOL_ZOPFLI" ]; then
+          CODECS[gz]=1
+        else
+          warn_once "gzip" "gzip not found — skipping .gz variants (install: brew install gzip / apt install gzip)"
+        fi
+        ;;
+      br|brotli)
+        if [ -n "$TOOL_BROTLI" ]; then
+          CODECS[br]=1
+        else
+          warn_once "brotli" "brotli not found — skipping .br variants (install: brew install brotli / apt install brotli)"
+        fi
+        ;;
+      zst|zstd)
+        if [ -n "$TOOL_ZSTD" ]; then
+          CODECS[zst]=1
+        else
+          warn_once "zstd" "zstd not found — skipping .zst variants (install: brew install zstd / apt install zstd)"
+        fi
+        ;;
+      *)
+        ansi::err "${ERROR}Unknown codec: $c (valid: gz, br, zst)${RESET_ALL}"
+        exit 1
+        ;;
+    esac
+  done
+
+  if [ "${CODECS[gz]}" = 0 ] && [ "${CODECS[br]}" = 0 ] && [ "${CODECS[zst]}" = 0 ]; then
+    ansi::err "${ERROR}No codecs available${RESET_ALL}"
+    exit 1
+  fi
+
+  if [ "$OPT_BEST" = 1 ] && [ "${CODECS[gz]}" = 1 ] && [ -z "$TOOL_ZOPFLI" ]; then
+    warn_once "zopfli" "--best requested but zopfli not found — using plain gzip -9 for .gz"
+  fi
+}
+
+# --- Extension filters ---
+
+# Self-compressed or not-worth-it by default. Override via --include.
+BLOCKED_EXTS=(
+  jpg jpeg png gif webp avif heic heif bmp tiff tif ico
+  mp4 m4v mkv webm mov avi wmv flv 3gp 3g2
+  mp3 m4a aac ogg opus flac wav
+  gz br zst xz bz2 lz lzma lzo 7z zip rar arj cab tgz tbz tbz2 txz tzst
+  woff woff2 eot
+  pdf epub mobi azw azw3 kfx docx xlsx pptx odt ods odp odg odb
+  iso dmg img vmdk qcow2
+  jar war apk aab
+  age gpg pgp asc enc
+)
+
+declare -A BLOCKED_MAP=()
+declare -A ONLY_MAP=()
+declare -A EXCLUDE_MAP=()
+declare -A INCLUDE_MAP=()
+
+csv_into_map() { # usage: csv_into_map "<csv>" <map-name>
+  local -n map_ref="$2"
+  local csv="$1"
+  local IFS=','
+  local item
+  for item in $csv; do
+    item="${item##*.}"      # strip any leading dots
+    item="${item,,}"        # lowercase
+    [ -z "$item" ] && continue
+    map_ref["$item"]=1
+  done
+}
+
+init_filters() {
+  local e
+  for e in "${BLOCKED_EXTS[@]}"; do BLOCKED_MAP["$e"]=1; done
+  [ -n "$OPT_ONLY"    ] && csv_into_map "$OPT_ONLY"    ONLY_MAP
+  [ -n "$OPT_EXCLUDE" ] && csv_into_map "$OPT_EXCLUDE" EXCLUDE_MAP
+  [ -n "$OPT_INCLUDE" ] && csv_into_map "$OPT_INCLUDE" INCLUDE_MAP
+  return 0
+}
+
+get_ext() { # usage: get_ext <path>; prints lowercase extension
+  local name="${1##*/}"
+  case "$name" in
+    *.*) local ext="${name##*.}"; echo "${ext,,}" ;;
+    *)   echo "" ;;
+  esac
+}
+
+is_eligible() { # usage: is_eligible <path>; 0 = compress, 1 = skip
+  local path="$1"
+  local ext
+  ext="$(get_ext "$path")"
+
+  [[ -v EXCLUDE_MAP["$ext"] ]] && return 1
+
+  if [ ${#ONLY_MAP[@]} -gt 0 ]; then
+    [[ -v ONLY_MAP["$ext"] ]] && return 0
+    return 1
+  fi
+
+  if [[ -v BLOCKED_MAP["$ext"] ]]; then
+    [[ -v INCLUDE_MAP["$ext"] ]] && return 0
+    return 1
+  fi
+
+  return 0
+}
+
+# --- Size / freshness helpers ---
+
+file_size() { # usage: file_size <path>
+  stat -c%s "$1" 2>/dev/null || stat -f%z "$1"
+}
+
+is_fresh() { # usage: is_fresh <src> <sibling>; 0 = sibling is not older than src
+  local src="$1" sib="$2"
+  [ -f "$sib" ] && [ ! "$src" -nt "$sib" ]
+}
+
+should_keep() { # usage: should_keep <src_size> <variant_size>
+  local sz_in="$1" sz_var="$2"
+  local threshold=$sz_in
+  if [ "$MIN_RATIO" -gt 0 ]; then
+    threshold=$(( sz_in - (sz_in * MIN_RATIO / 100) ))
+  fi
+  [ "$sz_var" -lt "$threshold" ]
+}
+
+format_size() {
+  local bytes="$1"
+  if   [ "$bytes" -ge 1048576 ]; then printf "%d.%d MB" "$((bytes / 1048576))" "$(( (bytes % 1048576) * 10 / 1048576 ))"
+  elif [ "$bytes" -ge    1024 ]; then printf "%d.%d KB" "$((bytes / 1024))"    "$(( (bytes % 1024) * 10 / 1024 ))"
+  else                                printf "%d B" "$bytes"
+  fi
+}
+
+# --- Per-codec compressors (write to stdout redirected to $out) ---
+
+quality_gzip() { # 0..100 → 1..9
+  local q=$(( QUALITY * 9 / 100 ))
+  [ "$q" -lt 1 ] && q=1
+  [ "$q" -gt 9 ] && q=9
+  echo "$q"
+}
+
+quality_brotli() { # 0..100 → 0..11
+  local q=$(( QUALITY * 11 / 100 ))
+  [ "$q" -lt 0 ] && q=0
+  [ "$q" -gt 11 ] && q=11
+  echo "$q"
+}
+
+quality_zstd() { # 0..100 → 1..19 (or 22 under --ultra)
+  local cap=19
+  [ "$OPT_BEST" -eq 1 ] && cap=22
+  local q=$(( QUALITY * cap / 100 ))
+  [ "$q" -lt 1 ] && q=1
+  [ "$q" -gt "$cap" ] && q=$cap
+  echo "$q"
+}
+
+run_compress() { # usage: run_compress <out> <final> <cmd...>; cmd must write to stdout
+  local out="$1" final="$2"; shift 2
+  if [ "$DRY_RUN" -eq 1 ]; then
+    ansi::out "${INFO}[dry-run] $* > $final${RESET_ALL}"
+    return 0
+  fi
+  "$@" > "$out" 2>/dev/null
+}
+
+compress_gz() { # usage: compress_gz <src> <tmp> <final>
+  local src="$1" tmp="$2" final="$3"
+  if [ "$OPT_BEST" -eq 1 ] && [ -n "$TOOL_ZOPFLI" ]; then
+    run_compress "$tmp" "$final" "$TOOL_ZOPFLI" -c --gzip --i15 "$src"
+  else
+    local q; q=$(quality_gzip)
+    run_compress "$tmp" "$final" "$TOOL_GZIP" "-$q" -c -n "$src"
+  fi
+}
+
+compress_br() { # usage: compress_br <src> <tmp> <final>
+  local src="$1" tmp="$2" final="$3"
+  local q; q=$(quality_brotli)
+  run_compress "$tmp" "$final" "$TOOL_BROTLI" -c -q "$q" "$src"
+}
+
+compress_zst() { # usage: compress_zst <src> <tmp> <final>
+  local src="$1" tmp="$2" final="$3"
+  local q; q=$(quality_zstd)
+  local -a args=(-q --long=27 "-$q")
+  [ "$OPT_BEST" -eq 1 ] && args+=(--ultra)
+  args+=(-c "$src")
+  run_compress "$tmp" "$final" "$TOOL_ZSTD" "${args[@]}"
+}
+
+# --- Per-file driver ---
+
+# Writes "<src_size> <gz_new> <br_new> <zst_new> <kept_gz> <kept_br> <kept_zst>" to $result_file.
+# "_new" is bytes added if the variant was (re-)produced this run, 0 otherwise.
+# "kept_" is the variant size on disk after this file's processing (0 if no sibling exists).
+compress_one() {
+  local src="$1" result_file="$2"
+  local sz_in gz_new=0 br_new=0 zst_new=0 gz_kept=0 br_kept=0 zst_kept=0
+  sz_in=$(file_size "$src")
+
+  if [ "$sz_in" -lt "$MIN_SIZE" ]; then
+    echo "$sz_in 0 0 0 0 0 0" >> "$result_file"
+    return 0
+  fi
+
+  local codec suffix cmd out sz_new
+  for codec in gz br zst; do
+    [ "${CODECS[$codec]}" = 1 ] || continue
+    suffix=".$codec"
+    out="${src}${suffix}"
+
+    if [ "$FORCE" = 0 ] && is_fresh "$src" "$out"; then
+      local keep; keep=$(file_size "$out")
+      case "$codec" in
+        gz)  gz_kept=$keep  ;;
+        br)  br_kept=$keep  ;;
+        zst) zst_kept=$keep ;;
+      esac
+      continue
+    fi
+
+    local tmp="${out}.tmp.$$"
+    case "$codec" in
+      gz)  compress_gz  "$src" "$tmp" "$out" ;;
+      br)  compress_br  "$src" "$tmp" "$out" ;;
+      zst) compress_zst "$src" "$tmp" "$out" ;;
+    esac
+
+    if [ "$DRY_RUN" = 1 ]; then
+      continue
+    fi
+
+    if [ ! -f "$tmp" ]; then
+      warn_once "codec-fail-$codec" "$codec compressor produced no output (first observed on: $src)"
+      continue
+    fi
+
+    sz_new=$(file_size "$tmp")
+    if should_keep "$sz_in" "$sz_new"; then
+      mv "$tmp" "$out"
+      case "$codec" in
+        gz)  gz_new=$sz_new;  gz_kept=$sz_new  ;;
+        br)  br_new=$sz_new;  br_kept=$sz_new  ;;
+        zst) zst_new=$sz_new; zst_kept=$sz_new ;;
+      esac
+    else
+      rm -f "$tmp"
+      if [ "$KEEP_LARGER" = 0 ] && [ -f "$out" ]; then
+        rm -f "$out"
+      elif [ -f "$out" ]; then
+        local keep; keep=$(file_size "$out")
+        case "$codec" in
+          gz)  gz_kept=$keep  ;;
+          br)  br_kept=$keep  ;;
+          zst) zst_kept=$keep ;;
+        esac
+      fi
+    fi
+  done
+
+  echo "$sz_in $gz_new $br_new $zst_new $gz_kept $br_kept $zst_kept" >> "$result_file"
+}
+
+# --- Batch driver ---
+
+batch_process() {
+  local input_dir="${1%/}"
+
+  if [ ! -d "$input_dir" ]; then
+    ansi::err "${ERROR}'$input_dir' is not a directory${RESET_ALL}"
+    return 1
+  fi
+
+  local files=()
+  while IFS= read -r -d '' f; do
+    [ -L "$f" ] && continue
+    is_eligible "$f" && files+=("$f")
+  done < <(find "$input_dir" -type f -print0 | sort -z)
+
+  local file_count=${#files[@]}
+  if [ "$file_count" -eq 0 ]; then
+    ansi::out "${WARN}No eligible files found in $input_dir${RESET_ALL}"
+    return 0
+  fi
+
+  ansi::out "${INFO}Compressing: $input_dir ($file_count files)${RESET_ALL}"
+  local codecs_active=()
+  for c in gz br zst; do [ "${CODECS[$c]}" = 1 ] && codecs_active+=("$c"); done
+  ansi::out "${INFO}Codecs: ${codecs_active[*]}${RESET_ALL}"
+  [ "$OPT_BEST"  -eq 1 ] && ansi::out "${INFO}--best enabled (slow-tier codecs)${RESET_ALL}"
+  [ "$OPT_JOBS"  -gt 1 ] && ansi::out "${INFO}Parallel jobs: $OPT_JOBS${RESET_ALL}"
+  [ "$DRY_RUN"   -eq 1 ] && ansi::out "${WARN}[dry-run]${RESET_ALL}"
+
+  local result_file
+  result_file=$(mktemp)
+  trap "rm -f '$result_file'" EXIT
+
+  local idx=0 running=0 failed=0
+  local rel_path
+  for f in "${files[@]}"; do
+    idx=$((idx + 1))
+    rel_path="${f#"$input_dir"/}"
+
+    if [ "$OPT_JOBS" -le 1 ]; then
+      ansi::out "${INFO}[$idx/$file_count] $rel_path${RESET_ALL}"
+      compress_one "$f" "$result_file" || failed=$((failed + 1))
+    else
+      while [ "$running" -ge "$OPT_JOBS" ]; do
+        wait -n 2>/dev/null || true
+        running=$((running - 1))
+      done
+      ansi::out "${INFO}[$idx/$file_count] $rel_path${RESET_ALL}"
+      compress_one "$f" "$result_file" &
+      running=$((running + 1))
+    fi
+  done
+
+  if [ "$OPT_JOBS" -gt 1 ]; then
+    wait
+  fi
+
+  local total_in=0 total_gz=0 total_br=0 total_zst=0
+  local made_gz=0 made_br=0 made_zst=0 processed=0
+  local sz_in sz_gz sz_br sz_zst kept_gz kept_br kept_zst
+  while read -r sz_in sz_gz sz_br sz_zst kept_gz kept_br kept_zst; do
+    processed=$((processed + 1))
+    total_in=$((total_in + sz_in))
+    [ "$kept_gz"  -gt 0 ] && total_gz=$((total_gz   + kept_gz))  && made_gz=$((made_gz + 1))
+    [ "$kept_br"  -gt 0 ] && total_br=$((total_br   + kept_br))  && made_br=$((made_br + 1))
+    [ "$kept_zst" -gt 0 ] && total_zst=$((total_zst + kept_zst)) && made_zst=$((made_zst + 1))
+  done < "$result_file"
+  rm -f "$result_file"
+  trap - EXIT
+
+  echo
+  if [ "$failed" -gt 0 ]; then
+    ansi::out "${OK}Processed $processed files${RESET_ALL} ${WARN}($failed failed)${RESET_ALL}"
+  else
+    ansi::out "${OK}Processed $processed files${RESET_ALL}"
+  fi
+
+  if [ "$DRY_RUN" -eq 0 ] && [ "$total_in" -gt 0 ]; then
+    report_codec() {
+      local name="$1" count="$2" total_out="$3"
+      if [ "$count" -gt 0 ]; then
+        local saved=$((total_in - total_out))
+        local pct=0
+        [ "$total_in" -gt 0 ] && pct=$((saved * 100 / total_in))
+        ansi::out "  ${OK}.$name${RESET_ALL}  $count files   $(format_size "$total_in") → $(format_size "$total_out")   (${pct}% saved)"
+      else
+        ansi::out "  .$name  0 files"
+      fi
+    }
+    ansi::out "${INFO}By codec (aggregate over sources that produced a variant):${RESET_ALL}"
+    report_codec gz  "$made_gz"  "$total_gz"
+    report_codec br  "$made_br"  "$total_br"
+    report_codec zst "$made_zst" "$total_zst"
+  fi
+}
+
+# --- Clean driver ---
+
+clean_process() {
+  local input_dir="${1%/}"
+
+  if [ ! -d "$input_dir" ]; then
+    ansi::err "${ERROR}'$input_dir' is not a directory${RESET_ALL}"
+    return 1
+  fi
+
+  local removed=0 freed=0
+  local f sz
+  while IFS= read -r -d '' f; do
+    [ -L "$f" ] && continue
+    sz=$(file_size "$f")
+    if [ "$DRY_RUN" -eq 1 ]; then
+      ansi::out "${INFO}[dry-run] rm $f${RESET_ALL}"
+    else
+      command rm -f "$f"
+    fi
+    removed=$((removed + 1))
+    freed=$((freed + sz))
+  done < <(find "$input_dir" -type f \( -name '*.gz' -o -name '*.br' -o -name '*.zst' \) -print0)
+
+  if [ "$removed" -eq 0 ]; then
+    ansi::out "${INFO}No .gz/.br/.zst siblings under $input_dir${RESET_ALL}"
+  else
+    ansi::out "${OK}Removed $removed sibling(s), freed $(format_size "$freed")${RESET_ALL}"
+  fi
+}
+
+# --- Single-file driver ---
+
+compress_single() {
+  local src="$1"
+  if [ ! -f "$src" ]; then
+    ansi::err "${ERROR}'$src' is not a regular file${RESET_ALL}"
+    return 1
+  fi
+  if ! is_eligible "$src"; then
+    ansi::err "${ERROR}'$src' is not eligible (blocklisted extension or --exclude; override with --include or --only)${RESET_ALL}"
+    return 1
+  fi
+
+  local result_file
+  result_file=$(mktemp)
+  trap "rm -f '$result_file'" EXIT
+
+  ansi::out "${INFO}Compressing: $src${RESET_ALL}"
+  compress_one "$src" "$result_file"
+
+  local sz_in sz_gz sz_br sz_zst kept_gz kept_br kept_zst
+  read -r sz_in sz_gz sz_br sz_zst kept_gz kept_br kept_zst < "$result_file"
+  rm -f "$result_file"
+  trap - EXIT
+
+  if [ "$sz_in" -lt "$MIN_SIZE" ]; then
+    ansi::out "${WARN}Source $(format_size "$sz_in") is below --min-size ($MIN_SIZE B); no variants written${RESET_ALL}"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then return 0; fi
+
+  local codec kept pct
+  for codec in gz br zst; do
+    [ "${CODECS[$codec]}" = 1 ] || continue
+    case "$codec" in
+      gz)  kept="$kept_gz"  ;;
+      br)  kept="$kept_br"  ;;
+      zst) kept="$kept_zst" ;;
+    esac
+    if [ "$kept" -gt 0 ]; then
+      pct=$(( (sz_in - kept) * 100 / sz_in ))
+      ansi::out "  ${OK}.$codec${RESET_ALL}  $(format_size "$sz_in") → $(format_size "$kept")  (${pct}% saved)"
+    else
+      ansi::out "  .$codec  (dropped: did not beat source)"
+    fi
+  done
+}
+
+# --- Main ---
+
+detect_tools
+init_filters
+select_codecs
+
+if [ -z "${1:-}" ]; then
+  args::option::help
+fi
+
+cmd="$args_command"
+
+if [[ -n "${1:-}" && -v "args_aliases[${1}]" && "${1:-}" != -* ]]; then
+  shift
+fi
+
+if [ "$cmd" = "auto" ]; then
+  arg1="${1:-}"
+  if [ -z "$arg1" ]; then
+    args::option::help
+  elif [ -d "$arg1" ]; then
+    cmd="batch"
+  elif [ -f "$arg1" ]; then
+    cmd="compress"
+  else
+    ansi::err "${ERROR}'$arg1' is neither a file nor a directory${RESET_ALL}"
+    exit 1
+  fi
+fi
+
+case "$cmd" in
+  compress)
+    input="${1:-}"
+    if [ -z "$input" ]; then
+      ansi::err "${ERROR}No input file specified${RESET_ALL}"
+      exit 1
+    fi
+    compress_single "$input" || exit 1
+    ;;
+  batch)
+    input_dir="${1:-}"
+    if [ -z "$input_dir" ]; then
+      ansi::err "${ERROR}No directory specified${RESET_ALL}"
+      exit 1
+    fi
+    batch_process "$input_dir" || exit 1
+    ;;
+  clean)
+    input_dir="${1:-}"
+    if [ -z "$input_dir" ]; then
+      ansi::err "${ERROR}No directory specified${RESET_ALL}"
+      exit 1
+    fi
+    clean_process "$input_dir" || exit 1
+    ;;
+  *)
+    ansi::err "${ERROR}Unknown command: $cmd${RESET_ALL}"
+    exit 1
+    ;;
+esac
