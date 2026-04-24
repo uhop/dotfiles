@@ -333,6 +333,8 @@ Environment variables:
 
 Supported codecs: `.age`, `.br`, `.bz2`, `.gz`, `.xz`, `.zst`
 
+Codec-chain naming convention: always write `.tar.gz` / `.tar.bz2` / `.tar.xz` in jot chains, not the `.tgz` / `.tbz2` / `.txz` shortcuts. `jot` parses left-to-right by dot-separated extension, so `tar.gz.age` is unambiguously "tar, then gzip, then age" — while `tgz.age` is ambiguous whenever a third codec gets appended. `arx` stays lenient on input and accepts both forms when extracting third-party archives; jot output stays long-form.
+
 ### goup
 
 Run a command in the current directory and each parent directory up to `/`.
