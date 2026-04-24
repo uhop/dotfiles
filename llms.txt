@@ -96,8 +96,10 @@ Compression pre-processor. Produces `.gz`, `.br`, `.zst` sibling variants next t
 Commands:
 - `cxop file.html` — single-file (infer from path)
 - `cxop public/` — walk a directory tree, produce siblings
-- `cxop clean public/` — remove all `.gz`/`.br`/`.zst` siblings under a tree
-- Explicit subcommands: `compress` / `c`, `batch` / `b`, `clean`
+- `cxop clean file.html` — remove a single file's `.gz`/`.br`/`.zst` siblings
+- `cxop clean public/` — remove all `.gz`/`.br`/`.zst` siblings under a tree (orphaned variants with missing sources are skipped by default — pass `--orphans` to include them)
+- `cxop exts public/` — survey every extension under the tree (size, count, eligibility under current filters); rows sorted by accumulated size so "where is the space going?" is the headline answer; prints a ready-to-paste `--only EXT,…` allowlist for the compressible set
+- Explicit subcommands: `compress` / `c`, `batch` / `b`, `clean`, `exts` / `extensions`
 
 File selection is negative-list by default — every file is a compression candidate *except* known self-compressed extensions (images `jpg/png/gif/webp/avif/heic/ico`; media `mp3/mp4/m4a/mkv/webm/mov/flac`; archives `gz/br/zst/xz/bz2/7z/zip/rar`; fonts `woff/woff2`; `pdf`; ebook/office `epub/docx/xlsx/pptx/…`; disk images `iso/dmg/…`; existing age/gpg/pgp). A size-check safety net discards any variant that fails to shrink the source (`--min-ratio PCT` tightens the threshold; default keeps any strictly-smaller variant). Overrides: `--only EXT,…` (allowlist), `--exclude EXT,…` (add to blocklist), `--include EXT,…` (force-in blocklisted extensions).
 
@@ -111,6 +113,8 @@ Options:
 - `--min-ratio PCT` — drop variant unless at least PCT% smaller than source (default 0 = any strictly-smaller variant kept)
 - `--force` — re-compress even if sibling is mtime-fresh relative to source
 - `--keep-larger` — don't delete existing siblings that fail the size check (default: delete stale)
+- `--no-recursive` — for `clean` / `exts`: act on the top directory only, don't descend
+- `--orphans` — for `clean`: also remove variants whose original file no longer exists (default: skip + report count)
 - `-j, --jobs N` — parallel workers, default 1, `0` = nproc
 - `-n, --dry-run` — show commands without writing
 - `-v, --version`, `-h, --help`, `--bash-completion`

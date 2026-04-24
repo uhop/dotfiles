@@ -7,24 +7,29 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Pre-compress files into sibling .gz/.br/.zst variants" "https://github.com/uhop/dotfiles/wiki/Cxop"
+args::program "$script_name" "1.1.0" "Pre-compress files into sibling .gz/.br/.zst variants" "https://github.com/uhop/dotfiles/wiki/Cxop"
 
 args_program_header="${BOLD}cxop${RESET_BOLD} produces ${BOLD}.gz${RESET_BOLD} / ${BOLD}.br${RESET_BOLD} / ${BOLD}.zst${RESET_BOLD} siblings next to each source file.
 Intended for Accept-Encoding content negotiation (CloudFront, nginx gzip_static, etc.).
 Decompression: use ${BOLD}arx${RESET_BOLD}."
 
-args_program_usage="${BOLD}cxop${RESET_BOLD} file.html                   # Compress one file to siblings
-${BOLD}cxop${RESET_BOLD} public/                     # Walk a directory tree
-${BOLD}cxop${RESET_BOLD} --only html,css,js public/  # Restrict to an allowlist
-${BOLD}cxop${RESET_BOLD} --formats br,zst public/    # Skip gzip
-${BOLD}cxop${RESET_BOLD} clean public/               # Remove .gz/.br/.zst siblings"
+args_program_usage="${BOLD}cxop${RESET_BOLD} file.html                    # Compress one file to siblings
+${BOLD}cxop${RESET_BOLD} public/                      # Walk a directory tree
+${BOLD}cxop${RESET_BOLD} --only html,css,js public/   # Restrict to an allowlist
+${BOLD}cxop${RESET_BOLD} --formats br,zst public/     # Skip gzip
+${BOLD}cxop${RESET_BOLD} clean file.html              # Remove siblings of one file
+${BOLD}cxop${RESET_BOLD} clean public/                # Remove siblings tree-wide
+${BOLD}cxop${RESET_BOLD} clean --no-recursive public/ # Remove siblings, top level only
+${BOLD}cxop${RESET_BOLD} clean --orphans public/      # Remove orphans too (source gone)
+${BOLD}cxop${RESET_BOLD} exts public/                 # Survey extensions + allowlist hint"
 
 args_program_default_command="auto"
 
 args::option "auto" "Auto-detect: file → compress; dir → batch" "path"
 args::option "compress, c" "Compress one file to sibling variants" "file"
 args::option "batch, b" "Walk a directory and compress eligible files" "dir"
-args::option "clean" "Remove .gz/.br/.zst siblings from a tree" "dir"
+args::option "clean" "Remove .gz/.br/.zst siblings (file or directory)" "path"
+args::option "exts, extensions" "Survey extensions in a directory + eligibility" "dir"
 
 args::option "--formats" "Codec subset: gz,br,zst (default: all available)" "LIST"
 args::option "--only" "Restrict to these extensions (allowlist)" "LIST"
@@ -36,6 +41,8 @@ args::option "--min-size" "Skip sources smaller than N bytes (default: 150)" "N"
 args::option "--min-ratio" "Drop variant unless at least PCT% smaller; 0 = no check (default: 0)" "PCT"
 args::option "--force" "Re-compress even if sibling is up-to-date"
 args::option "--keep-larger" "Don't delete existing siblings that fail the size check"
+args::option "--no-recursive" "clean/exts: top directory only, don't descend"
+args::option "--orphans" "clean: also remove variants whose source is missing"
 args::option "-j, --jobs" "Parallel jobs (default: 1, 0 = nproc)" "N"
 args::option "-n, --dry-run" "Show commands without writing"
 args::option "-v, --version" "Show version"
@@ -77,6 +84,12 @@ FORCE=0
 
 KEEP_LARGER=0
 [[ -v args_options["--keep-larger"] ]] && KEEP_LARGER=1
+
+NO_RECURSIVE=0
+[[ -v args_options["--no-recursive"] ]] && NO_RECURSIVE=1
+
+ORPHANS=0
+[[ -v args_options["--orphans"] ]] && ORPHANS=1
 
 DRY_RUN=0
 [[ -v args_options["-n"] ]] && DRY_RUN=1
@@ -473,13 +486,15 @@ batch_process() {
   if [ "$DRY_RUN" -eq 0 ] && [ "$total_in" -gt 0 ]; then
     report_codec() {
       local name="$1" count="$2" total_out="$3"
+      local padded
+      printf -v padded "%-4s" ".$name"
       if [ "$count" -gt 0 ]; then
         local saved=$((total_in - total_out))
         local pct=0
         [ "$total_in" -gt 0 ] && pct=$((saved * 100 / total_in))
-        ansi::out "  ${OK}.$name${RESET_ALL}  $count files   $(format_size "$total_in") → $(format_size "$total_out")   (${pct}% saved)"
+        ansi::out "  ${OK}${padded}${RESET_ALL}  $count files   $(format_size "$total_in") → $(format_size "$total_out")   (${pct}% saved)"
       else
-        ansi::out "  .$name  0 files"
+        ansi::out "  ${padded}  0 files"
       fi
     }
     ansi::out "${INFO}By codec (aggregate over sources that produced a variant):${RESET_ALL}"
@@ -491,18 +506,57 @@ batch_process() {
 
 # --- Clean driver ---
 
-clean_process() {
-  local input_dir="${1%/}"
-
-  if [ ! -d "$input_dir" ]; then
-    ansi::err "${ERROR}'$input_dir' is not a directory${RESET_ALL}"
+clean_file() {
+  local src="$1"
+  if [ -L "$src" ]; then
+    ansi::err "${ERROR}'$src' is a symlink; refusing to clean${RESET_ALL}"
+    return 1
+  fi
+  if [ ! -f "$src" ]; then
+    ansi::err "${ERROR}'$src' is not a regular file${RESET_ALL}"
     return 1
   fi
 
   local removed=0 freed=0
-  local f sz
+  local ext sib sz
+  for ext in gz br zst; do
+    sib="${src}.${ext}"
+    [ -f "$sib" ] || continue
+    [ -L "$sib" ] && continue
+    sz=$(file_size "$sib")
+    if [ "$DRY_RUN" -eq 1 ]; then
+      ansi::out "${INFO}[dry-run] rm $sib${RESET_ALL}"
+    else
+      command rm -f "$sib"
+    fi
+    removed=$((removed + 1))
+    freed=$((freed + sz))
+  done
+
+  local verb="Removed"
+  [ "$DRY_RUN" -eq 1 ] && verb="Would remove"
+  if [ "$removed" -eq 0 ]; then
+    ansi::out "${INFO}No .gz/.br/.zst siblings for $src${RESET_ALL}"
+  else
+    ansi::out "${OK}${verb} $removed sibling(s) of $src, freed $(format_size "$freed")${RESET_ALL}"
+  fi
+}
+
+clean_tree() {
+  local input_dir="${1%/}"
+
+  local -a depth_args=()
+  [ "$NO_RECURSIVE" -eq 1 ] && depth_args=(-maxdepth 1)
+
+  local removed=0 freed=0 skipped=0
+  local f src sz
   while IFS= read -r -d '' f; do
     [ -L "$f" ] && continue
+    src="${f%.*}"
+    if [ "$ORPHANS" -eq 0 ] && [ ! -e "$src" ]; then
+      skipped=$((skipped + 1))
+      continue
+    fi
     sz=$(file_size "$f")
     if [ "$DRY_RUN" -eq 1 ]; then
       ansi::out "${INFO}[dry-run] rm $f${RESET_ALL}"
@@ -511,12 +565,136 @@ clean_process() {
     fi
     removed=$((removed + 1))
     freed=$((freed + sz))
-  done < <(find "$input_dir" -type f \( -name '*.gz' -o -name '*.br' -o -name '*.zst' \) -print0)
+  done < <(find "$input_dir" "${depth_args[@]}" -type f \( -name '*.gz' -o -name '*.br' -o -name '*.zst' \) -print0)
 
+  local verb="Removed"
+  [ "$DRY_RUN" -eq 1 ] && verb="Would remove"
   if [ "$removed" -eq 0 ]; then
-    ansi::out "${INFO}No .gz/.br/.zst siblings under $input_dir${RESET_ALL}"
+    if [ "$skipped" -gt 0 ]; then
+      ansi::out "${WARN}No variants removed; $skipped orphan(s) skipped — pass --orphans to include${RESET_ALL}"
+    else
+      ansi::out "${INFO}No .gz/.br/.zst siblings under $input_dir${RESET_ALL}"
+    fi
   else
-    ansi::out "${OK}Removed $removed sibling(s), freed $(format_size "$freed")${RESET_ALL}"
+    ansi::out "${OK}${verb} $removed sibling(s), freed $(format_size "$freed")${RESET_ALL}"
+    [ "$skipped" -gt 0 ] && ansi::out "${WARN}Skipped $skipped orphan(s) — pass --orphans to include${RESET_ALL}"
+  fi
+}
+
+clean_process() {
+  local target="${1%/}"
+
+  if [ -f "$target" ]; then
+    clean_file "$target"
+    return $?
+  fi
+  if [ -d "$target" ]; then
+    clean_tree "$target"
+    return $?
+  fi
+
+  ansi::err "${ERROR}'$target' is neither a regular file nor a directory${RESET_ALL}"
+  return 1
+}
+
+# --- Extension survey ---
+
+exts_process() {
+  local input_dir="${1%/}"
+
+  if [ ! -d "$input_dir" ]; then
+    ansi::err "${ERROR}'$input_dir' is not a directory${RESET_ALL}"
+    return 1
+  fi
+
+  local -a depth_args=()
+  [ "$NO_RECURSIVE" -eq 1 ] && depth_args=(-maxdepth 1)
+
+  # Use NONE_KEY as the sentinel for "no extension" — empty string is not a
+  # valid associative-array subscript in bash.
+  local NONE_KEY=$'\001none\001'
+  local -A counts=() sizes=()
+  local total=0 total_size=0 ext key sz f
+  while IFS= read -r -d '' f; do
+    [ -L "$f" ] && continue
+    ext=$(get_ext "$f")
+    if [ -z "$ext" ]; then
+      key="$NONE_KEY"
+    else
+      key="$ext"
+    fi
+    sz=$(file_size "$f")
+    counts["$key"]=$(( ${counts["$key"]:-0} + 1 ))
+    sizes["$key"]=$(( ${sizes["$key"]:-0} + sz ))
+    total=$((total + 1))
+    total_size=$((total_size + sz))
+  done < <(find "$input_dir" "${depth_args[@]}" -type f -print0)
+
+  if [ "$total" -eq 0 ]; then
+    ansi::out "${WARN}No files found under $input_dir${RESET_ALL}"
+    return 0
+  fi
+
+  # Sort primary by accumulated size descending — answers "where is the space?".
+  local -a rows=()
+  local k
+  for k in "${!counts[@]}"; do
+    rows+=("$(printf '%12d\t%9d\t%s' "${sizes[$k]}" "${counts[$k]}" "$k")")
+  done
+  local sorted
+  sorted=$(printf '%s\n' "${rows[@]}" | sort -k1,1rn -k2,2rn -k3,3)
+
+  ansi::out "${INFO}Extensions under $input_dir:${RESET_ALL}"
+  printf "  ${BOLD}%9s  %7s  %-16s  %s${RESET_ALL}\n" "SIZE" "COUNT" "EXT" "STATUS"
+
+  local -a allow=()
+  local would_compress=0 would_skip=0 compress_size=0 skip_size=0
+  local sz_raw cnt label ext_probe display status reason sz_fmt
+  while IFS=$'\t' read -r sz_raw cnt label; do
+    [ -z "$cnt" ] && continue
+    if [ "$label" = "$NONE_KEY" ]; then
+      display="(no ext)"
+      ext_probe=""
+    else
+      display=".${label}"
+      ext_probe="$label"
+    fi
+    if is_eligible "mock.${ext_probe}"; then
+      status="${OK}compress${RESET_ALL}"
+      would_compress=$((would_compress + cnt))
+      compress_size=$((compress_size + sz_raw))
+      [ -n "$ext_probe" ] && allow+=("$ext_probe")
+    else
+      if [ -n "$ext_probe" ] && [[ -v EXCLUDE_MAP["$ext_probe"] ]]; then
+        reason="--exclude"
+      elif [ ${#ONLY_MAP[@]} -gt 0 ] && ! [[ -v ONLY_MAP["$ext_probe"] ]]; then
+        reason="not in --only"
+      elif [ -n "$ext_probe" ] && [[ -v BLOCKED_MAP["$ext_probe"] ]]; then
+        reason="blocked"
+      else
+        reason="filtered"
+      fi
+      status="${WARN}skip${RESET_ALL} (${reason})"
+      would_skip=$((would_skip + cnt))
+      skip_size=$((skip_size + sz_raw))
+    fi
+    sz_fmt=$(format_size "$sz_raw")
+    printf "  %9s  %7d  %-16s  %b\n" "$sz_fmt" "$cnt" "$display" "$status"
+  done <<<"$sorted"
+
+  echo
+  local count_pct=0 size_pct=0
+  [ "$total" -gt 0 ] && count_pct=$((would_compress * 100 / total))
+  [ "$total_size" -gt 0 ] && size_pct=$((compress_size * 100 / total_size))
+  ansi::out "${INFO}$total file(s), $(format_size "$total_size") total, ${#counts[@]} unique extension(s).${RESET_ALL}"
+  ansi::out "${INFO}Current filters would compress $would_compress file(s) / $(format_size "$compress_size") (${size_pct}% of size, ${count_pct}% of count), skip $would_skip file(s) / $(format_size "$skip_size").${RESET_ALL}"
+
+  if [ ${#allow[@]} -gt 0 ]; then
+    local allowlist
+    allowlist=$(IFS=,; echo "${allow[*]}")
+    echo
+    ansi::out "${INFO}Allowlist for the compressible set:${RESET_ALL}"
+    ansi::out "  --only $allowlist"
   fi
 }
 
@@ -533,11 +711,14 @@ compress_single() {
     return 1
   fi
 
+  local sz_in_hdr
+  sz_in_hdr=$(file_size "$src")
+  ansi::out "${INFO}Compressing: $src ($(format_size "$sz_in_hdr"))${RESET_ALL}"
+
   local result_file
   result_file=$(mktemp)
   trap "rm -f '$result_file'" EXIT
 
-  ansi::out "${INFO}Compressing: $src${RESET_ALL}"
   compress_one "$src" "$result_file"
 
   local sz_in sz_gz sz_br sz_zst kept_gz kept_br kept_zst
@@ -552,7 +733,7 @@ compress_single() {
 
   if [ "$DRY_RUN" -eq 1 ]; then return 0; fi
 
-  local codec kept pct
+  local codec kept pct padded
   for codec in gz br zst; do
     [ "${CODECS[$codec]}" = 1 ] || continue
     case "$codec" in
@@ -560,11 +741,12 @@ compress_single() {
       br)  kept="$kept_br"  ;;
       zst) kept="$kept_zst" ;;
     esac
+    printf -v padded "%-4s" ".$codec"
     if [ "$kept" -gt 0 ]; then
       pct=$(( (sz_in - kept) * 100 / sz_in ))
-      ansi::out "  ${OK}.$codec${RESET_ALL}  $(format_size "$sz_in") → $(format_size "$kept")  (${pct}% saved)"
+      ansi::out "  ${OK}${padded}${RESET_ALL}  → $(format_size "$kept")  (${pct}% saved)"
     else
-      ansi::out "  .$codec  (dropped: did not beat source)"
+      ansi::out "  ${padded}  (dropped: did not beat source)"
     fi
   done
 }
@@ -617,12 +799,20 @@ case "$cmd" in
     batch_process "$input_dir" || exit 1
     ;;
   clean)
+    input="${1:-}"
+    if [ -z "$input" ]; then
+      ansi::err "${ERROR}No file or directory specified${RESET_ALL}"
+      exit 1
+    fi
+    clean_process "$input" || exit 1
+    ;;
+  exts|extensions)
     input_dir="${1:-}"
     if [ -z "$input_dir" ]; then
       ansi::err "${ERROR}No directory specified${RESET_ALL}"
       exit 1
     fi
-    clean_process "$input_dir" || exit 1
+    exts_process "$input_dir" || exit 1
     ;;
   *)
     ansi::err "${ERROR}Unknown command: $cmd${RESET_ALL}"
