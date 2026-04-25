@@ -132,6 +132,10 @@ Commands:
 - `cdn-inv find <domain>` — JMESPath `DistributionList.Items[?contains(Aliases.Items, '<d>')].Id | [0]` to resolve an alias to a distribution ID; exits 1 on no match
 - `cdn-inv invalidate <domain> [paths...] [--no-wait]` — create an invalidation (default paths `/*`), wait via `aws cloudfront wait invalidation-completed` unless `--no-wait`
 
+Options for `invalidate`:
+- `--no-wait` — return as soon as the invalidation is created
+- `-n, --dry-run` — resolve the distribution + print would-be AWS calls without creating anything (verify before firing)
+
 Profile selection: `AWS_PROFILE=X cdn-inv ...` (no `--profile` flag), matching AWS CLI conventions.
 
 Hard dep: `aws` CLI (checked in prelude via `deps::need aws`).

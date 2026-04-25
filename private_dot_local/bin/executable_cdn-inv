@@ -9,7 +9,7 @@ deps::need aws
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Manage CloudFront invalidations" "https://github.com/uhop/dotfiles/wiki/Cdn-inv"
+args::program "$script_name" "1.1.0" "Manage CloudFront invalidations" "https://github.com/uhop/dotfiles/wiki/Cdn-inv"
 
 args_program_header="${BOLD}cdn-inv${RESET_BOLD} resolves CloudFront distributions by domain alias and creates invalidations.
 Profile: invoke as ${BOLD}AWS_PROFILE=X cdn-inv${RESET_BOLD} ... (no --profile flag)."
@@ -28,6 +28,7 @@ args::option "invalidate, inv, i" "Create an invalidation; waits for completion"
 
 args::option "--output" "list output format: table|tsv (default: table)" "FMT"
 args::option "--no-wait" "invalidate: don't block on aws cloudfront wait"
+args::option "-n, --dry-run" "invalidate: resolve + show the AWS calls without creating an invalidation"
 args::option "-v, --version" "Show version"
 args::option "-h, --help" "Show help"
 args::option "--bash-completion" "Show bash completion"
@@ -45,6 +46,9 @@ OPT_OUTPUT="table"
 
 NO_WAIT=0
 [[ -v args_options["--no-wait"] ]] && NO_WAIT=1
+
+DRY_RUN=0
+[[ -v args_options["-n"] ]] && DRY_RUN=1
 
 # Resolve a CF distribution by exact alias (CNAME) match.
 # Echoes the distribution ID on success; exits 1 with a diagnostic on miss.
@@ -96,6 +100,12 @@ case "$args_command" in
     id=$(resolve_id "$domain")
     ansi::out "${INFO}Distribution: $id ($domain)${RESET_ALL}"
     ansi::out "${INFO}Paths: ${paths[*]}${RESET_ALL}"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+      ansi::out "${WARN}[dry-run] aws cloudfront create-invalidation --distribution-id $id --paths ${paths[*]}${RESET_ALL}"
+      [ "$NO_WAIT" -eq 0 ] && ansi::out "${WARN}[dry-run] aws cloudfront wait invalidation-completed --distribution-id $id --id <new-id>${RESET_ALL}"
+      exit 0
+    fi
 
     inv_id=$(aws cloudfront create-invalidation \
       --distribution-id "$id" \
