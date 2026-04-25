@@ -123,6 +123,21 @@ Re-runs skip sources whose siblings are already up-to-date by mtime — fast inc
 
 Intended downstream: the `aws-website-cdn-cdk` edge Lambda (`lambda/index.mjs`) reads `<original> + .br|.zst|.gz` from S3 keyed on `Accept-Encoding`. `cxop` is the producer; the Lambda is the consumer. Current Lambda content-type dispatch covers text/plain, text/html, text/css, application/javascript, application/json, application/xml — broadening it to more text-ish types is a separate Lambda change; `cxop` itself is not constrained by that narrower set.
 
+### cdn-inv
+
+CloudFront invalidation CLI. Thin bash wrapper over `aws cloudfront` &mdash; resolves distributions by domain alias and creates invalidations with built-in completion-wait. Replaces the legacy v2-SDK JS gist; uses the AWS CLI's native paginator + `wait invalidation-completed` + `AWS_PROFILE`/`AWS_REGION` env handling rather than reimplementing them.
+
+Commands:
+- `cdn-inv list` — list all distributions with `Id`, `DomainName`, `Aliases`, `Comment` (default; `--output table` / `--output tsv`)
+- `cdn-inv find <domain>` — JMESPath `DistributionList.Items[?contains(Aliases.Items, '<d>')].Id | [0]` to resolve an alias to a distribution ID; exits 1 on no match
+- `cdn-inv invalidate <domain> [paths...] [--no-wait]` — create an invalidation (default paths `/*`), wait via `aws cloudfront wait invalidation-completed` unless `--no-wait`
+
+Profile selection: `AWS_PROFILE=X cdn-inv ...` (no `--profile` flag), matching AWS CLI conventions.
+
+Hard dep: `aws` CLI (checked in prelude via `deps::need aws`).
+
+Blog deploy chain example: `hugo && bin/optimize-images public/ && cxop -j0 --min-ratio=5 public/ && aws s3 sync public/ s3://<bucket>/ --delete && cdn-inv invalidate www.example.com`.
+
 ### Playbash Server Management
 
 Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansible-based stack. See `dev-docs/playbash-design.md`.

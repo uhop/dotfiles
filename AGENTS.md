@@ -58,6 +58,7 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── executable_gpwiki          # Git push wiki
 │   │   ├── executable_imop            # Image optimizer/converter
 │   │   ├── executable_cxop            # Compression pre-processor (.gz/.br/.zst siblings for HTTP content-negotiation)
+│   │   ├── executable_cdn-inv         # CloudFront invalidation CLI (list/find/invalidate by domain alias)
 │   │   ├── executable_jot             # Encrypted S3 notes editor
 │   │   ├── executable_mount-raid.tmpl # NFS mount helper
 │   │   ├── executable_ollama-sync     # Update all ollama models

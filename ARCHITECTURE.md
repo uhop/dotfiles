@@ -49,6 +49,7 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_gpwiki                      # git push wiki
 │   │   ├── executable_imop                        # image optimizer/converter
 │   │   ├── executable_cxop                        # compression pre-processor (.gz/.br/.zst siblings for HTTP content-negotiation)
+│   │   ├── executable_cdn-inv                     # CloudFront invalidation CLI (list/find/invalidate by domain alias)
 │   │   ├── executable_jot                         # encrypted S3 notes
 │   │   ├── executable_mount-raid.tmpl             # NFS mount helper
 │   │   ├── executable_ollama-sync                 # update ollama models
@@ -132,6 +133,7 @@ executable_goup               ← run command in current + parent dirs
 executable_imop               ← image optimizer/converter
 executable_jot                ← encrypted S3 notes (age, brotli, gzip, etc.)
 executable_cxop               ← compression pre-processor (gzip/brotli/zstd sibling variants for HTTP content-negotiation)
+executable_cdn-inv            ← CloudFront invalidation CLI (list/find/invalidate by domain alias)
 executable_mount-raid.tmpl    ← NFS mount
 executable_ollama-sync        ← ollama model updater
 executable_pick               ← interactive command reference (fzf)

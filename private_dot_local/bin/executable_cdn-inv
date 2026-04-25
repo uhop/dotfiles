@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+. ~/.local/libs/bootstrap.sh
+
+deps::need aws
+
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0.0" "Manage CloudFront invalidations" "https://github.com/uhop/dotfiles/wiki/Cdn-inv"
+
+args_program_header="${BOLD}cdn-inv${RESET_BOLD} resolves CloudFront distributions by domain alias and creates invalidations.
+Profile: invoke as ${BOLD}AWS_PROFILE=X cdn-inv${RESET_BOLD} ... (no --profile flag)."
+
+args_program_usage="${BOLD}cdn-inv${RESET_BOLD} list                              # All distributions + aliases
+${BOLD}cdn-inv${RESET_BOLD} find www.example.com              # Resolve domain → distribution ID
+${BOLD}cdn-inv${RESET_BOLD} invalidate www.example.com        # Invalidate /* and wait
+${BOLD}cdn-inv${RESET_BOLD} invalidate www.example.com /a /b  # Invalidate specific paths
+${BOLD}cdn-inv${RESET_BOLD} invalidate www.example.com --no-wait"
+
+args_program_default_command="list"
+
+args::option "list, ls, l" "List distributions and their aliases"
+args::option "find, f" "Resolve domain alias → distribution ID" "domain"
+args::option "invalidate, inv, i" "Create an invalidation; waits for completion" "domain [paths...]"
+
+args::option "--output" "list output format: table|tsv (default: table)" "FMT"
+args::option "--no-wait" "invalidate: don't block on aws cloudfront wait"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+# Skip explicit command word from positional args
+if [[ -n "${1:-}" && -v "args_aliases[${1}]" && "${1:-}" != -* ]]; then
+  shift
+fi
+
+OPT_OUTPUT="table"
+[[ -v args_options["--output"] ]] && OPT_OUTPUT="${args_options["--output"]}"
+
+NO_WAIT=0
+[[ -v args_options["--no-wait"] ]] && NO_WAIT=1
+
+# Resolve a CF distribution by exact alias (CNAME) match.
+# Echoes the distribution ID on success; exits 1 with a diagnostic on miss.
+resolve_id() { # usage: resolve_id <domain>
+  local domain="$1" id
+  id=$(aws cloudfront list-distributions \
+        --output text \
+        --query "DistributionList.Items[?contains(Aliases.Items, \`$domain\`)].Id | [0]")
+  if [ -z "$id" ] || [ "$id" = "None" ]; then
+    ansi::err "${ERROR}No distribution found with alias: $domain${RESET_ALL}"
+    exit 1
+  fi
+  echo "$id"
+}
+
+case "$args_command" in
+  list)
+    case "$OPT_OUTPUT" in
+      table)
+        aws cloudfront list-distributions \
+          --output table \
+          --query 'DistributionList.Items[].{Id:Id,Domain:DomainName,Aliases:join(`,`,Aliases.Items),Comment:Comment}'
+        ;;
+      tsv)
+        aws cloudfront list-distributions \
+          --output text \
+          --query 'DistributionList.Items[].[Id,DomainName,join(`,`,Aliases.Items),Comment]'
+        ;;
+      *)
+        ansi::err "${ERROR}--output must be table or tsv${RESET_ALL}"
+        exit 1
+        ;;
+    esac
+    ;;
+
+  find)
+    domain="${1:-}"
+    [ -z "$domain" ] && { ansi::err "${ERROR}find: missing <domain>${RESET_ALL}"; exit 1; }
+    resolve_id "$domain"
+    ;;
+
+  invalidate)
+    domain="${1:-}"
+    [ -z "$domain" ] && { ansi::err "${ERROR}invalidate: missing <domain>${RESET_ALL}"; exit 1; }
+    shift
+    paths=("$@")
+    [ "${#paths[@]}" -eq 0 ] && paths=("/*")
+
+    id=$(resolve_id "$domain")
+    ansi::out "${INFO}Distribution: $id ($domain)${RESET_ALL}"
+    ansi::out "${INFO}Paths: ${paths[*]}${RESET_ALL}"
+
+    inv_id=$(aws cloudfront create-invalidation \
+      --distribution-id "$id" \
+      --paths "${paths[@]}" \
+      --output text \
+      --query 'Invalidation.Id')
+    ansi::out "${OK}Created invalidation: $inv_id${RESET_ALL}"
+
+    [ "$NO_WAIT" -eq 1 ] && exit 0
+
+    ansi::out "${INFO}Waiting for completion...${RESET_ALL}"
+    aws cloudfront wait invalidation-completed \
+      --distribution-id "$id" \
+      --id "$inv_id"
+    ansi::out "${OK}Invalidation $inv_id completed${RESET_ALL}"
+    ;;
+
+  *)
+    ansi::err "${ERROR}Unknown command: $args_command${RESET_ALL}"
+    args::try_help
+    exit 1
+    ;;
+esac
