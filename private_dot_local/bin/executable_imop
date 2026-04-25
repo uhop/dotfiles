@@ -7,7 +7,7 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Optimize and convert images for the web" "https://github.com/uhop/dotfiles/wiki/Imop"
+args::program "$script_name" "1.1.0" "Optimize and convert images for the web" "https://github.com/uhop/dotfiles/wiki/Imop"
 
 args_program_header="${BOLD}imop${RESET_BOLD} optimizes and converts images for web use.
 Supports JPEG, PNG, WebP, AVIF with automatic tool selection."
@@ -30,7 +30,9 @@ args::option "--lossless" "Force lossless compression"
 args::option "--best" "Use slow-but-best compressor"
 args::option "--to" "Target format for batch conversion" "EXT"
 args::option "--suffix" "Append tag to output names" "TAG"
-args::option "--min-ratio" "Drop output unless at least PCT% smaller; 0 = no check (default: 0)" "PCT"
+args::option "--no-suffix-on-top" "Replace extension instead of appending in batch+to (foo.webp not foo.jpg.webp)"
+args::option "--include-variants" "Process pre-generated variants (.webp/.avif siblings of .jpg/.png) in batch"
+args::option "--min-ratio" "Drop output unless at least PCT% smaller; 0 = unconditional (default: 0)" "PCT"
 args::option "-j, --jobs" "Parallel jobs for batch (default: 1, 0 = nproc)" "N"
 args::option "-n, --dry-run" "Show commands without running"
 args::option "-v, --version" "Show version"
@@ -62,6 +64,12 @@ OPT_TO=""
 
 OPT_SUFFIX=""
 [[ -v args_options["--suffix"] ]] && OPT_SUFFIX="${args_options["--suffix"]}"
+
+OPT_NO_SUFFIX_ON_TOP=0
+[[ -v args_options["--no-suffix-on-top"] ]] && OPT_NO_SUFFIX_ON_TOP=1
+
+OPT_INCLUDE_VARIANTS=0
+[[ -v args_options["--include-variants"] ]] && OPT_INCLUDE_VARIANTS=1
 
 OPT_MIN_RATIO=0
 [[ -v args_options["--min-ratio"] ]] && OPT_MIN_RATIO="${args_options["--min-ratio"]}"
@@ -171,11 +179,18 @@ report_savings() {
   fi
 }
 
-# --min-ratio 0 (default) => unconditional: always keep the output.
-# --min-ratio N (>0)     => keep only when output is at least N% smaller than source.
-should_keep_result() { # usage: should_keep_result <src_size> <out_size>
-  [ "$OPT_MIN_RATIO" -le 0 ] && return 0
-  local sz_in="$1" sz_out="$2"
+# --min-ratio 0 (default) => separate-output: keep regardless. In-place: roll
+#                            back if the result grew the file (never destroy
+#                            the source by re-encoding into a larger blob).
+# --min-ratio N (>0)     => keep only when output is at least N% smaller than
+#                            source. Same threshold for separate-output and
+#                            in-place.
+should_keep_result() { # usage: should_keep_result <src_size> <out_size> [in_place]
+  local sz_in="$1" sz_out="$2" in_place="${3:-0}"
+  if [ "$OPT_MIN_RATIO" -le 0 ]; then
+    [ "$in_place" -eq 1 ] && [ "$sz_out" -gt "$sz_in" ] && return 1
+    return 0
+  fi
   local threshold=$(( sz_in - (sz_in * OPT_MIN_RATIO / 100) ))
   [ "$sz_out" -lt "$threshold" ]
 }
@@ -210,17 +225,47 @@ quality_guetzli() {
 
 # --- Output naming ---
 
+# Default: suffix-on-top (foo.jpg → foo.jpg.webp). Symmetric with cxop's
+# name.html.br model and matches the lambda probe at name + '.<target>'.
+# `--no-suffix-on-top` reverts to extension-replace (foo.jpg → foo.webp).
 make_output_name() {
   local input="$1" target_ext="$2"
-  local dir base in_ext
-  dir="$(dirname "$input")"
-  base="${input%.*}"
+  local base
+  if [ "$OPT_NO_SUFFIX_ON_TOP" -eq 1 ]; then
+    base="${input%.*}"
+  else
+    base="$input"
+  fi
 
   if [ -n "$OPT_SUFFIX" ]; then
     echo "${base}.${OPT_SUFFIX}.${target_ext}"
   else
     echo "${base}.${target_ext}"
   fi
+}
+
+# Returns 0 if `file` is a pre-generated variant (.webp/.avif) of a JPEG/PNG
+# source that exists alongside. Both naming schemes recognized:
+#   - suffix-on-top: foo.jpg.webp  → check for foo.jpg
+#   - extension-replace: foo.webp   → check for foo.{jpg,jpeg,png}
+is_variant_sibling() {
+  local file="$1"
+  case "$(get_ext "$file")" in
+    webp|avif) ;;
+    *) return 1 ;;
+  esac
+
+  local inner="${file%.*}"
+  case "$(get_ext "$inner")" in
+    jpg|jpeg|png)
+      [ -f "$inner" ] && return 0 ;;
+  esac
+
+  local src
+  for src in "${inner}.jpg" "${inner}.jpeg" "${inner}.png" "${inner}.JPG" "${inner}.JPEG" "${inner}.PNG"; do
+    [ -f "$src" ] && return 0
+  done
+  return 1
 }
 
 # --- Single-file optimize ---
@@ -246,11 +291,11 @@ optimize_file() {
   size_before=$(stat -c%s "$input" 2>/dev/null || stat -f%z "$input")
   local is_lossy=$OPT_LOSSY
 
-  # When size-checking in-place, snapshot the source so we can roll back if the
-  # result fails the ratio threshold. Separate-output mode needs no backup —
-  # the output file is simply removed on failure.
+  # In-place mode always snapshots so we can roll back when the result grows
+  # the file (or fails the ratio threshold). Separate-output mode needs no
+  # backup — the output file is simply removed on failure.
   local _backup=""
-  if [ "$OPT_MIN_RATIO" -gt 0 ] && [ "$in_place" -eq 1 ] && [ "$DRY_RUN" -eq 0 ]; then
+  if [ "$in_place" -eq 1 ] && [ "$DRY_RUN" -eq 0 ]; then
     _backup="${input}.imop-bak.$$"
     cp "$input" "$_backup"
   fi
@@ -396,14 +441,18 @@ optimize_file() {
   if [ "$DRY_RUN" -eq 0 ] && [ -f "$output" ]; then
     local size_after
     size_after=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output")
-    if ! should_keep_result "$size_before" "$size_after"; then
+    if ! should_keep_result "$size_before" "$size_after" "$in_place"; then
       if [ "$in_place" -eq 1 ] && [ -n "$_backup" ] && [ -f "$_backup" ]; then
         mv "$_backup" "$input"
         _backup=""
       elif [ "$in_place" -eq 0 ]; then
         command rm -f "$output"
       fi
-      ansi::out "  ${WARN}dropped (did not beat source by ${OPT_MIN_RATIO}%)${RESET_ALL}"
+      if [ "$OPT_MIN_RATIO" -gt 0 ]; then
+        ansi::out "  ${WARN}dropped (did not beat source by ${OPT_MIN_RATIO}%)${RESET_ALL}"
+      else
+        ansi::out "  ${WARN}rolled back (result grew the file)${RESET_ALL}"
+      fi
     else
       report_savings "$size_before" "$size_after"
     fi
@@ -531,17 +580,26 @@ batch_process() {
     return 1
   fi
 
-  # Collect image files
-  local files=()
+  # Collect image files. By default skip pre-generated variants whose source
+  # exists alongside (foo.jpg.webp / foo.webp when foo.jpg is present) — those
+  # are the cxop-style outputs of a previous batch pass, not source images.
+  local files=() skipped_variants=0
   while IFS= read -r -d '' file; do
-    is_image "$file" && files+=("$file")
+    is_image "$file" || continue
+    if [ "$OPT_INCLUDE_VARIANTS" -eq 0 ] && is_variant_sibling "$file"; then
+      skipped_variants=$((skipped_variants + 1))
+      continue
+    fi
+    files+=("$file")
   done < <(find "$input_dir" -type f -print0 | sort -z)
 
   local file_count=${#files[@]}
   if [ "$file_count" -eq 0 ]; then
     ansi::out "${WARN}No image files found in $input_dir${RESET_ALL}"
+    [ "$skipped_variants" -gt 0 ] && ansi::out "${WARN}(skipped $skipped_variants variant siblings; use --include-variants to process)${RESET_ALL}"
     return 0
   fi
+  [ "$skipped_variants" -gt 0 ] && ansi::out "${INFO}Skipped $skipped_variants variant siblings (--include-variants to process)${RESET_ALL}"
 
   ansi::out "${INFO}Batch processing: $input_dir ($file_count files)${RESET_ALL}"
   [ -n "$OPT_TO" ] && ansi::out "${INFO}Converting to: $OPT_TO${RESET_ALL}"
