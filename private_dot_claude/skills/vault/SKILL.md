@@ -123,12 +123,31 @@ Research a question against the vault.
 
 ### /vault lint
 
-Health-check the wiki.
+Run the `vault-lint` skill to surface hygiene findings across the whole vault.
 
-1. List all notes in `topics/` and `projects/`
-2. Check for: missing frontmatter, orphan notes (no inbound links), stale dates, missing summaries, broken wikilinks
-3. Report issues and fix what can be fixed automatically
-4. Suggest new topics or connections based on content analysis
+```bash
+~/.claude/skills/vault-lint/vault-lint.sh           # full report
+~/.claude/skills/vault-lint/vault-lint.sh --quiet   # data lines only
+```
+
+Categories reported: `FRONTMATTER` (required keys, date sanity), `WIKILINKS`
+(broken targets), `DENSITY` (topic notes < 2 outbound; project notes orphaned),
+`CURRENCY` (per-type retention thresholds — logs/queries/raw/project/permanent),
+`DUPLICATES` (folders under `projects/` with confusingly-similar names).
+
+Exit `0` clean, `1` if any findings. The skill at
+`~/.claude/skills/vault-lint/SKILL.md` documents the rules; the policy lives
+at `topics/vault-hygiene-policy.md` (in the vault) and is the source of truth
+for thresholds.
+
+Findings are reported only — auto-fix is not implemented. After running, decide:
+- Fix legitimate issues directly (frontmatter backfill, broken-link rewrites).
+- For per-type retention findings (e.g., logs > 90 days), move to
+  `logs/archive/<YYYY>/` rather than delete; archival preserves content while
+  removing it from the default `/vault resume` reading set.
+- For duplicate-folder candidates, decide canonical and bulk-rewrite inbound
+  wikilinks (the 2026-04-27 `tape6/` → `tape-six/` dedup is the procedural
+  template — see `projects/tape-six/decisions.md` § Project name).
 
 ### /vault log {description}
 
