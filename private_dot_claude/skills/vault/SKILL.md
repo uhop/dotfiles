@@ -51,7 +51,6 @@ Then use `curl -H "Authorization: Bearer $VAULT_API_TOKEN" "$VAULT_API_URL/<path
 ## Vault structure
 
 ```
-_index.md          # master TOC — read this first to orient
 raw/               # unprocessed source material
 topics/            # compiled wiki notes (1 concept = 1 note)
 projects/          # per-project knowledge (subfolder per project)
@@ -59,9 +58,23 @@ projects/          # per-project knowledge (subfolder per project)
     decisions.md   # architecture & design decisions
     learnings.md   # gotchas, patterns, what worked
     stack.md       # tech stack & dependencies
+    queue.md       # outstanding work
+    state.md       # baseline snapshot for vault-check-drift
 queries/           # filed Q&A research outputs
 logs/              # session logs
+_index.md          # archived 2026-04-29 — kept for inbound wikilinks; do not update
 ```
+
+Discovery is dynamic via the live API, not via a curated index file:
+
+| Question | Tool |
+| --- | --- |
+| What topics exist? | `vault_list_folder("topics/")` |
+| What projects? | `vault_list_folder("projects/")` |
+| Recent logs / queries | `vault_list_pieces(type=log, updated_since=…)` |
+| Find a note about X | `vault_search(X, mode=semantic)` |
+| What links to / from X? | `vault_backlinks(X)` / `vault_neighborhood(X)` |
+| Tag taxonomy | `vault_list_tags`, `vault_records_by_tag` |
 
 ## Note format
 
@@ -96,8 +109,7 @@ Compile raw content into the wiki.
 2. For each, read the content
 3. Extract concepts — create or update topic notes in `topics/`
 4. Add wikilinks, backlinks, and tags
-5. Update `_index.md` with new entries
-6. Add a `processed: true` tag to the raw note's frontmatter
+5. Add a `processed: true` tag to the raw note's frontmatter
 
 ### /vault learn
 
@@ -108,18 +120,15 @@ Extract learnings from the current project/session.
 3. Analyze recent work: git log, changed files, decisions made
 4. Create or update `projects/{name}/learnings.md`, `decisions.md`, `stack.md`
 5. Extract cross-project patterns into `topics/` notes (e.g., "api-rate-limiting", "docker-networking")
-6. Update `_index.md`
 
 ### /vault query {question}
 
 Research a question against the vault.
 
-1. Read `_index.md` to find relevant topics
-2. Use `POST /search/simple/` to search vault content
-3. Read the most relevant notes
-4. Synthesize an answer
-5. Optionally file the answer into `queries/YYYY-MM-DD-{slug}.md` if substantive
-6. Update `_index.md` if a new query was filed
+1. Use `vault_search` (or `POST /search/simple/`) to find candidate notes — try `mode=semantic` for conceptual queries, `mode=lexical` for verbatim phrases.
+2. Read the most relevant notes (use `vault_neighborhood` or `vault_backlinks` to expand context if a single note isn't enough).
+3. Synthesize an answer.
+4. Optionally file the answer into `queries/YYYY-MM-DD-{slug}.md` if substantive — wikilinks back to the source notes used.
 
 ### /vault lint
 
@@ -166,13 +175,20 @@ Rebuild context from the vault.
    details). If drift is detected, surface the report at the top of the
    resume output before reading logs — the vault's view of the project may
    be stale, and the recorded logs reflect that stale view.
-2. Read the 3 most recent session logs in `logs/`.
-3. Read relevant project notes for the current working directory.
-4. Summarize current state and what's left to do. If `check-drift` flagged
+2. **Integrity lint** — call `vault_lint` (or `vault-curl /system/lint -s`).
+   Cheap (~50ms). If `ok=false`, surface the non-zero check categories at
+   the top of the resume output (with counts and the first sample id per
+   category). These are bug indicators in the data — embedding drift,
+   missing embeddings, orphaned chunks, temporal anomalies, dangling tag
+   aliases. Do not auto-fix; report and let the user decide. If `ok=true`,
+   omit lint from the output entirely.
+3. Read the 3 most recent session logs in `logs/`.
+4. Read relevant project notes for the current working directory.
+5. Summarize current state and what's left to do. If `check-drift` flagged
    new commits / tags / publishes that aren't reflected in `projects/<name>`
    notes, update those notes to match (or at minimum flag the divergence in
    the summary).
-5. After syncing, run `check-drift --update` so the baseline captures the
+6. After syncing, run `check-drift --update` so the baseline captures the
    refreshed view and the next resume starts from a clean slate.
 
 ### /vault check [--update]
@@ -191,15 +207,6 @@ the signal sources, baseline file format, and report shape.
 ### /vault (no subcommand)
 
 Show vault status: note counts per folder, recently updated notes, any lint warnings.
-
-## Updating _index.md
-
-When adding/modifying notes, always update `_index.md`:
-- Under `## Topics`: `- [[topic-name]] — one-line description`
-- Under `## Projects`: `- [[projects/name/learnings]] — one-line description`
-- Under `## Recent Queries`: `- [[queries/YYYY-MM-DD-slug]] — question asked` (keep last 10)
-
-Read `_index.md` first, merge new entries, write back. Don't duplicate entries.
 
 ## Proactive behavior
 

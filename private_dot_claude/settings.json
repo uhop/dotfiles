@@ -10,5 +10,15 @@
   },
   "effortLevel": "xhigh",
   "tui": "fullscreen",
-  "skipAutoPermissionPrompt": true
+  "skipAutoPermissionPrompt": true,
+  "mcpServers": {
+    "vault": {
+      "command": "npx",
+      "args": ["-y", "@uhop/vault-storage-mcp@latest"],
+      "env": {
+        "VAULT_API_URL": "${VAULT_API_URL}",
+        "VAULT_API_TOKEN": "${VAULT_API_TOKEN}"
+      }
+    }
+  }
 }
