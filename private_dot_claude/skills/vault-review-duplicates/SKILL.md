@@ -99,18 +99,56 @@ won't refile.
 
 ### 3b. Add related-to to both notes
 
-This is two FM writes — one for each note's `related:` array.
+Two FM writes — one for each note's `related:` array. **The PUT body
+must be the full file: a single FM block followed by the body**. Common
+failure: appending the file's existing content (FM + body) to a new FM
+block, producing two `---…---` blocks in the request body. The
+2026-05-01 sub-agent run wiped 15 files this way before the writer was
+hardened to reject the malformed shape (`code=malformed_double_frontmatter`).
 
-For each of `$A_PATH` and `$B_PATH`:
+**Safe recipe** for each of `$A_PATH` and `$B_PATH`:
 
-```bash
-vault-curl "/vault/$NOTE_PATH" -s -o /tmp/note.md
-# Edit /tmp/note.md: append to (or create) `related:` array with [[other_path]]
-vault-curl "/vault/$NOTE_PATH" -X PUT -H 'Content-Type: text/markdown' --data-binary @/tmp/note.md
+```python
+# /tmp/add-related.py — robust FM editor
+import sys, yaml
+from pathlib import Path
+
+note_path, target_wikilink = sys.argv[1], sys.argv[2]
+src = Path(note_path).read_text()
+
+# Split on the first FM block. parse_frontmatter expects:
+#   ---\n<yaml>\n---\n<body>
+assert src.startswith("---\n"), "no frontmatter"
+end = src.find("\n---\n", 4)
+assert end > 0, "no closing fm delimiter"
+fm_yaml = src[4:end]
+body = src[end + len("\n---\n"):]
+
+fm = yaml.safe_load(fm_yaml) or {}
+related = fm.get("related") or []
+if target_wikilink not in related:
+    related.append(target_wikilink)
+fm["related"] = related
+
+# Reassemble: ONE FM block, then the original body verbatim.
+new_yaml = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).rstrip()
+out = f"---\n{new_yaml}\n---\n{body}"
+Path("/tmp/note.md").write_text(out)
 ```
 
-Use the wikilink form `[[<other_path_without_md>]]`. After both notes have
-the cross-reference, accept:
+Then PUT:
+
+```bash
+python3 /tmp/add-related.py "$NOTE_PATH" "[[$OTHER_PATH_NO_MD]]"
+vault-curl "/vault/$NOTE_PATH" -X PUT \
+  -H 'Content-Type: text/markdown' \
+  --data-binary @/tmp/note.md \
+  -o /dev/null -w "%{http_code}\n"
+```
+
+Expect `204`. **Never** PUT a body that itself starts with `---\n…\n---`
+— the writer rejects that with 400 (`malformed_double_frontmatter`).
+After both notes have the cross-reference, accept the suggestion:
 
 ```bash
 vault-curl "/suggestions/$ID/accept" -X POST -s -o /dev/null
@@ -169,16 +207,28 @@ Reviewed N pairs:
 
 ## Sub-agent mode (`--auto`)
 
-**Model: Haiku.** Per
-[[topics/sub-agent-model-selection-by-task-shape]] — closed-enum
-triage decision (reject / add-related-to / flag-as-merge / flag-as-
-contradiction); destructive-merge always flagged-back-to-main, never
-executed at the sub-agent tier; cost-of-one-bad-output is low because
-no merge happens in this loop. Bulk-triage shape that fits Haiku.
+**Model: Sonnet** (bumped from Haiku 2026-05-01 — see
+[[topics/sub-agent-model-selection-by-task-shape]] evaluation log).
+
+The 2026-05-01 second-batch eval (refreshed pool with diverse decisions
+at distance 0.18-0.30) showed Haiku's pair-level decisions were
+reasonable (~9 add-related, ~18 reject, no merges flagged) — but the
+**FM-write implementation was destructive**: 15 files corrupted by
+malformed PUT bodies that drowned the original body under a
+duplicate-FM block. Files were git-restorable but the data-loss surface
+made Haiku unsafe. Writer was hardened in c95a96c to reject the
+malformed shape, but the cost-of-one-bad-output for this skill is now
+documented as DESTRUCTIVE-FM-WRITE rather than just "closed-enum
+triage" — same asymmetry as `/vault-review-tags` (wrong-reject strips
+tags from records).
+
+Sonnet's track record on `/vault-review-edges` and `/vault-review-tags`
+confirms it follows multi-step file-edit recipes correctly. Use it
+here too.
 
 ```
 subagent_type: general-purpose
-model: haiku
+model: sonnet
 description: Triage N pending duplicate suggestions
 prompt: |
   Read ~/.claude/skills/vault-review-duplicates/SKILL.md and follow the
