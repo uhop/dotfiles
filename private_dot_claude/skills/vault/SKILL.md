@@ -109,7 +109,18 @@ Compile raw content into the wiki.
 2. For each, read the content
 3. Extract concepts — create or update topic notes in `topics/`
 4. Add wikilinks, backlinks, and tags
-5. Add a `processed: true` tag to the raw note's frontmatter
+5. **Enrich at capture.** When creating a new topic note (or materially
+   rewriting an existing one), write the `agent:` block in the same PUT
+   — born-enriched is cheaper than a later backfill pass through
+   `/vault-enrich-all`. Field shape and quality guidance:
+   `~/.claude/skills/vault-enrich-all/SKILL.md` § "Per-note `agent:`
+   block shape" + § "Generate enrichment fields". Compute
+   `derived_from_hash` locally as `sha256(body)` over the bytes you're
+   about to write — no API round-trip needed, you own the body — and
+   **double-quote the hash value** so YAML doesn't coerce all-digit
+   hexes to integers. The indexer will pick the block up on import and
+   fold the summary into the chunk-prefix at embed time.
+6. Add a `processed: true` tag to the raw note's frontmatter
 
 ### /vault learn
 
@@ -119,7 +130,7 @@ Extract learnings from the current project/session.
 2. Read existing project notes if they exist (`projects/{name}/`)
 3. Analyze recent work: git log, changed files, decisions made
 4. Create or update `projects/{name}/learnings.md`, `decisions.md`, `stack.md`
-5. Extract cross-project patterns into `topics/` notes (e.g., "api-rate-limiting", "docker-networking")
+5. Extract cross-project patterns into `topics/` notes (e.g., "api-rate-limiting", "docker-networking"). When creating a new topic note here, enrich at capture per the `/vault ingest` step 5 procedure — write the `agent:` block in the same PUT.
 
 ### /vault query {question}
 
