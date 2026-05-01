@@ -34,7 +34,7 @@ as a HyDE-style prefix at index time per
 ```yaml
 agent:
   derived_at: 2026-04-30T22:00:00Z
-  derived_from_hash: <body content_hash, hex>
+  derived_from_hash: "<body_hash, hex — quoted!>"
   summary: "<1-2 sentences capturing the note's core claim and scope>"
   key_concepts: [concept-1, concept-2, concept-3]
   tags_suggested: [proposed-tag-1, proposed-tag-2]   # candidates for top-level tags:
@@ -68,8 +68,15 @@ vault-curl "/vault/$FILE_PATH" -s -o /tmp/note.md
 ```
 
 Parse the FM. If `agent.derived_from_hash` matches the record's current
-content_hash (look it up via `/sections/{id}` or `vault_read_meta`), the
+`body_hash` (look it up via `/sections/{id}` or `vault_read_meta`), the
 block is fresh — skip unless `--stale` is set.
+
+**Use `body_hash`, not `content_hash`.** The API exposes both. `body_hash`
+is `sha256(body)` — pure body content, stable across enrichment cycles.
+`content_hash` is the embedding-input hash; once `agent.summary` is set,
+it includes the summary, so it diverges from body-only and would file
+spurious `agent_enrichment_stale` suggestions on every refresh. For
+unenriched records the two are equal; for enriched ones they differ.
 
 ### 2. Generate enrichment fields
 
@@ -118,7 +125,7 @@ edges:
   some-target: derived-from
 agent:
   derived_at: 2026-04-30T22:00:00Z
-  derived_from_hash: <body content_hash>
+  derived_from_hash: "<body_hash, hex — quoted!>"
   summary: "..."
   key_concepts: [...]
   tags_suggested: [...]
@@ -130,9 +137,20 @@ agent:
 <body unchanged>
 ```
 
-Look up the body content_hash via `/sections/{id}` to populate
-`derived_from_hash`. Use the current ISO 8601 UTC timestamp for
-`derived_at`.
+Look up `body_hash` via `/sections/{id}` (or `vault_read_meta`) to populate
+`derived_from_hash` — **not `content_hash`**. The two diverge once a
+summary is set: `content_hash` becomes `embedInputHash(body, summary)`,
+while `body_hash` stays at `sha256(body)`. Using `content_hash` from a
+post-enrichment record produces silent staleness suggestions on every
+refresh because the recorded value will never match what the importer
+recomputes from the body alone.
+
+Always wrap the hash in **double quotes**. YAML's plain-scalar parser
+coerces unquoted all-digit strings (or strings that look like numbers) to
+integers; the importer's `asString` guard then treats the field as missing
+and the staleness check silently skips. Quoted strings round-trip cleanly.
+
+Use the current ISO 8601 UTC timestamp for `derived_at`.
 
 Write back:
 
