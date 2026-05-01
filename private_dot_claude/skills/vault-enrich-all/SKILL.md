@@ -192,23 +192,28 @@ cent. Backfilling all permanent notes is a few-dollar one-shot pass.
 - Refreshing notes after material body edits (`--stale`).
 - Periodic densification of recent ingest output.
 
-## Server-side follow-ups (deferred)
+## Server-side integration (shipped)
 
-The block is read-by-agent today (this skill writes it; other skills like
-`/vault-review-edges` can read `agent.edge_classifications` as a hint).
-For the chunker / embedder to consume `agent.summary` as a HyDE prefix,
-the indexer needs:
+As of vault-storage schema 5/6, the indexer fully consumes the `agent:`
+block:
 
-1. Schema add `summary` column on `records` (or store the agent block as JSON sidecar)
-2. Importer: parse `agent.summary` into the column; emit
-   `agent_enrichment_stale` suggestion on hash mismatch
-3. Chunker: prepend `summary` to each emitted chunk before embedding
-4. `embedPending`: pass summary through
+- **Schema**: `records.agent_summary` and `records.agent_derived_from_hash`
+  columns store the parsed block. `JsonRecord` surfaces them in
+  `/sections/{id}` responses.
+- **Importer**: parses `agent.summary` and `agent.derived_from_hash` from
+  FM. The hash is wrapped into `embedInputHash` so summary changes
+  invalidate the chunk set the same way body edits do.
+- **Chunker**: when `agent.summary` is set, prepends `${summary}\n\n` to
+  every emitted chunk as a HyDE-style retrieval anchor.
+- **`embedPending`**: joins `agent_summary` into the pending query and
+  passes it to the chunker.
+- **Staleness**: when `agent.derived_from_hash` diverges from the body's
+  current hash, an `agent_enrichment_stale` suggestion is filed. Auto-
+  resolves with `resolved_by='hash-matched'` when this skill's next pass
+  refreshes the block.
 
-Until those land, this skill produces durable, agent-readable enrichment
-that the indexer treats as inert FM content. **The skill is useful
-standalone** — agent-driven workflows (review-edges, propose-related,
-ingest) can read the block via `/vault/{path}`.
+So writing the `agent:` block here is a fully load-bearing index-time
+input — not just durable FM the indexer treats as inert.
 
 ## Backend requirement
 
