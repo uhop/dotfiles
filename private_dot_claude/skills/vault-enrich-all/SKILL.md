@@ -93,7 +93,18 @@ BODY_HASH=$(awk '/^---$/{n++; next} n==2{print}' /tmp/note.md | sha256sum | cut 
 Read the body. Reason about:
 
 - **`summary`**: 1-2 sentences, ~40-80 words. Lead with the note's core
-  claim or scope. Avoid restating the title verbatim. Concrete > abstract.
+  claim or scope. Avoid restating the title verbatim.
+  **Mention the concrete name AND the abstract pattern**, not just one.
+  The 2026-05-01 query-document A/B
+  ([[projects/vault-storage/design/embedding-baseline-summary-query-ab]])
+  surfaced one outlier where the summary abstracted "shared header on two
+  notes that aren't duplicates" into "two aggregations: chunk-min vs
+  whole-doc" — retrieval rank crashed from 20 (body) to 47 (with summary)
+  on a query asking about the concrete failure-mode. Fix: keep both
+  layers in the same sentence — "Two aggregations (chunk-min vs whole-
+  doc); shared boilerplate causes chunk-min false positives that whole-
+  doc drowns" preserves the abstract pattern AND the concrete failure
+  signature the query was asking about.
 - **`key_concepts`**: 3-5 noun-phrases that the note hangs on. Lowercase,
   hyphen-separated. These are *concepts*, not necessarily tags — they may
   overlap with `tags_suggested` but serve a different purpose (retrieval
