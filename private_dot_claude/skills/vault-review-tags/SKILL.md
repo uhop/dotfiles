@@ -23,7 +23,7 @@ pending suggestions on success.
 ```
 /vault-review-tags                      # interactive: review next batch (default 10 unique tags)
 /vault-review-tags --limit=N            # custom batch (1..100 unique tags)
-/vault-review-tags --auto               # spawn a Haiku sub-agent to triage in bulk
+/vault-review-tags --auto               # spawn a Sonnet sub-agent to triage in bulk
 /vault-review-tags --auto --limit=N     # bulk + cap
 ```
 
@@ -134,18 +134,42 @@ Reviewed N unique tags across M records:
 
 ## Sub-agent mode (`--auto`)
 
-**Model: Haiku.** Per
-[[topics/sub-agent-model-selection-by-task-shape]] — closed-enum decision
-(promote-canonical / alias-of / reject-typo) at scale; cost-of-one-bad-
-output is low (reversible via `/suggestions/{id}/reopen`); textual
-judgment ("does this look like a real concept or a typo?") fits Haiku.
+**Model: Sonnet** (bumped from Haiku 2026-05-01 — see
+[[topics/sub-agent-model-selection-by-task-shape]] evaluation log).
 
-Same shape as `/vault-review-edges --auto`. Spawn a Haiku sub-agent via the
-Agent tool with this skill loaded.
+Initial assignment was Haiku based on closed-enum decision shape. First
+production run (limit=20 requested, 57 done — Haiku also overran) showed:
+
+- 27 promotes — likely mostly OK, sample audit pending.
+- 4 aliases — `indexer-design → indexing` was wrong (loses specificity).
+- 8 rejects with FM tag-strip — **5 of 8 were wrong rejects of real
+  concepts**, including the headline absurdity of stripping `cutover`
+  from logs literally about the Obsidian → vault-storage cutover.
+  Other wrong rejects: `obsidian` (real product name, the source
+  vault), `suggestions` (vault-storage feature), `design-pattern` (a
+  meaningful category), `bug-fix`.
+- 11 of 15 records had tags wrongly stripped from FM (~73%
+  destructive-bias error rate).
+- Limit instruction ignored (57 vs 20 requested) — same instruction-
+  skim pattern Haiku exhibited on `/vault-review-edges`.
+
+**Why Haiku fails this skill**: the cost-of-one-bad-output is asymmetric
+— a wrong-promote is cheap to /reopen, but a wrong-reject **destructively
+strips the tag from source records**. Haiku's noise on the reject
+direction translates directly to data loss. Restoring 7 wrongly-stripped
+tags + adding back to taxonomy ate ~15 minutes.
+
+**Bias toward promote.** This skill's correct prior is to **promote when
+in doubt** (the SKILL says so explicitly), not to reject. Haiku inverted
+the bias — over-rejected. Sonnet's track record on `/vault-review-edges`
+showed it correctly applies conservative-when-stated bias.
+
+Same shape as `/vault-review-edges --auto`. Spawn a Sonnet sub-agent via
+the Agent tool with this skill loaded.
 
 ```
 subagent_type: general-purpose
-model: haiku
+model: sonnet
 description: Triage N unique new_tag suggestions
 prompt: |
   Read ~/.claude/skills/vault-review-tags/SKILL.md and follow the procedure
