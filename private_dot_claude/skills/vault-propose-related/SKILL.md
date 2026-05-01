@@ -160,6 +160,14 @@ Reviewed N source notes (R candidates considered, A accepted, S skipped, M ambig
 
 ## Sub-agent mode (`--auto`)
 
+**Model: Haiku** (default mode) **/ Sonnet** (`--apply` mode). Per
+[[topics/sub-agent-model-selection-by-task-shape]]: default mode writes
+proposals to a queries note for human review (low-stakes textual judgment
+on candidate pairs — Haiku fits). `--apply` mode writes directly to the
+source notes' FM `related:` arrays without human gate; that's structured
+YAML output at scale plus higher cost-of-one-bad-output (a wrong-related
+entry pollutes the typed-edge graph). Bump to Sonnet when applying.
+
 ```
 subagent_type: general-purpose
 model: haiku

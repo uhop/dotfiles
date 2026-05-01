@@ -132,6 +132,14 @@ M still pending in the queue — re-run /vault-review-edges for the next batch.
 
 ## Sub-agent mode (`--auto`)
 
+**Model: Haiku.** Per
+[[topics/sub-agent-model-selection-by-task-shape]] — output is a
+closed-enum decision (one of 10 edge types or `reject`); cost-of-one-bad-
+output is low (a wrong call is reversible via `/suggestions/{id}/reopen`);
+the work is bulk triage with simple keyword cues. The 2026-04-30 wave
+demonstrated good Haiku decision quality on the live backlog (10 in 125 s,
+8 promoted / 2 rejected, conservative on ambiguous cases).
+
 For bulk triage of an accumulated backlog, spawn a Haiku sub-agent via the
 Agent tool. Pattern:
 

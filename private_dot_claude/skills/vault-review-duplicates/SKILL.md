@@ -169,6 +169,13 @@ Reviewed N pairs:
 
 ## Sub-agent mode (`--auto`)
 
+**Model: Haiku.** Per
+[[topics/sub-agent-model-selection-by-task-shape]] — closed-enum
+triage decision (reject / add-related-to / flag-as-merge / flag-as-
+contradiction); destructive-merge always flagged-back-to-main, never
+executed at the sub-agent tier; cost-of-one-bad-output is low because
+no merge happens in this loop. Bulk-triage shape that fits Haiku.
+
 ```
 subagent_type: general-purpose
 model: haiku

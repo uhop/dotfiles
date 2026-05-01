@@ -134,9 +134,14 @@ Reviewed N unique tags across M records:
 
 ## Sub-agent mode (`--auto`)
 
+**Model: Haiku.** Per
+[[topics/sub-agent-model-selection-by-task-shape]] — closed-enum decision
+(promote-canonical / alias-of / reject-typo) at scale; cost-of-one-bad-
+output is low (reversible via `/suggestions/{id}/reopen`); textual
+judgment ("does this look like a real concept or a typo?") fits Haiku.
+
 Same shape as `/vault-review-edges --auto`. Spawn a Haiku sub-agent via the
-Agent tool with this skill loaded. Decision rules are largely textual
-("does this look like a real concept or a typo?"); Haiku handles them well.
+Agent tool with this skill loaded.
 
 ```
 subagent_type: general-purpose

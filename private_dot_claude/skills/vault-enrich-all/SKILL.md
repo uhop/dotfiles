@@ -25,7 +25,7 @@ as a HyDE-style prefix at index time per
 /vault-enrich-all --limit=N             # custom batch (1..200)
 /vault-enrich-all --stale               # refresh stale blocks (hash mismatch) instead of new
 /vault-enrich-all --type=log            # restrict to one record type (default: permanent)
-/vault-enrich-all --auto                # spawn a Haiku sub-agent for bulk
+/vault-enrich-all --auto                # spawn a Sonnet sub-agent for bulk
 /vault-enrich-all --auto --limit=N      # bulk + cap
 ```
 
@@ -187,18 +187,33 @@ Enriched N notes:
 
 ## Sub-agent mode (`--auto`)
 
+**Model: Sonnet.** Per
+[[topics/sub-agent-model-selection-by-task-shape]] this skill outputs
+structured YAML at scale and requires multi-step reasoning per note
+(read body → judge claim → produce summary → inventory wikilinks →
+classify each → assemble). The 2026-05-01 wave-1 Haiku run was 33%
+malformed-YAML and 100% wrong-hash on the corrective `body_hash`
+instruction; I had to fix all 30 records by hand. Sonnet's incremental
+cost (~5× Haiku) is dwarfed by the cleanup cost when output is wrong.
+
 Per-note enrichment is the canonical sub-agent task: each note is
-independent, the work is mostly textual reasoning over a single source,
-and quality is consistent at Haiku scale.
+independent, the work is textual reasoning over a single source, and
+quality is consistent at Sonnet scale.
 
 ```
 subagent_type: general-purpose
-model: haiku
+model: sonnet
 description: Enrich N vault notes with agent: blocks
 prompt: |
   Read ~/.claude/skills/vault-enrich-all/SKILL.md and follow the procedure
   for the next $LIMIT notes (type=permanent preferred; skip notes with
   fresh `agent:` blocks unless --stale was passed).
+
+  Critical:
+  - Use `body_hash` for `derived_from_hash`, NOT `content_hash`.
+  - Always double-quote the hash value in the YAML.
+  - Use block-style YAML for lists (`-` prefix, one per line). Inline
+    flow style (`[a, b, c]`) breaks on values containing commas/colons.
 
   Quality bar:
   - summary: lead with the claim, not the title rephrased
@@ -211,7 +226,7 @@ prompt: |
   Return: {enriched: N, skipped_fresh: M, errors: K, summary: "..."}
 ```
 
-Per-note cost (~1500 in / 300 out tokens at Haiku rates) is fractions of a
+Per-note cost (~1500 in / 300 out tokens at Sonnet rates) is a few cents
 cent. Backfilling all permanent notes is a few-dollar one-shot pass.
 
 ## When this is the right tool

@@ -157,13 +157,17 @@ Compacted <folder>:
 
 ## Sub-agent mode (deferred)
 
-Compaction is heavier per-task than the review skills (writes summary
-prose; needs to capture nuance). Sonnet may produce better summaries than
-Haiku for high-stakes folders. The skill currently runs in the main
-session.
+**Future model: Sonnet.** Per
+[[topics/sub-agent-model-selection-by-task-shape]] — output is prose
+summary at quality (paragraph-per-period, concrete identifiers preserved)
+with careful wikilink preservation; cost-of-one-bad-output is high
+(a botched compaction archives originals out of the resume reading
+set, and a sloppy summary degrades long-term recall). Haiku has been
+shown to drop nuance and break wikilinks under similar load — not the
+right tier here.
 
-When this skill matures (volume justifies sub-agent), the subagent prompt
-should specify:
+The skill currently runs in the main session. When volume justifies
+sub-agent invocation, the prompt should specify:
 - **Summary quality bar**: paragraph-per-period; concrete identifiers
   preserved; outcomes named explicitly
 - **Conservative cut**: when in doubt about archiving, keep — better to
