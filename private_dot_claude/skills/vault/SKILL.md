@@ -186,14 +186,25 @@ Rebuild context from the vault.
    details). If drift is detected, surface the report at the top of the
    resume output before reading logs — the vault's view of the project may
    be stale, and the recorded logs reflect that stale view.
-2. **Integrity lint** — call `vault_lint` (or `vault-curl /system/lint -s`).
+2. **Incremental reindex** — call `vault-curl /maintenance/incremental-reindex
+   -X POST -s`. Brings the server's local DB in sync with the vault-data git
+   tree if commits have landed since `last_indexed_commit` (typical case:
+   another machine pushed and the local host pulled, or auto-commit ran
+   while the watcher was off). The endpoint is fast and quiet on a
+   no-op (`changedFiles: 0`); only surface output when something
+   actually got reindexed, e.g.
+   `Reindexed: 12 imported, 1 deleted, 0 renamed (a3525b1..be691da)`.
+   On `fellBack: true`, mention the full-reindex path was taken (history
+   loss or first run). Lint and suggestion-summary that follow this
+   step now run against the up-to-date DB.
+3. **Integrity lint** — call `vault_lint` (or `vault-curl /system/lint -s`).
    Cheap (~50ms). If `ok=false`, surface the non-zero check categories at
    the top of the resume output (with counts and the first sample id per
    category). These are bug indicators in the data — embedding drift,
    missing embeddings, orphaned chunks, temporal anomalies, dangling tag
    aliases. Do not auto-fix; report and let the user decide. If `ok=true`,
    omit lint from the output entirely.
-3. **Review-queue summary** — call `vault_suggestions_summary` (or
+4. **Review-queue summary** — call `vault_suggestions_summary` (or
    `vault-curl /suggestions/summary -s`). One-shot per-kind pending counts.
    If `total > 0`, surface a one-line summary like
    `Pending suggestions: 1290 edge_type, 50 duplicate, 44 new_tag (total 1384)`
@@ -201,13 +212,13 @@ Rebuild context from the vault.
    If `total == 0`, omit. Don't auto-triage; the dedicated review skills
    (`/vault-review-edges`, `/vault-review-duplicates`, `/vault-review-tags`)
    handle decisions.
-4. Read the 3 most recent session logs in `logs/`.
-5. Read relevant project notes for the current working directory.
-6. Summarize current state and what's left to do. If `check-drift` flagged
+5. Read the 3 most recent session logs in `logs/`.
+6. Read relevant project notes for the current working directory.
+7. Summarize current state and what's left to do. If `check-drift` flagged
    new commits / tags / publishes that aren't reflected in `projects/<name>`
    notes, update those notes to match (or at minimum flag the divergence in
    the summary).
-7. After syncing, run `check-drift --update` so the baseline captures the
+8. After syncing, run `check-drift --update` so the baseline captures the
    refreshed view and the next resume starts from a clean slate.
 
 ### /vault check [--update]
@@ -222,6 +233,21 @@ after a user-driven commit, push, or publish.
 
 The skill file at `~/.claude/skills/vault-check-drift/SKILL.md` documents
 the signal sources, baseline file format, and report shape.
+
+In multi-writer setups (the host pulls vault-data from a remote that
+another machine pushed to), follow the project drift check with an
+incremental reindex so the local DB catches up to the new HEAD:
+
+```bash
+vault-curl /maintenance/incremental-reindex -X POST -s | jq
+```
+
+Skip when working solo or when no `git pull` has happened recently —
+the watcher already kept the DB in sync with local edits. A no-op call
+is fast (a few ms) but unnecessary. The endpoint reports
+`{fromCommit, toCommit, changedFiles, imported, deleted, renamed,
+fellBack, durationMs}`; surface anything non-zero, otherwise stay
+quiet.
 
 ### /vault (no subcommand)
 
