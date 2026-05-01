@@ -1,6 +1,6 @@
 ---
 name: vault-compact
-description: "Compact an atomized folder of vault pieces by summarizing the oldest entries into a single summary file and archiving the originals to `<folder>/archive/`. Use when the user says /vault-compact <folder>, asks to summarize a verbose project's logs/decisions, or wants to bound a running file's size per the vault's hygiene policy. Originals are preserved (move not delete). Manual-invocation today; future server-side maintenance scan will file `compaction_candidate` suggestions for the queue. Requires vault-storage (`:8123`)."
+description: "Compact an atomized folder of vault pieces by summarizing the oldest entries into a single summary file and archiving the originals to `<folder>/archive/`. Use when the user says /vault-compact <folder>, asks to summarize a verbose project's logs/decisions, wants to bound a running file's size per the vault's hygiene policy, or wants to triage pending `compaction_candidate` suggestions filed by the server-side scan. Originals are preserved (move not delete). Requires vault-storage (`:8123`)."
 user_invocable: true
 ---
 
@@ -18,11 +18,36 @@ file, and moves the originals to `<folder>/archive/<YYYY>/`. Originals
 are reachable via direct read; default `/vault resume` doesn't descend
 into `archive/`. Per design constraint C7 (bounded running-file size).
 
-**Manual-invocation today.** The server-side maintenance scan that files
-`compaction_candidate` suggestions automatically when a folder crosses
-size/piece-count thresholds is deferred — needs threshold calibration
-against real vault growth. For now: invoke explicitly for folders the
-user identifies.
+## Surfacing candidates
+
+The server-side scan files `compaction_candidate` suggestions for
+folders whose piece count crosses the threshold (default 30 — picked
+from the 2026-05-01 vault distribution: catches `logs/` plus the six
+largest atomized project folders, leaves smaller running-files alone).
+
+```bash
+vault-curl /maintenance/find-compaction-candidates -X POST -s
+# or with a custom threshold:
+vault-curl "/maintenance/find-compaction-candidates?min_piece_count=50" -X POST -s
+```
+
+Returns `{scanned, qualifying, filed, autoResolved, durationMs}`. Skips
+`topics/` (concept notes, not running-files) and any path containing
+`/archive/` or `/sync/` segments. Auto-resolves prior pendings whose
+folder no longer qualifies (e.g., post-compaction sweep dropped the
+count back below threshold).
+
+Triage the queue:
+
+```bash
+vault-curl "/suggestions?kind=compaction_candidate&status=pending" -s | \
+  jq -r '.items[] | "\(.payload.folder_path): \(.payload.piece_count) pieces, \(.payload.oldest_created) → \(.payload.newest_created)"'
+```
+
+For each candidate, pick invocation flags below. After running the
+compaction the next scan auto-resolves the suggestion. If you want to
+reject without compacting (e.g., the folder's count is intentionally
+high), call `POST /suggestions/{id}/reject`.
 
 ## Invocation
 
