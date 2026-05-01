@@ -78,6 +78,16 @@ it includes the summary, so it diverges from body-only and would file
 spurious `agent_enrichment_stale` suggestions on every refresh. For
 unenriched records the two are equal; for enriched ones they differ.
 
+**Fallback when `body_hash` is missing** (server predates the field):
+compute it yourself by hashing the body bytes. The body is whatever
+follows the closing `---\n` of the FM block — preserve trailing newlines
+verbatim.
+
+```bash
+BODY_HASH=$(awk '/^---$/{n++; next} n==2{print}' /tmp/note.md | sha256sum | cut -d' ' -f1)
+# or in Python: hashlib.sha256(body.encode("utf-8")).hexdigest()
+```
+
 ### 2. Generate enrichment fields
 
 Read the body. Reason about:
