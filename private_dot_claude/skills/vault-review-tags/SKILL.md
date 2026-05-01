@@ -1,33 +1,41 @@
 ---
 name: vault-review-tags
-description: Triage pending `new_tag` suggestions in the vault — decide whether each unknown tag should join the taxonomy as a canonical, register as an alias of an existing canonical, or be rejected as a typo and removed from the source records' frontmatter `tags:` arrays. Backed by `GET /suggestions?kind=new_tag` + `POST /tags/taxonomy` + `POST /tags/aliases`. Use when the user says /vault-review-tags, asks to triage / clean up the tag taxonomy, or wants to chip away at the new-tag review queue. Requires vault-storage (`:8123`).
+description: Triage pending tag-related suggestions — `new_tag` (an unknown tag is on FM, decide canonical/alias/typo) and `tag_suggestion` (agent thinks this record should also have tag X, decide accept/reject). Backed by `GET /suggestions?kind=new_tag|tag_suggestion`, `POST /tags/{taxonomy,aliases}`, and `PUT /vault/{path}`. Use when the user says /vault-review-tags, asks to clean up the tag taxonomy, or wants to chip away at either tag-review queue. Requires vault-storage (`:8123`).
 user_invocable: true
 ---
 
-# Vault — review new_tag suggestions
+# Vault — review tag suggestions
 
-The `tags_taxonomy` trigger rejects any tag in a record's frontmatter `tags:`
-array that isn't already in the taxonomy (and isn't aliased to a canonical
-that is). Each `(record, tag)` rejection files a pending `new_tag` suggestion.
-This skill triages the queue: promote tags worth keeping, alias synonyms to
-existing canonicals, or reject typos by removing them from the source FM.
+Two distinct suggestion kinds, both about tags, are triaged by this skill:
 
-The decision lives in the taxonomy table (`tags_taxonomy` for canonicals,
-`tag_aliases` for synonyms) — not in markdown FM, because the user's `tags:`
-array is presumed correct as authored. The question is whether the tag
-*should* be valid taxonomy. The endpoints below auto-resolve matching
-pending suggestions on success.
+- **`new_tag`** — a tag is on a record's FM `tags:` but isn't in
+  `tags_taxonomy` (or aliased to one that is). The taxonomy trigger rejects
+  the link. Decision: per-tag (group by tag across records) — should this
+  tag be canonical, an alias, or stripped as a typo?
+- **`tag_suggestion`** — the agent's `agent.tags_suggested` includes a tag
+  that isn't yet on the record's FM `tags:`. Decision: per-suggestion
+  (record × tag) — should the user add the tag to FM, or reject the
+  proposal?
+
+The auto-resolve hooks differ: `new_tag` resolves when the tag is added
+to the taxonomy (the canonical or alias path back-fills every affected
+record); `tag_suggestion` resolves on the next import where the suggested
+tag is now realized in the record's tag set (i.e., the user PUT the file
+with the tag added).
 
 ## Invocation
 
 ```
-/vault-review-tags                      # interactive: review next batch (default 10 unique tags)
-/vault-review-tags --limit=N            # custom batch (1..100 unique tags)
-/vault-review-tags --auto               # spawn a Sonnet sub-agent to triage in bulk
-/vault-review-tags --auto --limit=N     # bulk + cap
+/vault-review-tags                          # interactive: next 10 unique new_tag groups
+/vault-review-tags --kind=tag_suggestion    # triage agent-judged additions instead
+/vault-review-tags --limit=N                # custom batch (1..100)
+/vault-review-tags --auto                   # Sonnet sub-agent for bulk
+/vault-review-tags --auto --kind=tag_suggestion --limit=N
 ```
 
-## Procedure
+When `--kind` is omitted, `new_tag` is the default (older, larger queue).
+
+## Procedure — `new_tag`
 
 ### 1. List pending new_tag suggestions
 
@@ -132,6 +140,86 @@ Reviewed N unique tags across M records:
 <remaining> tags still pending — re-run /vault-review-tags for the next batch.
 ```
 
+## Procedure — `tag_suggestion`
+
+### 1. List pending tag_suggestion entries
+
+```bash
+vault-curl "/suggestions?kind=tag_suggestion&status=pending&limit=$LIMIT" -s
+```
+
+Each item's `payload` is `{tag, record_id, file_path}`. Decisions are
+per-suggestion (a single record × tag pair) — no grouping. Resolution
+happens automatically once the tag is added to FM and the file is
+re-imported, so this skill's main job is the **judgment**: "should this
+tag really be on this note?"
+
+### 2. For each suggestion: gather context
+
+Read the source's first 60 lines to see title + existing tags + topic:
+
+```bash
+vault-curl "/vault/$FILE_PATH" -s | head -60
+```
+
+Confirm the suggested tag is in the canonical taxonomy (or aliased to
+one). If it's unknown, the accept path requires adding it first — and
+the question shifts to "is this tag canonical-worthy?" Use the same
+`/tags?prefix=` neighbour lookup as in the `new_tag` flow.
+
+### 3. Decide
+
+| Action | When to choose | Effect |
+|---|---|---|
+| **Accept** | The tag accurately describes the record's content and is consistent with how that tag is used elsewhere. | Add tag to FM `tags:`, PUT the file. Reimport auto-accepts the suggestion (`resolved_by='tag-realized'`). |
+| **Reject** | The tag is too tangential, redundant with an existing one on the record, or misframes the content. | `POST /suggestions/{id}/reject`. No FM change. |
+| **Defer** | The tag would be valid but isn't yet in the taxonomy — and you don't want to commit to a canonical. | Skip; the suggestion stays pending. Optionally route through `/vault-review-tags --kind=new_tag` if the tag also appears on records. |
+
+**Bias toward accept.** The agent's `tags_suggested` block was produced
+under explicit instructions to suggest only confidently-relevant tags.
+Reject only when the suggestion clearly misframes the record (genre
+mismatch, scope mismatch, or duplication of an already-realized tag).
+
+### 4a. Accept
+
+For each accepted suggestion:
+
+1. **Read the source file:**
+   ```bash
+   vault-curl "/vault/$FILE_PATH" -s -o /tmp/src.md
+   ```
+2. **Edit the FM `tags:` array** to add the tag. Preserve other tags
+   verbatim. If the tag is unknown to the taxonomy, run
+   `POST /tags/taxonomy {tag}` first (or `/tags/aliases` if it's a
+   synonym of an existing canonical).
+3. **Write back:**
+   ```bash
+   vault-curl "/vault/$FILE_PATH" -X PUT \
+     -H 'Content-Type: text/markdown' \
+     --data-binary @/tmp/src.md \
+     -o /dev/null -w "%{http_code}\n"
+   ```
+   Expect `204`. The next reimport (immediate, via the writer's import
+   pass) auto-accepts the matching pending suggestion.
+
+### 4b. Reject
+
+```bash
+vault-curl "/suggestions/$SUG_ID/reject" -X POST -s -o /dev/null -w "%{http_code}\n"
+```
+
+Expect `200`. No FM change.
+
+### 5. Report summary
+
+```
+Reviewed N tag_suggestions:
+  accepted (FM updated):  <count>
+  rejected:               <count>
+  deferred (taxonomy gap):<count>
+<remaining> still pending — re-run /vault-review-tags --kind=tag_suggestion for the next batch.
+```
+
 ## Sub-agent mode (`--auto`)
 
 **Model: Sonnet** (bumped from Haiku 2026-05-01 — see
@@ -167,13 +255,16 @@ showed it correctly applies conservative-when-stated bias.
 Same shape as `/vault-review-edges --auto`. Spawn a Sonnet sub-agent via
 the Agent tool with this skill loaded.
 
+### `--kind=new_tag` prompt
+
 ```
 subagent_type: general-purpose
 model: sonnet
 description: Triage N unique new_tag suggestions
 prompt: |
-  Read ~/.claude/skills/vault-review-tags/SKILL.md and follow the procedure
-  for the next $LIMIT unique pending new_tag suggestions (group by tag).
+  Read ~/.claude/skills/vault-review-tags/SKILL.md and follow the
+  Procedure — `new_tag` section for the next $LIMIT unique pending
+  new_tag suggestions (group by tag).
 
   Decision bias: when in doubt between "add to taxonomy" and "reject as
   typo", PREFER "add to taxonomy" if the tag looks like a coherent concept
@@ -188,13 +279,36 @@ prompt: |
   rejected: [{tag, records_edited}], summary: "<one paragraph>"}
 ```
 
-Haiku does the bulk; main session reviews the summary and only intervenes
-on edge cases the sub-agent flags as ambiguous.
+### `--kind=tag_suggestion` prompt
+
+```
+subagent_type: general-purpose
+model: sonnet
+description: Triage N tag_suggestion entries
+prompt: |
+  Read ~/.claude/skills/vault-review-tags/SKILL.md and follow the
+  Procedure — `tag_suggestion` section for the next $LIMIT pending
+  tag_suggestion entries (per-suggestion decisions, no grouping).
+
+  Decision bias: ACCEPT when the tag accurately describes the record's
+  content; REJECT only on clear misframing (genre / scope mismatch,
+  duplication, tangential topic). Defer rather than accept-with-taxonomy-
+  add for tags not yet in the taxonomy — taxonomy expansion belongs in
+  the new_tag flow, not here.
+
+  Return: {accepted: [{record_id, tag}], rejected: [{record_id, tag}],
+  deferred: [{record_id, tag, reason}], summary: "<one paragraph>"}
+```
+
+Sonnet does the bulk; main session reviews the summary and only
+intervenes on edge cases the sub-agent flags as ambiguous.
 
 ## When this is the right tool
 
-- `/vault resume` shows a non-zero `new_tag` queue.
+- `/vault resume` shows a non-zero `new_tag` or `tag_suggestion` queue.
 - The user adds a new tag to a note's FM and the indexer logs "rejected".
+- The agent's `tags_suggested` block has accumulated proposals worth a
+  triage pass.
 - Periodic taxonomy curation pass (especially after a batch of new content).
 
 ## When NOT to use this
