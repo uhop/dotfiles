@@ -182,13 +182,21 @@ Rebuild context from the vault.
    missing embeddings, orphaned chunks, temporal anomalies, dangling tag
    aliases. Do not auto-fix; report and let the user decide. If `ok=true`,
    omit lint from the output entirely.
-3. Read the 3 most recent session logs in `logs/`.
-4. Read relevant project notes for the current working directory.
-5. Summarize current state and what's left to do. If `check-drift` flagged
+3. **Review-queue summary** — call `vault_suggestions_summary` (or
+   `vault-curl /suggestions/summary -s`). One-shot per-kind pending counts.
+   If `total > 0`, surface a one-line summary like
+   `Pending suggestions: 1290 edge_type, 50 duplicate, 44 new_tag (total 1384)`
+   so the agent can decide whether to spend a triage block this session.
+   If `total == 0`, omit. Don't auto-triage; the dedicated review skills
+   (`/vault-review-edges`, `/vault-review-duplicates`, `/vault-review-tags`)
+   handle decisions.
+4. Read the 3 most recent session logs in `logs/`.
+5. Read relevant project notes for the current working directory.
+6. Summarize current state and what's left to do. If `check-drift` flagged
    new commits / tags / publishes that aren't reflected in `projects/<name>`
    notes, update those notes to match (or at minimum flag the divergence in
    the summary).
-6. After syncing, run `check-drift --update` so the baseline captures the
+7. After syncing, run `check-drift --update` so the baseline captures the
    refreshed view and the next resume starts from a clean slate.
 
 ### /vault check [--update]
