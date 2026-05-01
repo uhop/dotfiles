@@ -23,7 +23,7 @@ user edits FM manually.
 ```
 /vault-review-edges                    # review the next batch (default 10)
 /vault-review-edges --limit=N          # custom batch size (1..100)
-/vault-review-edges --auto             # spawn a Haiku sub-agent to triage in bulk
+/vault-review-edges --auto             # spawn a Sonnet sub-agent to triage in bulk
 /vault-review-edges --auto --limit=N   # bulk + cap
 ```
 
@@ -132,20 +132,44 @@ M still pending in the queue — re-run /vault-review-edges for the next batch.
 
 ## Sub-agent mode (`--auto`)
 
-**Model: Haiku.** Per
-[[topics/sub-agent-model-selection-by-task-shape]] — output is a
-closed-enum decision (one of 10 edge types or `reject`); cost-of-one-bad-
-output is low (a wrong call is reversible via `/suggestions/{id}/reopen`);
-the work is bulk triage with simple keyword cues. The 2026-04-30 wave
-demonstrated good Haiku decision quality on the live backlog (10 in 125 s,
-8 promoted / 2 rejected, conservative on ambiguous cases).
+**Model: Sonnet** (bumped from Haiku 2026-05-01 — see
+[[topics/sub-agent-model-selection-by-task-shape]] evaluation log).
 
-For bulk triage of an accumulated backlog, spawn a Haiku sub-agent via the
-Agent tool. Pattern:
+Initial assignment was Haiku based on a 10-decision cherry-picked sample
+(2026-04-30 — 8 promoted / 2 rejected, decisions cogent). At
+production scale (limit=100, 2026-05-01) Haiku quality dropped sharply:
+direction was right (79% reject, matching expected distribution) but
+**type choice on accepts was 14% precision (3 of 21 fully right)**.
+Failure modes:
+
+- Picked `revises` where `derived-from` was right (this-note-builds-on-
+  that vs this-note-replaces-that conflated).
+- Picked `caused-by` for plain citations (eval result didn't *cause*
+  the note; the note cites the result).
+- Picked `fixed-by` for parent-constraint relationships
+  (this-pattern-derives-from-c12, not this-pattern-was-fixed-by-c12).
+- **Ignored prior `agent.edge_classifications`** advisory in the FM —
+  the SKILL says "the edge-review skill can leverage this hint" and
+  Haiku didn't.
+- 3 of 21 accepts were silent-divergence — accepted without writing
+  the corresponding FM `edges:` entry.
+
+Per-decision cost at Sonnet rates is ~5× Haiku's; with this skill the
+break-even is far below that — re-fixing 18 of 21 decisions ate ~30
+minutes of main-session time, which dwarfs the token-cost differential.
+
+**When reading suggestions, also fetch the source's
+`agent.edge_classifications` block (if present) — it's an authoritative
+prior advisory written by `/vault-enrich-all`.** Don't override it
+without strong context cues; if the agent advisory and your reading
+disagree, prefer the advisory.
+
+For bulk triage of an accumulated backlog, spawn a Sonnet sub-agent via
+the Agent tool. Pattern:
 
 ```
 subagent_type: general-purpose
-model: haiku
+model: sonnet
 description: Triage N edge_type suggestions
 prompt: |
   You are running /vault-review-edges in autonomous mode. Read
