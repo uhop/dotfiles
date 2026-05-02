@@ -103,12 +103,19 @@ Rules:
 
 ### /vault ingest
 
-Compile raw content into the wiki.
+Compile **ready** raw notes into the wiki. Drafts (no `ready: true`)
+are skipped — the user is still iterating on them.
 
-1. List files in `raw/` that haven't been processed
-2. For each, read the content
-3. Extract concepts — create or update topic notes in `topics/`
-4. Add wikilinks, backlinks, and tags
+1. **Pull the ready list.** `vault-curl /maintenance/raw-inbox -s | jq`
+   returns `{ready: [...], drafts: [...]}`. Process only `ready`. If
+   that array is empty, report "no ready notes; N drafts waiting" and
+   stop. (The user flips `ready: true` in FM when a note is ripe.)
+2. For each ready note, read the content via
+   `vault-curl /vault/{path} -s`.
+3. Extract concepts — create or update topic notes in `topics/`,
+   project notes in `projects/<name>/`, or queue items in
+   `projects/<name>/queue.md` per the content's nature.
+4. Add wikilinks, backlinks, and tags on the derived notes.
 5. **Enrich at capture.** When creating a new topic note (or materially
    rewriting an existing one), write the `agent:` block in the same PUT
    — born-enriched is cheaper than a later backfill pass through
@@ -120,7 +127,18 @@ Compile raw content into the wiki.
    **double-quote the hash value** so YAML doesn't coerce all-digit
    hexes to integers. The indexer will pick the block up on import and
    fold the summary into the chunk-prefix at embed time.
-6. Add a `processed: true` tag to the raw note's frontmatter
+6. **Archive the source.** After successful ingestion of a single raw
+   note, in this order:
+   - PUT the source with `ready` removed and `processed: true` added
+     (and a `> Ingested YYYY-MM-DD → [[derived/note]]` footer pointing
+     at the primary derived target if there is one).
+   - `POST /vault/move` from `raw/<name>.md` to
+     `raw/archive/<YYYY-MM-DD>-<name>.md` so the inbox surfaces only
+     pending material.
+   Process notes one-at-a-time end-to-end: derived note created →
+   source updated → moved to archive. A failure mid-ingest leaves
+   earlier notes archived and the rest still pending — safe to retry
+   `/vault ingest` to resume.
 
 ### /vault learn
 
