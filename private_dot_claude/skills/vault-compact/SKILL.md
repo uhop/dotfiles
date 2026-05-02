@@ -137,18 +137,23 @@ still open it if they want — it's preserved, not deleted.
 
 ### 5. Move originals to archive
 
-For each archived piece, write its content to `<folder>/archive/<YYYY>/<basename>`
-and delete the original:
+For each archived piece, use the **`POST /vault/move`** endpoint to rename
+the file into `<folder>/archive/<YYYY>/<basename>`:
 
 ```bash
-# Read original
-CONTENT=$(vault-curl "/vault/$ORIGINAL_PATH" -s)
-# Write to archive path
-echo "$CONTENT" | vault-curl "/vault/$FOLDER/archive/$YEAR/$BASENAME" -X PUT \
-  -H 'Content-Type: text/markdown' --data-binary @-
-# Delete original
-vault-curl "/vault/$ORIGINAL_PATH" -X DELETE -s
+vault-curl /vault/move -X POST \
+  -H 'Content-Type: application/json' \
+  --data-binary "{\"from\": \"$ORIGINAL_PATH\", \"to\": \"$FOLDER/archive/$YEAR/$BASENAME\"}" \
+  -o /dev/null -w '%{http_code}\n'
 ```
+
+Expect `204`. The endpoint atomically renames the file on disk and updates
+`records.file_path` on the existing row, **preserving the `record_id`**.
+Edges, tags, suggestions, embeddings, and the `agent.summary` block all
+reference `record_id` and survive untouched — no reclassification, no wasted
+re-embed, no edge_type queue churn. (The earlier "read + PUT new + DELETE
+old" pattern lost identity continuity and refiled every body wikilink as a
+fresh `cites` suggestion against the new path's `record_id`.)
 
 Wikilinks pointing at archived pieces will become unresolved on the next
 reindex. That's by design (per [[topics/vault-hygiene-policy]]) — the
