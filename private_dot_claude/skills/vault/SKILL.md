@@ -194,6 +194,13 @@ Save a session log.
 1. Create `logs/YYYY-MM-DD-{description}.md`
 2. Record: what was done, decisions made, pending items, key files touched
 3. Add wikilinks to relevant topic/project notes
+4. **Refresh the drift baseline.** Run
+   `~/.claude/skills/vault-check-drift/check-drift.sh --update` from the project
+   directory so the next `/vault resume` starts from a clean baseline (the
+   session's commits / tags / `npm publish` are typically done by the time
+   you're logging). Bootstraps `state.md` if the project has no baseline yet.
+   Skip only when there's no project working directory in scope (rare —
+   logging cross-project work, vault-only sessions).
 
 ### /vault resume
 
@@ -238,6 +245,26 @@ Rebuild context from the vault.
    the summary).
 8. After syncing, run `check-drift --update` so the baseline captures the
    refreshed view and the next resume starts from a clean slate.
+
+### /vault wrap [optional log slug]
+
+Close the session cleanly — symmetric counterpart to `/vault resume`. Bundles
+learning extraction, session log, and drift baseline refresh into one step so
+nothing the session produced gets lost.
+
+1. Run the `/vault learn` workflow above — extract learnings into
+   `projects/{name}/{learnings,decisions,stack}.md` and surface cross-project
+   patterns into `topics/` notes.
+2. Run the `/vault log` workflow above with the supplied slug (or derive one
+   from the session's primary subject if the user didn't supply it). Step 4 of
+   `/vault log` refreshes the drift baseline as its closing action — no
+   separate `check-drift --update` invocation needed here.
+3. Report a short summary of what was saved: project notes touched, log file
+   path, baseline refreshed.
+
+Use this when ending a session that produced shipped work, decisions, or
+cross-project learnings worth preserving. Skip when a session ends with
+nothing worth preserving — don't write stub logs to be ceremonial.
 
 ### /vault check [--update]
 
