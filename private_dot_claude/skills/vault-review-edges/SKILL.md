@@ -72,37 +72,55 @@ Don't force a type just to clear the queue.
 
 Read the current source file:
 
+Read the existing on-disk frontmatter via the meta endpoint:
+
+```bash
+vault-curl "/sections/$RECORD_ID/meta" -s -o /tmp/meta.json
+```
+
+Then build a payload that **only** carries the `edges` key you want to
+update — the writer's shallow FM merge preserves every other top-level
+key on disk (title, tags, related, agent, etc.), so you don't need to
+re-send them.
+
+The target key inside `edges` must match the wikilink as written in the
+body (slug or path form — `[[foo]]` → `foo`, `[[topics/foo]]` →
+`topics/foo`). The resolver collapses both to the same record, but FM
+keys aren't deduplicated.
+
+Use the **JSON write path** — sidesteps YAML quoting concerns for the
+wikilink-form keys (`[[…]]` and path-segments containing `/` are both
+edge-case-prone in YAML). Read the current body once so you can pass it
+through unchanged:
+
 ```bash
 vault-curl "/vault/$FROM_PATH" -s -o /tmp/src.md
-```
+# Strip the FM block; keep just the body
+awk '/^---$/{c++; next} c>=2{print}' /tmp/src.md > /tmp/body.md
 
-Open `/tmp/src.md`. The frontmatter is the YAML block between the leading
-`---` markers. Add (or extend) the `edges:` map:
+# Compose the merged edges map (existing edges + your new entry).
+# `EDGES_JSON` is the merged map you've assembled, e.g.:
+#   '{"some-target":"derived-from","other":"applies-to"}'
+jq --null-input \
+  --rawfile body /tmp/body.md \
+  --argjson edges "$EDGES_JSON" \
+  '{frontmatter: {edges: $edges}, body: $body}' \
+  > /tmp/payload.json
 
-```yaml
----
-title: ...
-edges:
-  <target-as-written-in-body>: <chosen-type>   # NEW
-  <existing-key>: <existing-type>              # PRESERVE if any
----
-```
-
-The target key must match the wikilink as written in the body (slug or path
-form — `[[foo]]` → `foo`, `[[topics/foo]]` → `topics/foo`). The resolver
-collapses both to the same record, but FM keys aren't deduplicated.
-
-Write the modified file back:
-
-```bash
 vault-curl "/vault/$FROM_PATH" -X PUT \
-  -H 'Content-Type: text/markdown' \
-  --data-binary @/tmp/src.md \
+  -H 'Content-Type: application/json' \
+  --data-binary @/tmp/payload.json \
   -o /dev/null -w "%{http_code}\n"
 ```
 
-Expect `204`. The writer enforces FM merge rules; user-authored keys (like
-`edges:`) are preserved.
+Expect `204`. The writer's shallow FM merge replaces the `edges` map
+wholesale, so include every entry you want preserved inside the new map
+(merge-and-replace semantics, key-by-key at the top level only).
+
+Legacy markdown path: read the file, hand-edit the FM block, PUT with
+`Content-Type: text/markdown`. Works fine for `edges:` since the values
+are simple type names, but the JSON path is more robust and is the
+default convention across the vault skills.
 
 Then mark the suggestion accepted:
 

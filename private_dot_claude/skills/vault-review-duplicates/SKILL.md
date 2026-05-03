@@ -99,55 +99,47 @@ won't refile.
 
 ### 3b. Add related-to to both notes
 
-Two FM writes — one for each note's `related:` array. **The PUT body
-must be the full file: a single FM block followed by the body**. Common
-failure: appending the file's existing content (FM + body) to a new FM
-block, producing two `---…---` blocks in the request body. The
-2026-05-01 sub-agent run wiped 15 files this way before the writer was
-hardened to reject the malformed shape (`code=malformed_double_frontmatter`).
+Two FM writes — one for each note's `related:` array. **Use the JSON
+write path** (`Content-Type: application/json`) — it eliminates the
+hand-composing-the-FM-block class of bugs that wiped 15 files on
+2026-05-01 (a sub-agent's PUT-helper appended the original file's
+content to a new FM block, producing a double-FM payload that destroyed
+the body). With JSON you only send the keys you're updating; the
+writer's shallow merge preserves everything else on disk verbatim.
 
 **Safe recipe** for each of `$A_PATH` and `$B_PATH`:
 
-```python
-# /tmp/add-related.py — robust FM editor
-import sys, yaml
-from pathlib import Path
-
-note_path, target_wikilink = sys.argv[1], sys.argv[2]
-src = Path(note_path).read_text()
-
-# Split on the first FM block. parse_frontmatter expects:
-#   ---\n<yaml>\n---\n<body>
-assert src.startswith("---\n"), "no frontmatter"
-end = src.find("\n---\n", 4)
-assert end > 0, "no closing fm delimiter"
-fm_yaml = src[4:end]
-body = src[end + len("\n---\n"):]
-
-fm = yaml.safe_load(fm_yaml) or {}
-related = fm.get("related") or []
-if target_wikilink not in related:
-    related.append(target_wikilink)
-fm["related"] = related
-
-# Reassemble: ONE FM block, then the original body verbatim.
-new_yaml = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).rstrip()
-out = f"---\n{new_yaml}\n---\n{body}"
-Path("/tmp/note.md").write_text(out)
-```
-
-Then PUT:
-
 ```bash
-python3 /tmp/add-related.py "$NOTE_PATH" "[[$OTHER_PATH_NO_MD]]"
+# 1. Read the existing related list (omit body — meta-only fetch).
+existing=$(vault-curl "/sections/$RECORD_ID/meta" -s | jq '.related // []')
+
+# 2. Append the cross-link if not already present.
+new_related=$(echo "$existing" | jq --arg link "[[$OTHER_PATH_NO_MD]]" 'if index($link) then . else . + [$link] end')
+
+# 3. Read body once, pass through unchanged.
+vault-curl "/vault/$NOTE_PATH" -s | awk '/^---$/{c++; next} c>=2{print}' > /tmp/body.md
+
+# 4. Compose the JSON payload — only `related` is updated.
+jq --null-input \
+  --rawfile body /tmp/body.md \
+  --argjson related "$new_related" \
+  '{frontmatter: {related: $related}, body: $body}' \
+  > /tmp/payload.json
+
+# 5. PUT.
 vault-curl "/vault/$NOTE_PATH" -X PUT \
-  -H 'Content-Type: text/markdown' \
-  --data-binary @/tmp/note.md \
+  -H 'Content-Type: application/json' \
+  --data-binary @/tmp/payload.json \
   -o /dev/null -w "%{http_code}\n"
 ```
 
-Expect `204`. **Never** PUT a body that itself starts with `---\n…\n---`
-— the writer rejects that with 400 (`malformed_double_frontmatter`).
+Expect `204`. The double-FM-block hazard doesn't apply to the JSON path
+— the request body is a JSON object, not a markdown blob with
+`---\n…\n---` markers. (The malformed-double-frontmatter guard still
+fires on the JSON path's `body` field if you accidentally include a
+nested `---\n…\n---` opening at the start of the body string, but
+that's much harder to trip into.)
+
 After both notes have the cross-reference, accept the suggestion:
 
 ```bash

@@ -108,27 +108,48 @@ exist in the taxonomy (404 otherwise — add it first via 4a).
 
 For each suggestion (looped over the group's records):
 
-1. **Read the source file:**
+1. **Read the existing FM** (meta endpoint, no body needed for the tag list):
    ```bash
-   vault-curl "/vault/$FILE_PATH" -s -o /tmp/src.md
+   vault-curl "/sections/$RECORD_ID/meta" -s | jq '.tags' > /tmp/tags.json
    ```
-2. **Edit the FM `tags:` array** to remove the bad tag. Preserve other tags
-   and other FM keys verbatim.
-3. **Write back:**
+2. **Compute the new tags list** — same array minus the bad tag.
    ```bash
+   jq --arg bad "$BAD_TAG" 'map(select(. != $bad))' /tmp/tags.json > /tmp/new-tags.json
+   ```
+3. **Read the body once** (to pass through unchanged in the JSON write):
+   ```bash
+   vault-curl "/vault/$FILE_PATH" -s | awk '/^---$/{c++; next} c>=2{print}' > /tmp/body.md
+   ```
+4. **Write back via the JSON path** — only the `tags` key needs to change;
+   the writer's shallow FM merge preserves everything else (title, agent,
+   related, edges, …):
+   ```bash
+   jq --null-input \
+     --rawfile body /tmp/body.md \
+     --slurpfile tags /tmp/new-tags.json \
+     '{frontmatter: {tags: $tags[0]}, body: $body}' \
+     > /tmp/payload.json
+
    vault-curl "/vault/$FILE_PATH" -X PUT \
-     -H 'Content-Type: text/markdown' \
-     --data-binary @/tmp/src.md \
+     -H 'Content-Type: application/json' \
+     --data-binary @/tmp/payload.json \
      -o /dev/null -w "%{http_code}\n"
    ```
-   Expect `204`.
-4. **Mark the suggestion rejected:**
+   Expect `204`. The JSON path sidesteps any YAML quoting concerns for
+   tags that contain hyphens, leading-special characters, or shadow-
+   keyword strings (e.g., a tag literally named `null` or `true`).
+5. **Mark the suggestion rejected:**
    ```bash
    vault-curl "/suggestions/$SUG_ID/reject" -X POST -s -o /dev/null -w "%{http_code}\n"
    ```
 
 The reject path is the most file-touching path — that's expected; typos
 genuinely need the source corrected.
+
+Legacy markdown path: GET full file, hand-edit the FM block to remove
+the tag, PUT with `Content-Type: text/markdown`. Works fine for simple
+tag arrays but the JSON path is more robust and is the default
+convention across the vault skills.
 
 ### 5. Report summary
 

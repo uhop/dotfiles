@@ -30,9 +30,14 @@ command -v vault-curl >/dev/null || { echo "vault-curl missing — falling back 
 API endpoints (invoked via `vault-curl <path> [curl-options...]`):
 
 - **Read**: `vault-curl /vault/{path} -s`
-- **Write**: `vault-curl /vault/{path} -X PUT -H 'Content-Type: text/markdown' --data-binary @file.md`
+- **Write (JSON, recommended for programmatic writes)**: `vault-curl /vault/{path} -X PUT -H 'Content-Type: application/json' --data-binary @payload.json`
+  - Body shape: `{"frontmatter": {...}, "body": "..."}` — the server takes the FM object directly, skips YAML parse, and serializes safely (auto-quoting colon-space, leading-special-char, hex/bool/date-shadow strings). Use this whenever you have FM as a JS/JSON object already (every skill on this machine does).
+  - Construct the payload with `jq` and `--rawfile` to safely embed a body that contains arbitrary characters: `jq --null-input --rawfile body /tmp/body.md '{frontmatter: {title: "X", ...}, body: $body}' > /tmp/payload.json`.
+  - Falls through the same downstream FM merge / closed-enum validation / auto-managed-key rejection / `created`-`updated` indexer-override as the markdown path.
+- **Write (markdown, legacy)**: `vault-curl /vault/{path} -X PUT -H 'Content-Type: text/markdown' --data-binary @file.md`
   - Or with a heredoc: `vault-curl /vault/{path} -X PUT -H 'Content-Type: text/markdown' --data-binary @- <<'EOF' ... EOF`
-  - Add `-o /dev/null -w "%{http_code}\n"` to confirm a 204 without flooding stdout.
+  - Caller is responsible for proper YAML quoting in the FM block. Use double-quoted scalars for any string containing `: `, leading `@`/`*`/`-`/`?`, hex-shadow (`0xfe`), bool-shadow (`true`/`null`), or date-shadow (`2026-05-03`). When in doubt, prefer the JSON path above.
+  - Add `-o /dev/null -w "%{http_code}\n"` to confirm a 204 without flooding stdout (works for either Content-Type).
 - **List**: `vault-curl /vault/{path}/ -s` (trailing slash → `{"files": [...]}`)
 - **Delete**: `vault-curl /vault/{path} -X DELETE`
 - **Search**: `vault-curl /search/simple/ -X POST -G --data-urlencode 'query=...'`
@@ -123,10 +128,16 @@ are skipped — the user is still iterating on them.
    `~/.claude/skills/vault-enrich-all/SKILL.md` § "Per-note `agent:`
    block shape" + § "Generate enrichment fields". Compute
    `derived_from_hash` locally as `sha256(body)` over the bytes you're
-   about to write — no API round-trip needed, you own the body — and
-   **double-quote the hash value** so YAML doesn't coerce all-digit
-   hexes to integers. The indexer will pick the block up on import and
-   fold the summary into the chunk-prefix at embed time.
+   about to write — no API round-trip needed, you own the body. **Use
+   the JSON write path** (`Content-Type: application/json` with
+   `{frontmatter: {...}, body: "..."}`); `agent.summary` regularly
+   contains colon-space prose that 500s through the markdown path's
+   YAML parser, and JSON sidesteps that whole class of authoring trap
+   (the hash value also doesn't need explicit quoting under JSON — the
+   value is a string in the JSON object, and the server's
+   `yaml.stringify` emits the right YAML for it). The indexer picks
+   the block up on import and folds the summary into the chunk-prefix
+   at embed time.
 6. **Archive the source.** After successful ingestion of a single raw
    note, in this order:
    - PUT the source with `ready` removed and `processed: true` added

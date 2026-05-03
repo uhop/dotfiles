@@ -127,23 +127,57 @@ omitted; flag any *ambiguous* ones in a "needs human verdict" section.
 - `[[<candidate-3>]]` — <why it's borderline>
 ```
 
-Save with:
+Save the proposals review-note via the JSON write path (the body has a
+title/header and bullet lists, plus a YAML frontmatter object the
+server will format correctly):
 
 ```bash
-vault-curl "/vault/queries/$FILENAME" -X PUT -H 'Content-Type: text/markdown' --data-binary @- < /tmp/proposals.md
+jq --null-input --rawfile body /tmp/proposals.md \
+  --arg today "$(date -u +%Y-%m-%d)" \
+  '{frontmatter: {title: "Related-link proposals", type: "query", status: "active", created: $today, updated: $today, tags: ["proposals","related"]}, body: $body}' \
+  > /tmp/payload.json
+
+vault-curl "/vault/queries/$FILENAME" -X PUT \
+  -H 'Content-Type: application/json' \
+  --data-binary @/tmp/payload.json \
+  -o /dev/null -w "%{http_code}\n"
 ```
 
 ### 5b. Apply mode (`--apply`): write directly to source FM
 
 For each source with accepted proposals:
 
-1. **Read source content:** `vault-curl "/vault/$FROM_PATH" -s -o /tmp/src.md`
-2. **Edit FM `related:`**: append accepted candidates as `"[[<target>]]"` strings,
-   preserving existing entries.
-3. **Write back:** `vault-curl "/vault/$FROM_PATH" -X PUT -H 'Content-Type: text/markdown' --data-binary @/tmp/src.md`
+1. **Read existing related list** (meta-only, body not needed for the merge logic):
+   ```bash
+   existing=$(vault-curl "/sections/$RECORD_ID/meta" -s | jq '.related // []')
+   ```
+2. **Compute the new related list** — append accepted candidates as
+   `"[[<target>]]"` strings, preserving existing entries:
+   ```bash
+   new_related=$(echo "$existing" | jq --argjson adds "$ACCEPTED_LINKS_JSON" '. + $adds | unique')
+   ```
+3. **Read body once** (pass through unchanged):
+   ```bash
+   vault-curl "/vault/$FROM_PATH" -s | awk '/^---$/{c++; next} c>=2{print}' > /tmp/body.md
+   ```
+4. **Write back via the JSON path** — only `related` is updated; the
+   shallow FM merge preserves every other key on disk:
+   ```bash
+   jq --null-input \
+     --rawfile body /tmp/body.md \
+     --argjson related "$new_related" \
+     '{frontmatter: {related: $related}, body: $body}' \
+     > /tmp/payload.json
 
-The writer's shallow FM merge replaces `related:` wholesale, so include all
-existing entries plus your additions. Body unchanged.
+   vault-curl "/vault/$FROM_PATH" -X PUT \
+     -H 'Content-Type: application/json' \
+     --data-binary @/tmp/payload.json \
+     -o /dev/null -w "%{http_code}\n"
+   ```
+
+The writer's shallow FM merge replaces `related:` wholesale, so include
+all existing entries plus your additions inside the new array. Body
+unchanged.
 
 Apply mode is faster but skips the human review step. Use it when:
 - The user has explicitly asked for `--apply`

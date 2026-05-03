@@ -131,32 +131,44 @@ Read the body. Reason about:
 
 ### 3. Write the block
 
-Read existing FM, merge in or replace the `agent:` block:
+Use the **JSON write path** (`Content-Type: application/json`) — the
+recommended path for this skill. `agent.summary` regularly contains
+colon-space prose ("The principle generalizes: any operator-visible…")
+that 500s through the markdown path's YAML parser. JSON sidesteps the
+whole authoring-trap class (colon-space, leading `@`/`*`/`-`/`?`,
+hex/bool/date-shadow strings, multi-line plain scalars) — the server
+takes the FM object directly and `yaml.stringify` produces correctly
+quoted YAML on the way to disk.
 
-```yaml
----
-title: ...
-tags: [...]
-created: ...
-updated: ...
-status: ...
-type: ...
-related: [...]
-edges:
-  some-target: derived-from
-agent:
-  derived_at: 2026-04-30T22:00:00Z
-  derived_from_hash: "<body_hash, hex — quoted!>"
-  summary: "..."
-  key_concepts: [...]
-  tags_suggested: [...]
-  related_proposed: [...]
-  edge_classifications:
-    "[[some-target]]": derived-from
-  complexity: prose
----
-<body unchanged>
+Compose the FM object with the same fields you'd write into the YAML
+block:
+
+```json
+{
+  "frontmatter": {
+    "agent": {
+      "derived_at": "2026-04-30T22:00:00Z",
+      "derived_from_hash": "<body_hash, hex>",
+      "summary": "...",
+      "key_concepts": ["..."],
+      "tags_suggested": ["..."],
+      "related_proposed": ["..."],
+      "edge_classifications": {
+        "[[some-target]]": "derived-from"
+      },
+      "complexity": "prose"
+    }
+  },
+  "body": "<unchanged body>"
+}
 ```
+
+The writer merges `frontmatter` into the on-disk FM (shallow, key-by-key),
+so you only need to send keys you want to update — top-level
+`title`/`tags`/`status`/`type`/`related`/`edges` are preserved unchanged
+when you omit them. **The `agent` map itself is replaced wholesale on each
+write**, though, so include all the fields you want preserved inside
+`agent`.
 
 Look up `body_hash` via `/sections/{id}` (or `vault_read_meta`) to populate
 `derived_from_hash` — **not `content_hash`**. The two diverge once a
@@ -164,26 +176,39 @@ summary is set: `content_hash` becomes `embedInputHash(body, summary)`,
 while `body_hash` stays at `sha256(body)`. Using `content_hash` from a
 post-enrichment record produces silent staleness suggestions on every
 refresh because the recorded value will never match what the importer
-recomputes from the body alone.
-
-Always wrap the hash in **double quotes**. YAML's plain-scalar parser
-coerces unquoted all-digit strings (or strings that look like numbers) to
-integers; the importer's `asString` guard then treats the field as missing
-and the staleness check silently skips. Quoted strings round-trip cleanly.
+recomputes from the body alone. (Note: under the JSON write path the hash
+value is just a JSON string and doesn't need explicit double-quoting —
+`yaml.stringify` quotes it correctly when emitting YAML to disk.)
 
 Use the current ISO 8601 UTC timestamp for `derived_at`.
 
-Write back:
+Construct the payload safely with `jq` (handles arbitrary body content
+and special characters in `summary`):
 
 ```bash
+jq --null-input \
+  --rawfile body /tmp/note-body.md \
+  --arg hash "$BODY_HASH" \
+  --arg summary "$SUMMARY" \
+  --arg derived_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  '{frontmatter: {agent: {derived_at: $derived_at, derived_from_hash: $hash, summary: $summary, key_concepts: ["..."], complexity: "prose"}}, body: $body}' \
+  > /tmp/payload.json
+
 vault-curl "/vault/$FILE_PATH" -X PUT \
-  -H 'Content-Type: text/markdown' \
-  --data-binary @/tmp/note.md \
+  -H 'Content-Type: application/json' \
+  --data-binary @/tmp/payload.json \
   -o /dev/null -w "%{http_code}\n"
 ```
 
-Expect `204`. The writer's shallow FM merge replaces the `agent:` map
-wholesale, so include all the fields you want preserved in your write.
+Expect `204`.
+
+**Legacy markdown path** (only when the JSON path isn't available — e.g.,
+debugging via raw curl from a one-liner): construct the full
+`---\n<FM>\n---\n<body>` blob, double-quote `agent.summary` and any
+multi-line scalar containing `: `, double-quote `derived_from_hash`
+(YAML coerces unquoted all-digit strings to integers), and PUT with
+`Content-Type: text/markdown`. The JSON path eliminates all of those
+caller-side requirements.
 
 ### 4. Report summary
 
