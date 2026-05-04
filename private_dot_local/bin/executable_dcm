@@ -332,20 +332,31 @@ cmd_update() (
 
 cmd_daily() (
   cd "$1"
-  [ -e "./daily.sh" ] || return 0
-  local dir_name
-  dir_name="$(basename "$(pwd)")"
-  ansi::out "${OK}Daily: ${BOLD}$dir_name${RESET_ALL}"
-  run_convention_script daily.sh
+  local target dir_name
+  target="$(pwd)"
+  dir_name="$(basename "$target")"
+  if [ -e "./daily.sh" ]; then
+    ansi::out "${OK}Daily: ${BOLD}$dir_name${RESET_ALL}"
+    run_convention_script daily.sh
+  else
+    # No daily.sh → fall back to default refresh (`dcm update`). This
+    # lets stacks opt into custom logic by writing daily.sh while
+    # stacks with no script still get auto-refreshed each day.
+    cmd_update "$target"
+  fi
 )
 
 cmd_weekly() (
   cd "$1"
-  [ -e "./weekly.sh" ] || return 0
-  local dir_name
-  dir_name="$(basename "$(pwd)")"
-  ansi::out "${OK}Weekly: ${BOLD}$dir_name${RESET_ALL}"
-  run_convention_script weekly.sh
+  local target dir_name
+  target="$(pwd)"
+  dir_name="$(basename "$target")"
+  if [ -e "./weekly.sh" ]; then
+    ansi::out "${OK}Weekly: ${BOLD}$dir_name${RESET_ALL}"
+    run_convention_script weekly.sh
+  else
+    cmd_update "$target"
+  fi
 )
 
 cmd_check() (

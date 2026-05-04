@@ -12,8 +12,7 @@ source "${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh"
 
 playbash_section chezmoi       chezmoi update
 playbash_section claude-config claude-config-update
-playbash_section docker        dcms
-playbash_section docker-daily  dcms daily
+playbash_section services      dcms daily
 playbash_section system        upd -ry
 
 playbash_section_report
