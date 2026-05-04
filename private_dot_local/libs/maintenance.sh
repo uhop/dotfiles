@@ -65,6 +65,30 @@ report_reboot() {
   _maintenance_emit_event action "$reason" reboot ""
 }
 
+# maintenance::reboot_reminder
+#   Compact end-of-script reminder. No-op if no reboot is pending.
+#   Intended for the very end of upd/cln so the warning is the last
+#   thing the operator sees, not buried mid-output where the louder
+#   `report_reboot` fired earlier from check_apt_since. Cross-platform
+#   via the `restart-pending` helper.
+maintenance::reboot_reminder() {
+  local reason
+  reason=$(restart-pending 2>/dev/null) || return 0
+  [ -n "$reason" ] || return 0
+  ansi::out "${WARN}↻ Reboot required: ${reason} (run ${ITALIC}sudo reboot${RESET_ALL}${WARN})${RESET_ALL}"
+}
+
+# macOS restart marker. Written by upd's darwin block when softwareupdate
+# flags a restart-required update. Stamped with the current boot time so
+# a reboot implicitly invalidates it; `restart-pending` clears the marker
+# when boot time has moved on.
+MACOS_RESTART_MARKER=${MACOS_RESTART_MARKER:-${XDG_CACHE_HOME:-$HOME/.cache}/playbash/macos-restart-pending}
+
+maintenance::mark_macos_restart() {
+  mkdir -p "$(dirname "$MACOS_RESTART_MARKER")"
+  sysctl -n kern.boottime 2>/dev/null | sed 's/.*sec = \([0-9]*\).*/\1/' > "$MACOS_RESTART_MARKER"
+}
+
 # report_warn MSG [--target X]
 report_warn() {
   local msg=$1; shift

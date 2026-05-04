@@ -129,6 +129,15 @@
       "keyColor": "green"
     },
     "break",
-    "colors"
+    "colors",
+    // reboot reminder — empty output → fastfetch skips the module entirely.
+    // The helper handles both Linux (/run/reboot-required) and macOS
+    // (~/.cache/playbash/macos-restart-pending stamped with boot time).
+    {
+      "type": "command",
+      "key": "↻ Reboot",
+      "keyColor": "yellow",
+      "text": "restart-pending"
+    }
   ]
 }

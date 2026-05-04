@@ -53,7 +53,17 @@ if [ "$hasSudo" -eq 0 ]; then
 fi
 {{- end }}
 {{ if eq .osFamily "darwin" -}}
-echoRun --bold softwareupdate -i -a
+# Capture softwareupdate output so we can detect "restart required" and
+# stamp the macOS restart marker. tee shows progress in real time.
+ansi::out "${BOLD}softwareupdate -i -a${RESET_ALL}"
+sw_log=$(mktemp -t softwareupdate)
+trap 'rm -f "$sw_log"' EXIT INT TERM
+softwareupdate -i -a 2>&1 | tee "$sw_log"
+if grep -qiE '(restart|reboot) (required|recommended|needed)' "$sw_log"; then
+  maintenance::mark_macos_restart
+fi
+rm -f "$sw_log"
+trap - EXIT INT TERM
 
 if command -v mas &> /dev/null; then
   echoRun --bold mas upgrade
@@ -93,4 +103,8 @@ fi
 if [[ -v args_options["-c"] ]]; then
   ansi::out "\n${INFO}Clean up...${RESET_ALL}\n"
   cln $ASSUME_YES
+else
+  # Last line of output: tail-end reboot reminder. Skipped when -c is
+  # set because cln (which we just invoked) prints the same reminder.
+  maintenance::reboot_reminder
 fi

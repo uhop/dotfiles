@@ -1,0 +1,35 @@
+#!/bin/sh
+# restart-pending — print a one-line reason if a reboot is pending,
+# nothing (and exit 0) if not. Cross-platform.
+#
+# Linux:   reads /run/reboot-required(.pkgs) — the standard apt /
+#          update-notifier-common marker.
+# macOS:   reads ~/.cache/playbash/macos-restart-pending which is
+#          written by upd after `softwareupdate` flagged a restart.
+#          The marker contains the boot time at write; if the current
+#          boot time differs (= the host has rebooted since), the
+#          marker is stale and gets cleared silently.
+#
+# Output is suitable for fastfetch's command module (empty → module
+# skipped) and for end-of-script reboot reminders in upd / cln.
+
+set -eu
+
+case "$(uname -s)" in
+  Linux)
+    [ -e /run/reboot-required ] || exit 0
+    r=$(head -1 /run/reboot-required.pkgs 2>/dev/null || true)
+    echo "${r:-pending updates}"
+    ;;
+  Darwin)
+    marker="${HOME}/.cache/playbash/macos-restart-pending"
+    [ -e "$marker" ] || exit 0
+    marker_boot=$(cat "$marker" 2>/dev/null || true)
+    current_boot=$(sysctl -n kern.boottime 2>/dev/null | sed 's/.*sec = \([0-9]*\).*/\1/')
+    if [ -n "$current_boot" ] && [ "$marker_boot" = "$current_boot" ]; then
+      echo "macOS update"
+    else
+      rm -f "$marker"
+    fi
+    ;;
+esac
