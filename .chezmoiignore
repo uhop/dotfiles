@@ -3,6 +3,7 @@ AGENTS.md
 ARCHITECTURE.md
 CLAUDE.md
 llms.txt
+install.sh
 .claude/**
 .clinerules
 .cursor
