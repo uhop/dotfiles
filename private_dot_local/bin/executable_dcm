@@ -262,7 +262,10 @@ cmd_update() (
     # Persist the pre-pull snapshot for rollback. Skip if no images yet (first
     # `up` of a brand-new stack has nothing to roll back to).
     snapshot_for_rollback >| "$DCM_ROLLBACK_FILE" 2>/dev/null || rm -f -- "$DCM_ROLLBACK_FILE"
-    echoRun docker compose pull || return $?
+    # --ignore-buildable: services with a `build:` block (locally-built
+    # images like vault-storage) are skipped instead of failing the pull
+    # with "pull access denied". Compose v2.13+.
+    echoRun docker compose pull --ignore-buildable || return $?
     after="$(snapshot_images)"
     report_changes "$before" "$after"
   fi

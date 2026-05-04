@@ -5,11 +5,12 @@ shopt -s expand_aliases
 
 . ~/.local/libs/bootstrap.sh
 . ~/.local/libs/maintenance.sh
+. ~/.local/libs/playbash.sh
 
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Clean unused versions and caches of software"
+args::program "$script_name" "1.1.0" "Clean unused versions and caches of software"
 args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset}"
 
 args::option "-y, --yes" "Assume \"yes\" to all prompts"
@@ -33,39 +34,70 @@ if [[ -v args_options["-y"] ]]; then ASSUME_YES='-y'; fi
 # now before doing anything else. No-op if no marker exists.
 maintenance::cleanup_apparmor_if_marked
 
+# --- Section functions ---
+
 {{ if eq .detect.pkgmgr "apt" -}}
-apt_snapshot=$(maintenance::snapshot_apt)
-if [ "$hasSudo" -eq 0 ]; then
-  ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
-  echoRun --bold sudo apt autoremove $ASSUME_YES
-  echoRun --bold sudo apt autoclean $ASSUME_YES
-fi
-maintenance::check_apt_since "$apt_snapshot"
+_cln_apt() {
+  apt_snapshot=$(maintenance::snapshot_apt)
+  if [ "$hasSudo" -eq 0 ]; then
+    ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
+    echoRun --bold sudo apt autoremove $ASSUME_YES
+    echoRun --bold sudo apt autoclean $ASSUME_YES
+  fi
+  maintenance::check_apt_since "$apt_snapshot"
+}
 {{- else if eq .detect.pkgmgr "dnf" -}}
-if [ "$hasSudo" -eq 0 ]; then
-  ansi::out "${WARN}dnf may require sudo: expect asking for the sudo password.${RESET_ALL}"
-  echoRun --bold sudo dnf autoremove $ASSUME_YES
-  echoRun --bold sudo dnf clean all
-fi
+_cln_dnf() {
+  if [ "$hasSudo" -eq 0 ]; then
+    ansi::out "${WARN}dnf may require sudo: expect asking for the sudo password.${RESET_ALL}"
+    echoRun --bold sudo dnf autoremove $ASSUME_YES
+    echoRun --bold sudo dnf clean all
+  fi
+}
+{{- end }}
+
+_cln_flatpak() {
+  echoRun --bold flatpak uninstall --unused $ASSUME_YES
+}
+
+_cln_brew() {
+  echoRun --bold brew autoremove
+  echoRun --bold brew cleanup --prune=all --scrub
+}
+
+_cln_docker() {
+  echoRun --bold docker system prune -a ${ASSUME_YES/-y/-f}
+}
+
+_cln_node() {
+  . "$(brew --prefix nvm)/nvm.sh"
+  ansi::out "${INFO}Update major node versions...${RESET_ALL}"
+  update-node-versions.js
+  ansi::out "${INFO}Trim minor node versions...${RESET_ALL}"
+  trim-node-versions.js
+}
+
+# --- Run sections ---
+
+{{ if eq .detect.pkgmgr "apt" -}}
+playbash_section apt _cln_apt
+{{- else if eq .detect.pkgmgr "dnf" -}}
+playbash_section dnf _cln_dnf
 {{- end }}
 
 if command -v flatpak &> /dev/null; then
-  echoRun --bold flatpak uninstall --unused $ASSUME_YES
+  playbash_section flatpak _cln_flatpak
 fi
 
-echoRun --bold brew autoremove
-echoRun --bold brew cleanup --prune=all --scrub
+playbash_section brew _cln_brew
 
 if command -v docker &> /dev/null; then
-  echoRun --bold docker system prune -a ${ASSUME_YES/-y/-f}
+  playbash_section docker _cln_docker
 fi
 
-. "$(brew --prefix nvm)/nvm.sh"
-ansi::out "${INFO}Update major node versions...${RESET_ALL}"
-update-node-versions.js
-ansi::out "${INFO}Trim minor node versions...${RESET_ALL}"
-trim-node-versions.js
+playbash_section node _cln_node
 
 # Last line of output: tail-end reboot reminder.
 maintenance::reboot_reminder
 
+playbash_section_report

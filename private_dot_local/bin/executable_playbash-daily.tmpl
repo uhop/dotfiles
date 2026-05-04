@@ -1,30 +1,18 @@
 #!/usr/bin/env bash
-# playbash-daily — daily maintenance stack: chezmoi update, then dcms,
-# then upd -ry. Sources playbash.sh so the runner gets structured events,
-# but stays directly runnable by hand (helpers fall back to pretty-print
-# when $PLAYBASH_REPORT is unset).
+# playbash-daily — daily maintenance stack: chezmoi update,
+# claude-config-update, dcms, then upd -ry. Each step runs as an
+# isolated playbash_section so one failure doesn't abort the rest;
+# the final playbash_section_report propagates non-zero exit if any
+# section failed.
 
 set -euCo pipefail
 shopt -s expand_aliases
 
 source "${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh"
 
-playbash_step "chezmoi"
-playbash_info "running chezmoi update"
-chezmoi update
+playbash_section chezmoi       chezmoi update
+playbash_section claude-config claude-config-update
+playbash_section docker        dcms
+playbash_section system        upd -ry
 
-playbash_step "claude-config"
-playbash_info "refreshing ~/.claude/ from claude-config"
-claude-config-update
-
-playbash_step "docker"
-playbash_info "refreshing docker images via dcms"
-dcms
-
-playbash_step "system"
-playbash_info "running upd -ry"
-upd -ry
-
-# upd is now authoritative for reboot/restart/apparmor reporting via
-# maintenance.sh — it writes the same events to $PLAYBASH_REPORT that
-# we used to write here. No post-hoc check needed.
+playbash_section_report

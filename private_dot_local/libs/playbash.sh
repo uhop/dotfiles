@@ -139,3 +139,68 @@ playbash_step() {
   PLAYBASH_STEP=$1
   export PLAYBASH_STEP
 }
+
+# Section runner with failure isolation.
+#
+# `playbash_section NAME CMD [ARGS...]` runs CMD (a function or any
+# executable) in a subshell so its `set -e` semantics fail-fast inside
+# without aborting the orchestrator. Failures append to
+# `_PLAYBASH_FAILED_SECTIONS`; pass `playbash_section_report` as the
+# script's last command to print the summary and propagate non-zero exit
+# when any section failed.
+#
+# The subshell inherits the parent's set-options, functions, and env
+# vars; modifications inside it (variables, traps) don't leak back.
+#
+# `||` in the call below is the safe pattern: the subshell's failure
+# status is consumed by the OR-list, so the orchestrator's `set -e`
+# doesn't trigger.
+declare -ga _PLAYBASH_FAILED_SECTIONS=()
+
+playbash_section() {
+  local name=$1; shift
+  local prev_step=$PLAYBASH_STEP
+  playbash_step "$name"
+
+  # Bash gotcha: a subshell invoked via `() || rc=$?` runs in a context
+  # where set -e is "being ignored", which silently disables fail-fast
+  # for every command inside — even if you re-set it. The workaround is
+  # to run the subshell as a STANDALONE statement (parent's -e off),
+  # explicitly enable -e inside the subshell, then capture $? and
+  # restore the parent's prior -e state.
+  local rc=0
+  local prev_e=
+  case $- in *e*) prev_e=1 ;; esac
+  set +e
+  ( set -e; "$@" )
+  rc=$?
+  [ -n "$prev_e" ] && set -e
+
+  if [ $rc -ne 0 ]; then
+    _PLAYBASH_FAILED_SECTIONS+=("$name")
+    playbash_warn "section failed (exit $rc)" --target "$name"
+  fi
+  PLAYBASH_STEP=$prev_step
+  export PLAYBASH_STEP
+  return 0
+}
+
+# Print final section summary. Returns 0 if no failures, 1 otherwise.
+# Suitable as the last line of a playbook — the non-zero exit signals
+# upstream that at least one section failed, while letting all other
+# sections run to completion.
+playbash_section_report() {
+  if (( ${#_PLAYBASH_FAILED_SECTIONS[@]} == 0 )); then
+    return 0
+  fi
+  _playbash_emit error \
+    "section failures: ${_PLAYBASH_FAILED_SECTIONS[*]}" --kind summary
+  return 1
+}
+
+# Clear the failed-section accumulator. Use only if you want multiple
+# independent groups within one script; otherwise each script invocation
+# starts with an empty array via the declaration above.
+playbash_section_reset() {
+  _PLAYBASH_FAILED_SECTIONS=()
+}

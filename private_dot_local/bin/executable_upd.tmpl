@@ -5,11 +5,12 @@ shopt -s expand_aliases
 
 . ~/.local/libs/bootstrap.sh
 . ~/.local/libs/maintenance.sh
+. ~/.local/libs/playbash.sh
 
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Update software with available package managers"
+args::program "$script_name" "1.1.0" "Update software with available package managers"
 args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset}"
 
 args::option "-c, --clean" "Run the cleanup script ${BOLD}cln${RESET_ALL} after updating"
@@ -38,66 +39,115 @@ if [[ -v args_options["-r"] ]]; then RESTART_SERVICES=1; fi
 # now before doing anything else. No-op if no marker exists.
 maintenance::cleanup_apparmor_if_marked
 
-{{ if eq .detect.pkgmgr "apt" -}}
-apt_snapshot=$(maintenance::snapshot_apt)
-if [ "$hasSudo" -eq 0 ]; then
-  ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
-  echoRun --bold sudo apt update
-  echoRun --bold sudo apt upgrade $ASSUME_YES
-fi
-maintenance::check_apt_since "$apt_snapshot" "$RESTART_SERVICES"
-{{- else if eq .detect.pkgmgr "dnf" -}}
-if [ "$hasSudo" -eq 0 ]; then
-  ansi::out "${WARN}dnf may require sudo: expect asking for the sudo password.${RESET_ALL}"
-  echoRun --bold sudo dnf upgrade $ASSUME_YES
-fi
-{{- end }}
-{{ if eq .osFamily "darwin" -}}
-# Capture softwareupdate output so we can detect "restart required" and
-# stamp the macOS restart marker. tee shows progress in real time.
-ansi::out "${BOLD}softwareupdate -i -a${RESET_ALL}"
-sw_log=$(mktemp -t softwareupdate)
-trap 'rm -f "$sw_log"' EXIT INT TERM
-softwareupdate -i -a 2>&1 | tee "$sw_log"
-if grep -qiE '(restart|reboot) (required|recommended|needed)' "$sw_log"; then
-  maintenance::mark_macos_restart
-fi
-rm -f "$sw_log"
-trap - EXIT INT TERM
+# --- Section functions ---
+# Each runs in a subshell via playbash_section; failures are captured
+# without aborting siblings. set -e/pipefail/etc. inherit into the
+# subshell so internal pipelines still fail-fast within the section.
 
-if command -v mas &> /dev/null; then
+{{ if eq .detect.pkgmgr "apt" -}}
+_upd_apt() {
+  apt_snapshot=$(maintenance::snapshot_apt)
+  if [ "$hasSudo" -eq 0 ]; then
+    ansi::out "${WARN}apt may require sudo: expect asking for the sudo password.${RESET_ALL}"
+    echoRun --bold sudo apt update
+    echoRun --bold sudo apt upgrade $ASSUME_YES
+  fi
+  maintenance::check_apt_since "$apt_snapshot" "$RESTART_SERVICES"
+}
+{{- else if eq .detect.pkgmgr "dnf" -}}
+_upd_dnf() {
+  if [ "$hasSudo" -eq 0 ]; then
+    ansi::out "${WARN}dnf may require sudo: expect asking for the sudo password.${RESET_ALL}"
+    echoRun --bold sudo dnf upgrade $ASSUME_YES
+  fi
+}
+{{- end }}
+
+{{ if eq .osFamily "darwin" -}}
+_upd_softwareupdate() {
+  ansi::out "${BOLD}softwareupdate -i -a${RESET_ALL}"
+  local sw_log
+  sw_log=$(mktemp -t softwareupdate)
+  trap 'rm -f "$sw_log"' EXIT INT TERM
+  softwareupdate -i -a 2>&1 | tee "$sw_log"
+  if grep -qiE '(restart|reboot) (required|recommended|needed)' "$sw_log"; then
+    maintenance::mark_macos_restart
+  fi
+  rm -f "$sw_log"
+  trap - EXIT INT TERM
+}
+
+_upd_mas() {
   echoRun --bold mas upgrade
+}
+{{- end }}
+
+{{ if eq .osFamily "linux" -}}
+_upd_snap() {
+  echoRun --bold sudo snap refresh
+}
+
+_upd_flatpak() {
+  echoRun --bold flatpak update $ASSUME_YES
+}
+{{- end }}
+
+_upd_brew() {
+  echoRun --bold brew update
+  echoRun --bold brew upgrade
+}
+
+_upd_tmux() {
+  ansi::out "${INFO}Update tmux plugins...${RESET_ALL}"
+  "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" all
+}
+
+_upd_bun() {
+  echoRun --bold bun upgrade --stable
+}
+
+_upd_pet() {
+  if [ ! -f "$HOME/.config/pet/snippet.toml" ]; then touch "$HOME/.config/pet/snippet.toml"; fi
+  echoRun --bold pet sync
+}
+
+# --- Run sections ---
+
+{{ if eq .detect.pkgmgr "apt" -}}
+playbash_section apt _upd_apt
+{{- else if eq .detect.pkgmgr "dnf" -}}
+playbash_section dnf _upd_dnf
+{{- end }}
+
+{{ if eq .osFamily "darwin" -}}
+playbash_section softwareupdate _upd_softwareupdate
+if command -v mas &> /dev/null; then
+  playbash_section mas _upd_mas
 fi
 {{- end }}
+
 {{ if eq .osFamily "linux" -}}
-if [ "$hasSudo" -eq 0 ]; then
-  if command -v snap &> /dev/null; then
-    echoRun --bold sudo snap refresh
-  fi
+if [ "$hasSudo" -eq 0 ] && command -v snap &> /dev/null; then
+  playbash_section snap _upd_snap
 fi
 
 if command -v flatpak &> /dev/null; then
-  echoRun --bold flatpak update $ASSUME_YES
+  playbash_section flatpak _upd_flatpak
 fi
 {{- end }}
 
-echoRun --bold brew update
-echoRun --bold brew upgrade
+playbash_section brew _upd_brew
 
-if command -v tmux &> /dev/null; then
-  if [ -f "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" ]; then
-    ansi::out "${INFO}Update tmux plugins...${RESET_ALL}"
-    "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" all
-  fi
+if command -v tmux &> /dev/null && [ -f "$HOME/.config/tmux/plugins/tpm/bin/update_plugins" ]; then
+  playbash_section tmux _upd_tmux
 fi
 
 if command -v bun &> /dev/null; then
-  echoRun --bold bun upgrade --stable
+  playbash_section bun _upd_bun
 fi
 
 if command -v pet &> /dev/null; then
-  if [ ! -f "$HOME/.config/pet/snippet.toml" ]; then touch "$HOME/.config/pet/snippet.toml"; fi
-  echoRun --bold pet sync
+  playbash_section pet _upd_pet
 fi
 
 if [[ -v args_options["-c"] ]]; then
@@ -108,3 +158,5 @@ else
   # set because cln (which we just invoked) prints the same reminder.
   maintenance::reboot_reminder
 fi
+
+playbash_section_report
