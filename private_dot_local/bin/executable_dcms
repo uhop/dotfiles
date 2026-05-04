@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# dcms — invoke `dcm` over the whole `~/servers` tree, no-op if the
+# tree doesn't exist on this host. Forwards an optional command:
+#
+#   dcms          → dcm ~/servers  (default: update)
+#   dcms daily    → dcm daily ~/servers
+#   dcms weekly   → dcm weekly ~/servers
+#   dcms check    → dcm check ~/servers
+#
+# The host-skip behavior matters for fleet-wide playbooks where some
+# hosts (e.g. dev laptops) don't have a ~/servers tree.
 
 set -euCo pipefail
 shopt -s expand_aliases
@@ -7,8 +17,13 @@ shopt -s expand_aliases
 
 deps::need dcm
 
-if [ -d ~/servers ]; then
-  echoRun --bold "dcm ~/servers"
-else
+if [ ! -d ~/servers ]; then
   echo -e "No \033[1m~/servers\033[0m found: skipping \033[1mdcm\033[0m."
+  exit 0
+fi
+
+if [ $# -gt 0 ]; then
+  echoRun --bold dcm "$@" ~/servers
+else
+  echoRun --bold dcm ~/servers
 fi

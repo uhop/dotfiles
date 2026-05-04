@@ -11,14 +11,18 @@ deps::need docker jq
 
 # --- Program definition ---
 
-args::program "$script_name" "1.3.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
+args::program "$script_name" "1.4.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
 
 args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service lifecycles
-with automatic AppArmor recovery on Linux."
+with automatic AppArmor recovery on Linux. Optional per-stack scripts
+(daily.sh / weekly.sh / health.sh / pre-update.sh / post-update.sh)
+extend the lifecycle without compose-yaml changes."
 
 args_program_usage="${BOLD}dcm${RESET_BOLD}                          # Update current dir (pull + up)
 ${BOLD}dcm${RESET_BOLD} update ~/servers/monitor # Update specific setup
 ${BOLD}dcm${RESET_BOLD} status ~/servers         # Status for all setups under ~/servers
+${BOLD}dcm${RESET_BOLD} daily ~/servers          # Run daily.sh for each setup (no-op if absent)
+${BOLD}dcm${RESET_BOLD} check ~/servers          # Run health.sh for each setup
 ${BOLD}dcm${RESET_BOLD} prune                    # Prune unused Docker images globally"
 
 args_program_default_command="update"
@@ -31,6 +35,9 @@ args::option "restart" "Compose restart" "dir" "opt"
 args::option "status, s" "Compose ps (show running services)" "dir" "opt"
 args::option "prune, p" "Prune unused Docker images globally"
 args::option "rollback, r" "Roll back to image versions captured before the last update" "dir" "opt"
+args::option "daily" "Run per-stack daily.sh (no-op if absent)" "dir" "opt"
+args::option "weekly" "Run per-stack weekly.sh (no-op if absent)" "dir" "opt"
+args::option "check" "Run per-stack health.sh and report (no-op if absent)" "dir" "opt"
 
 args::option "--force" "Pass --force-recreate to docker compose up"
 args::option "-n, --dry-run" "Show commands without running"
@@ -79,6 +86,32 @@ validate_compose_dir() {
     return 1
   fi
   return 0
+}
+
+# Run a per-stack convention script if it exists. Caller must already
+# be cd'd into the compose dir. Sets SERVICE_NAME (basename of the dir)
+# and COMPOSE_FILE (path to the discovered compose file) for the script.
+# Honors --dry-run. Returns the script's exit code (or 0 if absent).
+run_convention_script() {
+  local name="$1"
+  local script="./$name"
+
+  [ -e "$script" ] || return 0
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    ansi::out "${INFO}[dry-run] $name${RESET_ALL}"
+    return 0
+  fi
+
+  local service_name compose_file
+  service_name="$(basename "$(pwd)")"
+  compose_file="$(find_compose_file ".")"
+
+  if [ -x "$script" ]; then
+    SERVICE_NAME="$service_name" COMPOSE_FILE="$compose_file" "$script"
+  else
+    SERVICE_NAME="$service_name" COMPOSE_FILE="$compose_file" bash "$script"
+  fi
 }
 
 is_apparmor_error() {
@@ -252,6 +285,13 @@ cmd_update() (
 
   ansi::out "${OK}Updating: ${BOLD}$dir_name${RESET_ALL}"
 
+  # Optional pre-update hook: backups, safety checks. Failure ABORTS
+  # the update — don't pull/up if the prep didn't succeed.
+  if [ -e "./pre-update.sh" ]; then
+    ansi::out "${INFO}Running pre-update.sh${RESET_ALL}"
+    run_convention_script pre-update.sh || return $?
+  fi
+
   if [ "$DRY_RUN" -eq 1 ]; then
     ansi::out "${INFO}[dry-run] docker compose images (snapshot before + persist for rollback)${RESET_ALL}"
     ansi::out "${INFO}[dry-run] docker compose pull${RESET_ALL}"
@@ -276,7 +316,57 @@ cmd_update() (
   fi
 
   report_status
+
+  # Optional post-update hook: smoke tests, migrations, notifications.
+  # Failure WARNS but doesn't fail the command — the update is already
+  # deployed; rolling back via `dcm rollback` is the recovery path.
+  if [ -e "./post-update.sh" ]; then
+    ansi::out "${INFO}Running post-update.sh${RESET_ALL}"
+    if ! run_convention_script post-update.sh; then
+      ansi::warn "${WARN}post-update.sh failed (exit $?) — update is already deployed${RESET_ALL}"
+    fi
+  fi
+
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
+)
+
+cmd_daily() (
+  cd "$1"
+  [ -e "./daily.sh" ] || return 0
+  local dir_name
+  dir_name="$(basename "$(pwd)")"
+  ansi::out "${OK}Daily: ${BOLD}$dir_name${RESET_ALL}"
+  run_convention_script daily.sh
+)
+
+cmd_weekly() (
+  cd "$1"
+  [ -e "./weekly.sh" ] || return 0
+  local dir_name
+  dir_name="$(basename "$(pwd)")"
+  ansi::out "${OK}Weekly: ${BOLD}$dir_name${RESET_ALL}"
+  run_convention_script weekly.sh
+)
+
+cmd_check() (
+  cd "$1"
+  local dir_name
+  dir_name="$(basename "$(pwd)")"
+  if [ ! -e "./health.sh" ]; then
+    ansi::out "${INFO}Check: ${BOLD}$dir_name${RESET_ALL} (no health.sh)"
+    return 0
+  fi
+  ansi::out "${INFO}Check: ${BOLD}$dir_name${RESET_ALL}"
+  local rc=0
+  run_convention_script health.sh || rc=$?
+  case $rc in
+    0) ansi::out "  ${OK}✓${RESET_ALL} healthy" ;;
+    1) ansi::out "  ${ERROR}✗${RESET_ALL} actionable failure" ;;
+    2) ansi::out "  ${WARN}?${RESET_ALL} lookup failed (network/dependency unavailable)" ;;
+    3) ansi::out "  ${WARN}?${RESET_ALL} upstream API error" ;;
+    *) ansi::out "  ${ERROR}✗${RESET_ALL} unexpected exit $rc" ;;
+  esac
+  return $rc
 )
 
 cmd_down() (
@@ -480,6 +570,9 @@ case "$cmd" in
   status)   dispatch status "$target_dir" ;;
   prune)    cmd_prune ;;
   rollback) dispatch rollback "$target_dir" ;;
+  daily)    dispatch daily "$target_dir" ;;
+  weekly)   dispatch weekly "$target_dir" ;;
+  check)    dispatch check "$target_dir" ;;
   *)
     ansi::warn "${ERROR}Unknown command: $cmd${RESET_ALL}"
     exit 1
