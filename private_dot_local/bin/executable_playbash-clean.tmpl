@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# playbash-daily — daily maintenance stack: chezmoi update, then dcms,
-# then upd -ry. Sources playbash.sh so the runner gets structured events,
-# but stays directly runnable by hand (helpers fall back to pretty-print
-# when $PLAYBASH_REPORT is unset).
+# playbash-clean — cleanup stack: chezmoi update, claude-config refresh,
+# then cln -y. Same playbash conventions as playbash-daily/-weekly
+# (sourced helpers, structured events via $PLAYBASH_REPORT).
 
 set -euCo pipefail
 shopt -s expand_aliases
@@ -12,6 +11,10 @@ source "${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh"
 playbash_step "chezmoi"
 playbash_info "running chezmoi update"
 chezmoi update
+
+playbash_step "claude-config"
+playbash_info "refreshing ~/.claude/ from claude-config"
+claude-config-update
 
 playbash_step "system"
 playbash_info "running cln -y"

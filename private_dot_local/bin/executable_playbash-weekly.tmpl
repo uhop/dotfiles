@@ -12,6 +12,10 @@ playbash_step "chezmoi"
 playbash_info "running chezmoi update"
 chezmoi update
 
+playbash_step "claude-config"
+playbash_info "refreshing ~/.claude/ from claude-config"
+claude-config-update
+
 playbash_step "docker"
 playbash_info "refreshing docker images via dcms"
 dcms

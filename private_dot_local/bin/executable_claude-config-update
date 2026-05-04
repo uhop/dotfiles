@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Refresh ~/.claude/ from ~/Open/claude-config (git pull --ff-only +
+# install.mjs --apply). Skips silently if the repo isn't checked out —
+# bootstrap is a one-time per-host operation.
+#
+# --ff-only fails fast if local commits diverge from origin: clear
+# signal that a remote host got hand-edited (edits usually belong on
+# the dev box, not on managed clients).
+
+set -euo pipefail
+
+REPO="$HOME/Open/claude-config"
+
+if [ ! -d "$REPO" ]; then
+  echo "claude-config: not installed at $REPO — skipping (bootstrap manually)"
+  exit 0
+fi
+
+git -C "$REPO" pull --ff-only
+node "$REPO/install.mjs" --apply
