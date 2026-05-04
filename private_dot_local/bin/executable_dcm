@@ -4,6 +4,7 @@ set -euCo pipefail
 shopt -s expand_aliases
 
 . ~/.local/libs/bootstrap.sh
+. ~/.local/libs/playbash.sh
 
 script_name=$(basename "$0")
 
@@ -11,7 +12,7 @@ deps::need docker jq
 
 # --- Program definition ---
 
-args::program "$script_name" "1.4.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
+args::program "$script_name" "1.5.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/Dcm"
 
 args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service lifecycles
 with automatic AppArmor recovery on Linux. Optional per-stack scripts
@@ -526,7 +527,6 @@ dispatch() {
   local cmd="$1"
   shift
   local target_dir="${1:-.}"
-  local succeeded=0 failed=0 failures=""
 
   local setups
   setups="$(find_compose_dirs "$target_dir")" || exit 1
@@ -538,26 +538,39 @@ dispatch() {
     ansi::out "${INFO}Found ${BOLD}$total${RESET_BOLD} compose setup(s) under ${BOLD}$target_dir${RESET_ALL}"
   fi
 
+  # Reset the section accumulator so a prior dispatch (rare in practice
+  # but possible if dcm is sourced multiple times) doesn't leak.
+  playbash_section_reset
+
   while IFS= read -r dir; do
     # Blank line before each iteration in multi-dir runs (separates the
     # "Found N..." header from the first stack and stacks from each other).
     # Single-dir runs stay tight: no leading blank.
     [[ "$total" -gt 1 ]] && echo
-    if "cmd_$cmd" "$dir"; then
-      succeeded=$((succeeded + 1))
-    else
-      failed=$((failed + 1))
-      failures="${failures}\n  - $(basename "$dir")"
-    fi
+    playbash_section "$(basename "$dir")" "cmd_$cmd" "$dir"
   done <<< "$setups"
+
+  local failed=${#_PLAYBASH_FAILED_SECTIONS[@]}
+  local succeeded=$((total - failed))
 
   if [ "$total" -gt 1 ]; then
     echo
     ansi::out "${OK}Results: ${BOLD}$succeeded${RESET_BOLD} succeeded, ${BOLD}$failed${RESET_BOLD} failed${RESET_ALL}"
     if [ "$failed" -gt 0 ]; then
-      ansi::warn "${WARN}Failed:${failures}${RESET_ALL}"
+      ansi::warn "${WARN}Failed:${RESET_ALL}"
+      local name
+      for name in "${_PLAYBASH_FAILED_SECTIONS[@]}"; do
+        ansi::warn "${WARN}  - ${name}${RESET_ALL}"
+      done
     fi
   fi
+
+  # Emit the structured failure event for upstream playbash readers and
+  # propagate the exit code. Previously, the bare `if cmd; then s++; fi`
+  # loop pattern silently swallowed failures and dispatch always exited
+  # 0 — now any failed stack makes dcm itself exit non-zero, which is
+  # what `dcms`-via-playbash-section needs to register the failure.
+  [ "$failed" -eq 0 ] || playbash_section_report
 }
 
 # --- Main ---
