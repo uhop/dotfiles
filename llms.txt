@@ -390,6 +390,18 @@ Git pull + pull main in `wiki/` submodule if present.
 
 Clone or update `options.bash` sparse worktree at `~/.local/share/libs/scripts`.
 
+### fleet-deps
+
+Cross-project dependency graph for a GitHub fleet (Node, ESM). Fetches `package.json` from every non-archived, non-fork repo across one or more orgs via `gh api`, builds forward / reverse / topological views, and answers impact-analysis lookups (`fleet-deps <name>` → transitive dependents in update order).
+
+Org list resolves as `--org foo,bar` from CLI > orgs saved in the cache from a previous run > `$GITHUB_USERNAME` (or `uhop` if unset). Multi-org mode keys nodes by `<org>/<repo>` (GitHub-unique) and eliminates package-name collisions across orgs. Single-org mode keys by `pkg.name` for the simpler CLI surface.
+
+Cache: `~/.cache/fleet-deps/cache.json` (1h TTL; invalidates when the resolved org list differs from what's stored). Ignore patterns: `~/.config/fleet-deps/ignore` (one per line, `*` wildcard, matches repo / package / `<org>/<repo>`).
+
+Options: `--json`, `--org foo[,bar]`, `--no-cache`, `-v, --version`, `-h, --help`.
+
+Prereq: `gh` CLI on PATH and `gh auth login` completed on the host.
+
 ### git-br
 
 Pretty-formatted `git branch` with date, author, subject.

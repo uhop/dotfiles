@@ -1,0 +1,409 @@
+#!/usr/bin/env node
+// fleet-deps — build a dependency graph for the user's GitHub fleet
+//
+// Source of truth: package.json on the default branch of each non-archived,
+// non-forked repo across one or more GitHub orgs. Local working copies are
+// NOT consulted — this answers "what does the published main branch say?",
+// which is the right question for cross-project update planning.
+//
+// The org list resolves as: --org foo,bar from CLI > orgs saved in the
+// cache from a previous run > $GITHUB_USERNAME (or "uhop" if unset).
+// Whatever was last fetched persists. See --help for invocation details.
+
+import {execSync, spawnSync} from 'node:child_process';
+import {writeFileSync, readFileSync, existsSync, mkdirSync, statSync} from 'node:fs';
+import {homedir} from 'node:os';
+import path from 'node:path';
+
+const VERSION = '1.0.0';
+const DEFAULT_ORG = process.env.GITHUB_USERNAME || 'uhop';
+
+const args = process.argv.slice(2);
+let orgsArg = null;
+let mode = 'full';
+let target = null;
+let useCache = true;
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+for (let i = 0; i < args.length; ++i) {
+  const a = args[i];
+  if (a === '--json') mode = 'json';
+  else if (a === '--no-cache') useCache = false;
+  else if (a === '--org') orgsArg = args[++i];
+  else if (a === '-v' || a === '--version') {
+    process.stdout.write(`fleet-deps ${VERSION}\n`);
+    process.exit(0);
+  } else if (a === '-h' || a === '--help') {
+    process.stdout.write(
+      'fleet-deps — dependency graph across one or more GitHub orgs\n\n' +
+        'Usage:\n' +
+        '  fleet-deps                  full report\n' +
+        '  fleet-deps <name>           reverse-deps for <name>\n' +
+        '  fleet-deps --json           machine-readable JSON\n' +
+        '  fleet-deps --org foo[,bar]  target one or more orgs (overrides saved list)\n' +
+        '  fleet-deps --no-cache       skip the 1h GitHub cache\n' +
+        '  fleet-deps -v, --version    show version\n' +
+        '  fleet-deps -h, --help       show this help\n\n' +
+        'Default org list: $GITHUB_USERNAME (or "uhop" if unset) on first run;\n' +
+        'subsequent runs reuse the orgs saved in the cache.\n'
+    );
+    process.exit(0);
+  } else if (!a.startsWith('-')) {
+    mode = 'reverse';
+    target = a;
+  }
+}
+
+const cacheDir = path.join(homedir(), '.cache', 'fleet-deps');
+mkdirSync(cacheDir, {recursive: true});
+const cacheFile = path.join(cacheDir, 'cache.json');
+
+let cached = null;
+if (existsSync(cacheFile)) {
+  try {
+    cached = JSON.parse(readFileSync(cacheFile, 'utf8'));
+  } catch {
+    cached = null;
+  }
+}
+
+// Resolve the org list. Priority: --org CLI > orgs saved in cache > default.
+let orgs;
+if (orgsArg) {
+  orgs = orgsArg.split(',').map(s => s.trim()).filter(Boolean);
+} else if (cached?.orgs?.length) {
+  orgs = cached.orgs;
+} else {
+  orgs = [DEFAULT_ORG];
+}
+orgs = [...new Set(orgs)];
+
+const sortedEq = (a, b) => {
+  if (a.length !== b.length) return false;
+  const [as, bs] = [[...a].sort(), [...b].sort()];
+  return as.every((v, i) => v === bs[i]);
+};
+
+function fetchFromGitHub(orgs) {
+  try {
+    execSync('gh --version', {stdio: 'ignore'});
+  } catch {
+    process.stderr.write(
+      'fleet-deps: requires the GitHub CLI (`gh`); install from https://cli.github.com\n'
+    );
+    process.exit(1);
+  }
+
+  // gh api is rate-limited but we have plenty of budget; do it serially in
+  // small batches to avoid hammering. ~50 calls completes in seconds.
+  const batchSize = 8;
+  const pkgs = [];
+  for (const org of orgs) {
+    process.stderr.write(`fetching repo list for ${org}…\n`);
+    const list = JSON.parse(
+      execSync(
+        `gh repo list ${org} --limit 200 --json name,defaultBranchRef,isArchived,isFork`,
+        {encoding: 'utf8'}
+      )
+    ).filter(r => !r.isArchived && !r.isFork);
+
+    process.stderr.write(`  ${list.length} package.json files (batches of ${batchSize})…\n`);
+    for (let i = 0; i < list.length; i += batchSize) {
+      const batch = list.slice(i, i + batchSize);
+      const results = batch.map(r => {
+        const ref = r.defaultBranchRef?.name ?? 'main';
+        const result = spawnSync(
+          'gh',
+          ['api', `repos/${org}/${r.name}/contents/package.json?ref=${ref}`, '--jq', '.content'],
+          {encoding: 'utf8'}
+        );
+        if (result.status !== 0) {
+          const stderr = (result.stderr ?? '').trim();
+          // 404 == repo has no package.json (expected). Anything else
+          // (auth, rate-limit, network, 5xx) gets surfaced.
+          if (!stderr.includes('HTTP 404')) {
+            process.stderr.write(`  ${org}/${r.name}: ${stderr.split('\n')[0] || 'gh api failed'}\n`);
+          }
+          return null;
+        }
+        const out = result.stdout.trim();
+        if (!out) return null;
+        try {
+          const pkg = JSON.parse(Buffer.from(out, 'base64').toString('utf8'));
+          return {org, repo: r.name, branch: ref, pkg};
+        } catch (e) {
+          process.stderr.write(`  ${org}/${r.name}: failed to parse package.json: ${e.message}\n`);
+          return null;
+        }
+      });
+      for (const r of results) if (r) pkgs.push(r);
+    }
+  }
+  return {fetchedAt: new Date().toISOString(), orgs, pkgs};
+}
+
+const cacheFresh =
+  useCache &&
+  cached &&
+  Array.isArray(cached.orgs) &&
+  sortedEq(cached.orgs, orgs) &&
+  Date.now() - statSync(cacheFile).mtimeMs < CACHE_TTL_MS;
+
+let data;
+if (cacheFresh) {
+  data = cached;
+  process.stderr.write(`using cache from ${data.fetchedAt} (orgs: ${data.orgs.join(', ')})\n`);
+} else {
+  data = fetchFromGitHub(orgs);
+  writeFileSync(cacheFile, JSON.stringify(data, null, 2));
+}
+
+// Load ignore list from ~/.config/fleet-deps/ignore. One pattern per line,
+// matched against either the repo name, the package name, or <org>/<repo>.
+// Patterns may contain '*' wildcards (e.g. 'grunt-*'). '#' comments OK.
+const ignoreFile = path.join(homedir(), '.config', 'fleet-deps', 'ignore');
+const ignorePatterns = [];
+if (existsSync(ignoreFile)) {
+  for (const line of readFileSync(ignoreFile, 'utf8').split('\n')) {
+    const stripped = line.replace(/#.*$/, '').trim();
+    if (!stripped) continue;
+    const re = new RegExp('^' + stripped.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
+    ignorePatterns.push(re);
+  }
+}
+const isIgnored = name => ignorePatterns.some(re => re.test(name));
+
+// Build the graph. Keys are package names in single-org mode (preserves
+// the simple CLI surface) and `<org>/<repo>` in multi-org mode (unique by
+// GitHub guarantee, eliminates name collisions across orgs). Dependency
+// resolution always goes through keysByPackage so a `package.json` dep
+// lookup works regardless of the active keying scheme.
+const showOrg = data.orgs.length > 1;
+const keyFor = (org, repo, name) => (showOrg ? `${org}/${repo}` : name);
+
+const entries = new Map();        // key → {owner, name, repo, org, pkg}
+const keysByPackage = new Map();  // pkg.name → [keys]
+for (const {org, repo, pkg} of data.pkgs) {
+  if (!pkg.name) continue;
+  if (isIgnored(repo) || isIgnored(pkg.name) || isIgnored(`${org}/${repo}`)) continue;
+  const owner = `${org}/${repo}`;
+  const key = keyFor(org, repo, pkg.name);
+  if (entries.has(key)) {
+    // Multi-org keys are GitHub-unique; this fires only in single-org mode
+    // when one org has two repos publishing the same package name.
+    process.stderr.write(
+      `  warn: duplicate key ${key} (${entries.get(key).owner} vs ${owner}); keeping first\n`
+    );
+    continue;
+  }
+  entries.set(key, {owner, name: pkg.name, repo, org, pkg});
+  if (!keysByPackage.has(pkg.name)) keysByPackage.set(pkg.name, []);
+  keysByPackage.get(pkg.name).push(key);
+}
+const fleetKeys = new Set(entries.keys());
+
+// Forward edges: key → [{key, kind}]
+const forward = new Map();
+for (const [key, e] of entries) {
+  const edges = [];
+  const sections = [
+    ['dep', e.pkg.dependencies],
+    ['dev', e.pkg.devDependencies],
+    ['peer', e.pkg.peerDependencies]
+  ];
+  const seen = new Set();
+  for (const [kind, deps] of sections) {
+    if (!deps) continue;
+    for (const d of Object.keys(deps)) {
+      const targets = keysByPackage.get(d) ?? [];
+      for (const t of targets) {
+        if (t === key) continue;
+        const sig = `${t}|${kind}`;
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        edges.push({key: t, kind});
+      }
+    }
+  }
+  forward.set(key, edges);
+}
+
+// Reverse edges: key → [{key, kind}]
+const reverse = new Map();
+for (const k of fleetKeys) reverse.set(k, []);
+for (const [from, edges] of forward) {
+  for (const {key: to, kind} of edges) {
+    reverse.get(to).push({key: from, kind});
+  }
+}
+
+// Topological order via Kahn's algorithm. Only counts fleet-internal edges.
+function topoLevels() {
+  const indegree = new Map();
+  for (const k of fleetKeys) {
+    indegree.set(k, new Set(forward.get(k).map(e => e.key)));
+  }
+  const levels = [];
+  while (indegree.size) {
+    const ready = [];
+    for (const [k, deps] of indegree) {
+      if (deps.size === 0) ready.push(k);
+    }
+    if (!ready.length) {
+      // Cycle — emit remaining as one level with marker.
+      levels.push({cycle: true, keys: [...indegree.keys()].sort()});
+      break;
+    }
+    ready.sort();
+    levels.push({cycle: false, keys: ready});
+    for (const r of ready) indegree.delete(r);
+    for (const deps of indegree.values()) for (const r of ready) deps.delete(r);
+  }
+  return levels;
+}
+
+const levels = topoLevels();
+
+function fmtKind(kind) {
+  return kind === 'dep' ? '' : kind === 'dev' ? ' (dev)' : ' (peer)';
+}
+
+function tagFor(key) {
+  const e = entries.get(key);
+  if (showOrg) {
+    return e.name === e.repo ? key : `${key} (${e.name})`;
+  }
+  return e.name === e.repo ? key : `${key} (repo: ${e.repo})`;
+}
+
+function reportFull() {
+  const lines = [];
+  lines.push(`Fleet dependency graph — orgs=${data.orgs.join(',')}, fetched ${data.fetchedAt}`);
+  lines.push(`${fleetKeys.size} packages found across ${data.pkgs.length} repos.`);
+  lines.push('');
+
+  lines.push('## Forward edges (project → fleet deps)');
+  lines.push('');
+  const sortedKeys = [...fleetKeys].sort();
+  for (const key of sortedKeys) {
+    const edges = forward.get(key);
+    if (!edges.length) continue;
+    const list = edges
+      .map(e => `${e.key}${fmtKind(e.kind)}`)
+      .sort()
+      .join(', ');
+    lines.push(`  ${tagFor(key)} → ${list}`);
+  }
+  lines.push('');
+
+  lines.push('## Reverse edges (project ← fleet dependents)');
+  lines.push('');
+  for (const key of sortedKeys) {
+    const edges = reverse.get(key);
+    if (!edges.length) continue;
+    const list = edges
+      .map(e => `${e.key}${fmtKind(e.kind)}`)
+      .sort()
+      .join(', ');
+    lines.push(`  ${key} ← ${list}`);
+  }
+  lines.push('');
+
+  lines.push('## Topological update order (update lower levels first)');
+  lines.push('');
+  for (let i = 0; i < levels.length; ++i) {
+    const lvl = levels[i];
+    const tag = lvl.cycle ? `L${i} CYCLE` : `L${i}`;
+    lines.push(`  ${tag}: ${lvl.keys.join(', ')}`);
+  }
+  lines.push('');
+
+  lines.push('## Roots (no fleet deps)');
+  lines.push(`  ${sortedKeys.filter(k => !forward.get(k).length).join(', ')}`);
+  lines.push('');
+
+  lines.push('## Leaves (no fleet dependents)');
+  lines.push(`  ${sortedKeys.filter(k => !reverse.get(k).length).join(', ')}`);
+
+  return lines.join('\n');
+}
+
+function resolveTarget(target) {
+  if (fleetKeys.has(target)) return [target];
+  const matches = [];
+  for (const [key, e] of entries) {
+    if (e.name === target || e.repo === target || e.owner === target) {
+      matches.push(key);
+    }
+  }
+  return matches;
+}
+
+function reportReverse(target) {
+  const matches = resolveTarget(target);
+  if (!matches.length) {
+    process.stderr.write(`unknown package or repo: ${target}\n`);
+    process.stderr.write(`known: ${[...fleetKeys].sort().join(', ')}\n`);
+    process.exit(1);
+  }
+  if (matches.length > 1) {
+    process.stderr.write(`ambiguous target ${target} matches:\n`);
+    for (const m of matches) process.stderr.write(`  ${m}\n`);
+    process.stderr.write('disambiguate with the full <org>/<repo> key.\n');
+    process.exit(1);
+  }
+  const key = matches[0];
+
+  const seen = new Set();
+  const direct = reverse.get(key);
+  const transitive = [];
+  const queue = direct.map(e => e.key);
+  while (queue.length) {
+    const n = queue.shift();
+    if (seen.has(n)) continue;
+    seen.add(n);
+    transitive.push(n);
+    for (const e of reverse.get(n) ?? []) queue.push(e.key);
+  }
+  const lines = [];
+  lines.push(`Reverse-deps for ${key}`);
+  lines.push('');
+  lines.push('Direct dependents:');
+  if (!direct.length) lines.push('  (none)');
+  for (const e of direct.slice().sort((a, b) => a.key.localeCompare(b.key))) {
+    lines.push(`  ${e.key}${fmtKind(e.kind)}`);
+  }
+  lines.push('');
+  lines.push('Transitive dependents (in topo order — update in this sequence):');
+  const indirectInOrder = [];
+  for (const lvl of levels) {
+    for (const n of lvl.keys) {
+      if (transitive.includes(n)) indirectInOrder.push(n);
+    }
+  }
+  if (!indirectInOrder.length) lines.push('  (none)');
+  for (const n of indirectInOrder) lines.push(`  ${n}`);
+  return lines.join('\n');
+}
+
+function reportJson() {
+  return JSON.stringify(
+    {
+      orgs: data.orgs,
+      fetchedAt: data.fetchedAt,
+      keys: [...fleetKeys].sort(),
+      forward: Object.fromEntries([...forward].map(([k, v]) => [k, v])),
+      reverse: Object.fromEntries([...reverse].map(([k, v]) => [k, v])),
+      levels: levels.map((l, i) => ({level: i, cycle: l.cycle, keys: l.keys})),
+      owners: Object.fromEntries(
+        [...entries].map(([k, e]) => [k, {owner: e.owner, name: e.name, repo: e.repo, org: e.org}])
+      )
+    },
+    null,
+    2
+  );
+}
+
+if (mode === 'json') process.stdout.write(reportJson() + '\n');
+else if (mode === 'reverse') process.stdout.write(reportReverse(target) + '\n');
+else process.stdout.write(reportFull() + '\n');

@@ -35,6 +35,7 @@ dotfiles/                              # chezmoi source directory
 │   ├── bat/                           # syntax theme shared with delta
 │   ├── cheat/
 │   ├── fastfetch/
+│   ├── fleet-deps/                    # ignore patterns for fleet-deps
 │   ├── ghostty/
 │   ├── git/
 │   ├── kitty/
@@ -53,6 +54,7 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── executable_dcm             # Docker compose manager with change detection and apparmor retry
 │   │   ├── executable_dcms            # All docker-compose stacks under ~/servers/
 │   │   ├── executable_flatpak-install # Flatpak installer, dispatches between --system and --user
+│   │   ├── executable_fleet-deps      # Cross-project dependency graph for a GitHub fleet (Node)
 │   │   ├── executable_goup            # Run command in current + parent directories
 │   │   ├── executable_gpurr           # Git pull all repos
 │   │   ├── executable_gpwiki          # Git push wiki

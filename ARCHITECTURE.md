@@ -25,6 +25,7 @@ dotfiles/                                          # chezmoi source directory
 │   ├── bat/config                                 # bat theme — shared with delta
 │   ├── cheat/conf.yml.tmpl                        # cheat config (templated)
 │   ├── fastfetch/config.jsonc.tmpl                # system info (templated)
+│   ├── fleet-deps/ignore                          # ignore patterns for fleet-deps
 │   ├── ghostty/private_config.tmpl                # terminal config (templated)
 │   ├── git/git-completion.bash                    # git completions
 │   ├── kitty/private_kitty.conf.tmpl              # terminal config (templated)
@@ -44,6 +45,7 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_dcm                         # docker compose manager with change detection and apparmor retry
 │   │   ├── executable_dcms                        # all docker stacks under ~/servers/
 │   │   ├── executable_flatpak-install              # flatpak installer dispatching --system vs --user
+│   │   ├── executable_fleet-deps                   # cross-project dependency graph for a GitHub fleet (Node)
 │   │   ├── executable_goup                        # run command up directory tree
 │   │   ├── executable_gpurr                       # git pull all repos
 │   │   ├── executable_gpwiki                      # git push wiki

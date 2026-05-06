@@ -1,0 +1,26 @@
+# fleet-deps — ignore list
+#
+# One repo name OR package name per line. Matched names (and any edges
+# touching them) are dropped from the graph. Use '#' for comments.
+#
+# Useful for unarchived-but-inactive projects that pollute the report.
+# Archiving the repo on GitHub is the cleaner option when feasible — the
+# graph filter (isArchived == false) already excludes those automatically.
+
+# Patterns may use '*' as a wildcard (e.g. 'grunt-*' matches all grunt-prefixed
+# names). Without a wildcard, the match is exact.
+
+dcl
+grunt-*
+
+# Other unarchived-but-inactive candidates (uncomment as needed):
+# dcl6
+# tight-sprite
+# parser-toolkit
+# react-key-example
+# mq-cognito-test
+# git-credential-ejson
+# stream-fork
+# stream-join
+# darwin-serve
+# @researchnow/reno
