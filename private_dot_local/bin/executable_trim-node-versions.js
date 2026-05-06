@@ -1,4 +1,4 @@
-#! /usr/bin/env bun
+#!/usr/bin/env node
 
 import {adaptReverse} from '../share/utils/comp.js';
 import {compareVersions, toVersionString} from '../share/utils/semver.js';
@@ -20,9 +20,9 @@ const main = async () => {
       versionString = toVersionString(version);
     if (version.major === versions[i - 1].major) {
       if (version.current) {
-        await runNvm(`use ${version.major}`).nothrow();
+        await runNvm(`use ${version.major}`);
       }
-      await runNvm(`uninstall ${versionString}`).nothrow();
+      await runNvm(`uninstall ${versionString}`);
     } else {
       console.log('MAJOR:', versionString);
     }

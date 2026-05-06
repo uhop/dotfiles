@@ -1,15 +1,27 @@
-import {$} from 'bun';
+import {spawn} from 'node:child_process';
 import {getVersion} from './semver.js';
 
-export const runNvm = args => $`bash -l -c "nvm ${args}"`;
+const nvmRun = (args, capture) =>
+  new Promise(resolve => {
+    const child = spawn('bash', ['-l', '-c', `nvm ${args}`], {
+      stdio: ['ignore', capture ? 'pipe' : 'inherit', 'inherit']
+    });
+    let stdout = '';
+    if (capture) {
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', d => (stdout += d));
+    }
+    child.on('close', exitCode => resolve({exitCode, stdout}));
+  });
+
+export const runNvm = args => nvmRun(args, false);
 
 const extractVersion = /^\s*(->)?\s*v([^\s]+)/;
 
 export const getNodeVersions = async silent => {
-  const lines = runNvm('ls --no-colors').lines(),
-    versions = [];
-
-  for await (const line of lines) {
+  const {stdout} = await nvmRun('ls --no-colors', true);
+  const versions = [];
+  for (const line of stdout.split('\n')) {
     const result = extractVersion.exec(line);
     if (!result) continue;
     const version = getVersion(result[2]);
@@ -20,6 +32,5 @@ export const getNodeVersions = async silent => {
     if (result[1]) version.current = true;
     versions.push(version);
   }
-
   return versions;
 };

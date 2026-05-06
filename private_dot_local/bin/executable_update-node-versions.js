@@ -1,4 +1,4 @@
-#! /usr/bin/env bun
+#!/usr/bin/env node
 
 import {adaptReverse} from '../share/utils/comp.js';
 import {compareVersions} from '../share/utils/semver.js';
@@ -22,7 +22,7 @@ const main = async () => {
     .sort(compareVersions);
 
   for (const version of majorVersions) {
-    await runNvm(`install ${version.major}`).nothrow();
+    await runNvm(`install ${version.major}`);
   }
 };
 
