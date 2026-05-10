@@ -8,7 +8,7 @@
 // shared state with each other. They live in their own module so the
 // entry point file can stay focused on argv → dispatch.
 
-import {readFileSync, readdirSync, statSync, unlinkSync, rmdirSync} from 'node:fs';
+import {readFileSync, readdirSync, statSync, unlinkSync, rmdirSync, writeSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 
@@ -416,5 +416,10 @@ export function cmdBashCompletion() {
     join(homedir(), '.local', 'share', 'playbash', 'completion.bash'),
     'utf8'
   );
-  process.stdout.write(script);
+  // Sync write to fd 1: command substitution (`eval "$(playbash
+  // --bash-completion)"`) sees stdout as a pipe, where Node's
+  // process.stdout.write is async. The caller in executable_playbash
+  // exits with process.exit(0) right after, which can truncate the
+  // 248-line script mid-`[[` and break the eval'd source.
+  writeSync(1, script);
 }
