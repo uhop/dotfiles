@@ -16,7 +16,7 @@ if [ "$hasSudo" -eq 0 ]; then
     gcp bat ncdu jq tmux silversearcher-ag tig httpie prettyping htop parallel tree \
     brotli zstd zopfli gh mc ripgrep duf hyperfine zoxide nginx shellcheck git-lfs etckeeper \
     grc golang rustc cargo python3 net-tools firejail waypipe lnav \
-    sshfs libimage-exiftool-perl imagemagick
+    sshfs libimage-exiftool-perl
   # Packages whose names or availability differ across Debian-based distros:
   # libfuse2t64 is Ubuntu 24.04+ (time_t transition); Debian 12 ships libfuse2.
   # ttyd is in Ubuntu and Debian testing but not Debian 12 stable.
@@ -62,7 +62,7 @@ if [ "$hasSudo" -eq 0 ]; then
   sudo dnf install -y --skip-broken micro mosh dialog bat ncdu \
     the_silver_searcher tig htop parallel tree brotli zstd zopfli mc ripgrep \
     nginx ShellCheck clang-tools-extra git-lfs etckeeper \
-    fuse-sshfs lnav age waypipe perl-Image-ExifTool ImageMagick || true
+    fuse-sshfs lnav age waypipe perl-Image-ExifTool || true
   command -v gh &>/dev/null || sudo dnf install -y gh || true
 fi
 {{ if .hasGui -}}
