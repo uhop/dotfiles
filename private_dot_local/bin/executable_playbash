@@ -60,7 +60,7 @@ import {spawnSync} from 'node:child_process';
 
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
-const VERSION = '3.4.0';
+const VERSION = '3.5.0';
 
 const WIKI = 'https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management';
 

@@ -84,6 +84,7 @@ async function putOne(address, hostName, localPath, remotePath, isDir, sudoPassw
     checkSudoError(r, sudoPassword);
     if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
   } else {
+    const st = statSync(localPath);
     const content = readFileSync(localPath);
     const compress = await hostHasZstd(address, hostName);
     const body = compress ? await compressBuffer(content) : content;
@@ -91,8 +92,21 @@ async function putOne(address, hostName, localPath, remotePath, isDir, sudoPassw
       ? remotePath.substring(0, remotePath.lastIndexOf('/'))
       : '';
     const mkdirCmd = remoteDir ? `mkdir -p ${shellQuotePath(remoteDir)} && ` : '';
-    const receive = compress ? `zstd -d > ${qRemote}` : `cat > ${qRemote}`;
-    const {cmd, inputPrefix} = sudoWrap(`${mkdirCmd}${receive}`, sudoPassword);
+    // Preserve full mode bits (mirrors `scp -p` semantics). Single-file write
+    // goes through a 0600 mktemp in the destination directory + chmod + atomic
+    // rename, instead of `cat > $remote && chmod` — that closes the exposure
+    // window where a 0600-class secret (ssh key, ~/.ssh/config) would briefly
+    // exist with umask-default mode before the chmod tightens it. Directory
+    // transfers already preserve mode via `tar -x`, so this restores parity.
+    const mode = (st.mode & 0o7777).toString(8).padStart(4, '0');
+    const qTmpDir = shellQuotePath(remoteDir || '.');
+    const decode = compress ? 'zstd -d' : 'cat';
+    const writeAtomic =
+      `t=$(mktemp ${qTmpDir}/.playbash-put.XXXXXX) && ` +
+      `${decode} > "$t" && ` +
+      `chmod ${mode} "$t" && ` +
+      `mv -f "$t" ${qRemote}`;
+    const {cmd, inputPrefix} = sudoWrap(`${mkdirCmd}${writeAtomic}`, sudoPassword);
     const input = inputPrefix ? Buffer.concat([inputPrefix, body]) : body;
     const r = await sshRun(address, cmd, {input});
     checkSudoError(r, sudoPassword);
