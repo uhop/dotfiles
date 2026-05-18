@@ -346,21 +346,21 @@ alias upsearch='noGlob upfd -gH'
 
 ssht() {
   local session_name="$2"
-  local session_name="${session_name:=ssh_tmux}"
+  local session_name="${session_name:=std}"
   local TMUX="(command -v tmux &> /dev/null && tmux new -As $session_name)"
   ssh -t "$1" "$TMUX || bash"
 }
 
 mosht() {
   local session_name="$2"
-  local session_name="${session_name:=ssh_tmux}"
+  local session_name="${session_name:=std}"
   local TMUX="tmux new -As $session_name"
   mosh "$1" -- $TMUX
 }
 
 ett() {
   local session_name="$2"
-  local session_name="${session_name:=ssh_tmux}"
+  local session_name="${session_name:=std}"
   local TMUX="(command -v tmux &> /dev/null && tmux new -As $session_name)"
   et "$1" -c "$TMUX || bash"
 }
@@ -371,7 +371,7 @@ alias kssh="kitten ssh"
 
 kssht() {
   local session_name="$2"
-  local session_name="${session_name:=ssh_tmux}"
+  local session_name="${session_name:=std}"
   local TMUX="(command -v tmux &> /dev/null && tmux new -As $session_name)"
   kitten ssh -t "$1" "$TMUX || bash"
 }
