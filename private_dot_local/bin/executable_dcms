@@ -22,6 +22,16 @@ if [ ! -d ~/servers ]; then
   exit 0
 fi
 
+# Skip when the Docker daemon isn't reachable. On a Mac, Docker Desktop is
+# started on demand, so the `docker` CLI exists but the daemon is often
+# down — `dcm` would otherwise fail at `docker compose pull`/`up`. Mirrors
+# the daemon guard in `cln`. (`docker info` also returns non-zero when the
+# CLI is absent entirely, which is fine: no daemon → skip.)
+if ! docker info &> /dev/null; then
+  echo -e "Docker daemon not running: skipping \033[1mdcm\033[0m."
+  exit 0
+fi
+
 if [ $# -gt 0 ]; then
   echoRun --bold dcm "$@" ~/servers
 else
