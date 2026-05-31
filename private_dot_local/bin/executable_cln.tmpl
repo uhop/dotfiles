@@ -93,10 +93,11 @@ playbash_section brew _cln_brew
 
 # Gate on a reachable daemon, not just the CLI: on a Mac the `docker`
 # binary exists even when Docker Desktop (started on demand) is down, so
-# a bare `command -v docker` would let `docker system prune` fail against
-# a dead daemon. `docker info` confirms the daemon is actually up; this
-# also correctly skips a stopped daemon on Linux.
-if command -v docker &> /dev/null && docker info &> /dev/null; then
+# `docker system prune` would fail against a dead daemon. `docker info`
+# confirms the daemon is actually up; it also returns non-zero when docker
+# isn't installed at all, so no separate `command -v docker` check is
+# needed (matches the guard in `dcms` and the playbooks).
+if docker info &> /dev/null; then
   playbash_section docker _cln_docker
 fi
 
