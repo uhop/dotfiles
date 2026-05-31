@@ -11,7 +11,16 @@ source "${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh"
 
 playbash_section chezmoi       chezmoi update
 playbash_section claude-config claude-config-update
-playbash_section services      dcms weekly
+
+# Skip the Docker-stack refresh when the daemon is unreachable (e.g. macOS
+# with Docker Desktop stopped — it starts on demand). `dcms` self-guards
+# too, but gating the section here keeps the playbook from logging a
+# section for a guaranteed no-op. `docker info` is also non-zero when
+# docker isn't installed at all, so this covers docker-less hosts as well.
+if docker info &> /dev/null; then
+  playbash_section services    dcms weekly
+fi
+
 playbash_section system        upd -cry
 
 playbash_section_report
