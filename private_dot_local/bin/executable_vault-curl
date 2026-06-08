@@ -45,4 +45,9 @@ shift
 base=${VAULT_API_URL%/}
 [[ $path == /* ]] || path=/$path
 
-exec curl -H "Authorization: Bearer $VAULT_API_TOKEN" "$@" "$base$path"
+# Fail fast instead of hanging forever when the server is wedged (e.g. a stuck
+# vault-storage container behind a degraded ZFS pool). Defaults sit before "$@"
+# so any caller can override per-call (--max-time 600 for a big reindex) or via
+# VAULT_CURL_MAX_TIME. See topics/zfs-failing-disk-wedges-the-host.
+exec curl --connect-timeout 5 --max-time "${VAULT_CURL_MAX_TIME:-120}" \
+  -H "Authorization: Bearer $VAULT_API_TOKEN" "$@" "$base$path"
