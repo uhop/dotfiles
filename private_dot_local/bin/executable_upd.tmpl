@@ -10,7 +10,7 @@ shopt -s expand_aliases
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.1.0" "Update software with available package managers"
+args::program "$script_name" "1.1.1" "Update software with available package managers"
 args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset}"
 
 args::option "-c, --clean" "Run the cleanup script ${BOLD}cln${RESET_ALL} after updating"
@@ -94,7 +94,7 @@ _upd_flatpak() {
 
 _upd_brew() {
   echoRun --bold brew update
-  echoRun --bold brew upgrade
+  echoRun --bold brew upgrade $ASSUME_YES
 }
 
 _upd_tmux() {
