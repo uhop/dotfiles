@@ -94,7 +94,6 @@ The following tools are installed and aliased:
 - `pnpm` &mdash; `node`-compatible package manager.
 - `helix` &mdash; a modal text editor.
 - `whalebrew` &mdash; like `brew` but for Docker images.
-- `xc` &mdash; a task runner.
 - `mosh` &mdash; a mobile shell (alternative to `ssh`).
 - `et` &mdash; an Eternal Terminal (alternative to `ssh`, not pre-installed).
 - `ttyd` &mdash; a tool to share a terminal over the web.
