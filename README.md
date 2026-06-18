@@ -78,7 +78,7 @@ The following tools are installed and aliased:
 - `awscli`, `aws-iam-authenticator`, `kubernetes-cli`, `helm`, `sops`, `gh`, `hub`, `nginx`, `net-tools`, `xh` &mdash; useful utilities for web development.
 - `parallel` &mdash; shell parallelization.
 - `fzf` &mdash; a command-line fuzzy finder.
-- `micro` &mdash; an editor. Alternatives: `nano`.
+- `micro` &mdash; an editor. Alternatives: `nano`, `ne`.
 - `jq` &mdash; JSON manipulations.
 - `tmux` &mdash; the venerable terminal multiplexor.
 - `golang`, `python3`, `pyenv`, `rustc`, `wabt`, `zig` &mdash; language environments we use and love.
