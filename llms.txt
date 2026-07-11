@@ -142,6 +142,17 @@ Hard dep: `aws` CLI (checked in prelude via `deps::need aws`).
 
 Blog deploy chain example: `hugo && bin/optimize-images public/ && cxop -j0 --min-ratio=5 public/ && aws s3 sync public/ s3://<bucket>/ --delete && cdn-inv invalidate www.example.com`.
 
+### ghmeta
+
+package.json ↔ GitHub repo metadata sync. `description` ↔ repo About; `keywords` ↔ repo topics. Push replaces the topic set as a whole (true sync &mdash; stale GitHub topics drop); keywords are normalized to GitHub topic rules (lowercase, whitespace → hyphens; entries still invalid are dropped with a warning; capped at 20).
+
+Commands:
+- `ghmeta` / `ghmeta push` — package.json → GitHub (default). Skips a field package.json doesn't have; reports per-field in-sync/changed; reads back the final GitHub state after applying
+- `ghmeta pull` — GitHub → package.json. Skips a field whose GitHub side is empty; atomic mode-preserving rewrite via `jq` (byte-stable for npm-style 2-space files)
+- `-n, --dry-run` — print planned changes plus the exact `gh` calls (push) or the `jq` rewrite (pull) without applying
+
+Repo resolves from the current git remote (`gh repo view`); package.json from the git toplevel. Hard deps: `gh` (authenticated) + `jq`, checked in prelude via `deps::need`.
+
 ### Playbash Server Management
 
 Multi-host bash playbook runner (v1–v3 complete). Replaced the previous Ansible-based stack. See `dev-docs/playbash-design.md`.

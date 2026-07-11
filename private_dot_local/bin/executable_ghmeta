@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+
+set -euCo pipefail
+shopt -s expand_aliases
+
+. ~/.local/libs/bootstrap.sh
+
+deps::need gh jq
+
+script_name=$(basename "$0")
+
+args::program "$script_name" "1.0.0" "Sync package.json metadata with the GitHub repo (About + topics)" "https://github.com/uhop/dotfiles/wiki/Ghmeta"
+
+args_program_header="${BOLD}ghmeta${RESET_BOLD} copies ${BOLD}description${RESET_BOLD} and ${BOLD}keywords${RESET_BOLD}/topics between package.json and the GitHub repo.
+The repo resolves from the current git remote; package.json from the git toplevel.
+Topics are replaced as a whole set on push (true sync): stale GitHub topics drop."
+
+args_program_usage="${BOLD}ghmeta${RESET_BOLD}            # push: package.json → GitHub About/topics (default)
+${BOLD}ghmeta${RESET_BOLD} push -n    # show planned GitHub changes without applying
+${BOLD}ghmeta${RESET_BOLD} pull       # GitHub About/topics → package.json
+${BOLD}ghmeta${RESET_BOLD} pull -n    # show planned package.json changes without writing"
+
+args_program_default_command="push"
+
+args::option "push, p" "Copy package.json description/keywords → GitHub About/topics"
+args::option "pull" "Copy GitHub About/topics → package.json description/keywords"
+args::option "-n, --dry-run" "Show planned changes without applying them"
+args::option "-v, --version" "Show version"
+args::option "-h, --help" "Show help"
+args::option "--bash-completion" "Show bash completion"
+
+args::parse "$@"
+set -- "${args_cleaned[@]}"
+
+if [ "$#" -gt 0 ]; then
+  ansi::err "${ERROR}Unexpected argument: $1${RESET_ALL}"
+  args::try_help
+  exit 1
+fi
+
+DRY_RUN=0
+[[ -v args_options["-n"] ]] && DRY_RUN=1
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  ansi::err "${ERROR}Not inside a git repository.${RESET_ALL}"
+  exit 1
+}
+pkg="$root/package.json"
+[ -f "$pkg" ] || {
+  ansi::err "${ERROR}No package.json at $root${RESET_ALL}"
+  exit 1
+}
+
+repo=$(gh repo view --json nameWithOwner -q .nameWithOwner) || {
+  ansi::err "${ERROR}gh could not resolve a GitHub repo from the current remote.${RESET_ALL}"
+  exit 1
+}
+
+gh_state=$(gh repo view --json description,repositoryTopics)
+gh_desc=$(jq -r '.description // ""' <<<"$gh_state")
+gh_topics=$(jq -c '[.repositoryTopics // [] | .[].name]' <<<"$gh_state")
+
+same_set() { # usage: same_set <json-array> <json-array>
+  jq -ne --argjson a "$1" --argjson b "$2" '($a | sort) == ($b | sort)' >/dev/null
+}
+
+case "$args_command" in
+  push)
+    changes=0
+
+    if jq -e 'has("description")' "$pkg" >/dev/null; then
+      new_desc=$(jq -r '.description' "$pkg")
+      if [ "$new_desc" = "$gh_desc" ]; then
+        ansi::out "${INFO}About already in sync.${RESET_ALL}"
+      else
+        changes=$((changes + 1))
+        ansi::out "${INFO}About: ${RESET_ALL}${gh_desc:-<empty>}"
+        ansi::out "${INFO}     → ${RESET_ALL}${BOLD}$new_desc${RESET_BOLD}"
+        if [ "$DRY_RUN" -eq 1 ]; then
+          ansi::out "${WARN}[dry-run] gh repo edit $repo --description \"$new_desc\"${RESET_ALL}"
+        else
+          gh repo edit "$repo" --description "$new_desc" >/dev/null
+          ansi::out "${OK}About updated.${RESET_ALL}"
+        fi
+      fi
+    else
+      ansi::out "${WARN}package.json has no \"description\" — About left untouched.${RESET_ALL}"
+    fi
+
+    if jq -e 'has("keywords")' "$pkg" >/dev/null; then
+      # GitHub topic rules: lowercase alnum + hyphens, starts alnum, <=50 chars, <=20 topics.
+      raw=$(jq -c '[.keywords[] | ascii_downcase | gsub("[[:space:]]+"; "-")]' "$pkg")
+      new_topics=$(jq -c 'map(select(test("^[a-z0-9][a-z0-9-]{0,49}$")))' <<<"$raw")
+      dropped=$(jq -r 'map(select(test("^[a-z0-9][a-z0-9-]{0,49}$") | not)) | join(", ")' <<<"$raw")
+      [ -n "$dropped" ] && ansi::out "${WARN}Dropped keywords invalid as GitHub topics: $dropped${RESET_ALL}"
+      if [ "$(jq 'length' <<<"$new_topics")" -gt 20 ]; then
+        ansi::out "${WARN}GitHub caps topics at 20 — keeping the first 20, dropping: $(jq -r '.[20:] | join(", ")' <<<"$new_topics")${RESET_ALL}"
+        new_topics=$(jq -c '.[:20]' <<<"$new_topics")
+      fi
+      if same_set "$gh_topics" "$new_topics"; then
+        ansi::out "${INFO}Topics already in sync.${RESET_ALL}"
+      else
+        changes=$((changes + 1))
+        ansi::out "${INFO}Topics: ${RESET_ALL}$(jq -r 'join(", ")' <<<"$gh_topics")"
+        ansi::out "${INFO}      → ${RESET_ALL}${BOLD}$(jq -r 'join(", ")' <<<"$new_topics")${RESET_BOLD}"
+        if [ "$DRY_RUN" -eq 1 ]; then
+          ansi::out "${WARN}[dry-run] jq -nc --argjson names '$new_topics' '{names:\$names}' | gh api -X PUT repos/$repo/topics --input -${RESET_ALL}"
+        else
+          jq -nc --argjson names "$new_topics" '{names: $names}' |
+            gh api -X PUT "repos/$repo/topics" --input - >/dev/null
+          ansi::out "${OK}Topics replaced.${RESET_ALL}"
+        fi
+      fi
+    else
+      ansi::out "${WARN}package.json has no \"keywords\" — topics left untouched.${RESET_ALL}"
+    fi
+
+    if [ "$changes" -gt 0 ] && [ "$DRY_RUN" -eq 0 ]; then
+      final=$(gh repo view --json description,repositoryTopics)
+      ansi::out "${OK}GitHub now — About:  ${RESET_ALL}$(jq -r '.description // ""' <<<"$final")"
+      ansi::out "${OK}GitHub now — topics: ${RESET_ALL}$(jq -r '[.repositoryTopics // [] | .[].name] | join(", ")' <<<"$final")"
+    fi
+    ;;
+
+  pull)
+    pkg_desc=$(jq -r '.description // ""' "$pkg")
+    pkg_kw=$(jq -c '.keywords // []' "$pkg")
+    parts=()
+
+    if [ -z "$gh_desc" ]; then
+      ansi::out "${WARN}GitHub About is empty — package.json description left untouched.${RESET_ALL}"
+    elif [ "$gh_desc" = "$pkg_desc" ]; then
+      ansi::out "${INFO}description already in sync.${RESET_ALL}"
+    else
+      parts+=('.description = $d')
+      ansi::out "${INFO}description: ${RESET_ALL}${pkg_desc:-<empty>}"
+      ansi::out "${INFO}           → ${RESET_ALL}${BOLD}$gh_desc${RESET_BOLD}"
+    fi
+
+    if [ "$gh_topics" = "[]" ]; then
+      ansi::out "${WARN}GitHub has no topics — package.json keywords left untouched.${RESET_ALL}"
+    elif same_set "$gh_topics" "$pkg_kw"; then
+      ansi::out "${INFO}keywords already in sync.${RESET_ALL}"
+    else
+      parts+=('.keywords = $kw')
+      ansi::out "${INFO}keywords: ${RESET_ALL}$(jq -r 'join(", ")' <<<"$pkg_kw")"
+      ansi::out "${INFO}        → ${RESET_ALL}${BOLD}$(jq -r 'join(", ")' <<<"$gh_topics")${RESET_BOLD}"
+    fi
+
+    if [ "${#parts[@]}" -eq 0 ]; then
+      exit 0
+    fi
+
+    filter=$(IFS='|'; echo "${parts[*]}")
+    if [ "$DRY_RUN" -eq 1 ]; then
+      ansi::out "${WARN}[dry-run] would rewrite $pkg with: jq '$filter'${RESET_ALL}"
+      exit 0
+    fi
+
+    # Atomic mode-preserving write: mktemp is 0600, chmod to source mode before mv.
+    tmp=$(mktemp "$pkg.XXXXXX")
+    jq --indent 2 --arg d "$gh_desc" --argjson kw "$gh_topics" "$filter" "$pkg" >|"$tmp"
+    mode=$(stat -c %a "$pkg" 2>/dev/null || stat -f %Lp "$pkg")
+    chmod "$mode" "$tmp"
+    mv -f "$tmp" "$pkg"
+    ansi::out "${OK}package.json updated:${RESET_ALL}"
+    jq '{description, keywords}' "$pkg"
+    ;;
+
+  *)
+    ansi::err "${ERROR}Unknown command: $args_command${RESET_ALL}"
+    args::try_help
+    exit 1
+    ;;
+esac
