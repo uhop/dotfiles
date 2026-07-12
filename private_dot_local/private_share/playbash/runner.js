@@ -312,8 +312,13 @@ function buildExecCommand({cols, rows, command, wrapperPath}) {
 //      avoid killing legitimate slow operations like apt downloads.
 //
 // On detection: SIGTERM the child, then SIGKILL after a short grace
-// period if it hasn't exited. The host's status word becomes either
-// `needs sudo` (regex matched) or `stuck (idle)` (threshold tripped).
+// period if it hasn't exited. For ssh-backed hosts the remote wrapper is
+// also killed via a fresh channel (its TERM handler killpgs the bash
+// subtree) — otherwise ControlMaster keeps the remote subtree alive as an
+// orphan needing a manual `pkill -f playbash` on the target. Playbook
+// steps are idempotent by contract, so post-kill re-runs need no cleanup.
+// The host's status word becomes either `needs sudo` (regex matched) or
+// `stuck (idle)` (threshold tripped).
 // In the summary the host shows as a failure (✗), but with the distinct
 // status word so the user can tell it apart from a real non-zero exit.
 
@@ -436,6 +441,12 @@ async function runHost({
           }
         };
         groupKill('SIGTERM');
+        // Remote cleanup on every stuck cancel (decision 2026-07-11): a hung
+        // host otherwise needs a manual `pkill -f playbash` on the target.
+        // Playbook steps are idempotent by contract — after the kill, re-running
+        // the playbook interactively on that host must need no cleanup.
+        const entry = REMOTE_KILLABLE.get(child.pid);
+        if (entry && entry.remotePid) void killRemoteWrapper(entry.address, entry.remotePid);
         // Under ssh ControlMaster, SIGTERM kills the mux client but the
         // master may keep the channel's pipes open. Destroying the stdio
         // streams unblocks the 'close' event so runHost can resolve.
