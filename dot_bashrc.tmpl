@@ -104,7 +104,6 @@ if [ "$__INTERACTIVE" == yes ]; then
 	esac
 fi
 
-# set PATH so it includes user's private bin if it exists
 [ -d ~/bin ] && PATH="$HOME/bin:$PATH" || true
 [ -d ~/.local/bin ] && PATH="$HOME/.local/bin:$PATH" || true
 {{ if $brew_prefix }}

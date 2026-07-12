@@ -143,7 +143,6 @@ if [[ "$args_command" == "put" ]]; then
   fi
 fi
 
-# check if the asset exists
 FOUND=yes
 ansi::out "Checking access to the file..."
 if ! aws s3api head-object --bucket "$JOT_AWS_S3_BUCKET" --key "$asset" &>/dev/null; then
@@ -522,10 +521,8 @@ fi
 
 # encode the file
 
-# Get the index of the last element
 last_index=$(( ${#extensions[@]} - 1 ))
 
-# Iterate from the last index down to 0
 for (( i = $last_index; i >= 0; --i )); do
   do_command e "${extensions[$i]}" "$file_name"
   file_name+=".${extensions[$i]}"

@@ -157,7 +157,7 @@ case "$args_command" in
       exit 0
     fi
 
-    # Atomic mode-preserving write: mktemp is 0600, chmod to source mode before mv.
+    # mktemp lands 0600 — restore the source mode before mv publishes the file
     tmp=$(mktemp "$pkg.XXXXXX")
     jq --indent 2 --arg d "$gh_desc" --argjson kw "$gh_topics" "$filter" "$pkg" >|"$tmp"
     mode=$(stat -c %a "$pkg" 2>/dev/null || stat -f %Lp "$pkg")
