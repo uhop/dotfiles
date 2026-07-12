@@ -36,11 +36,6 @@ args::option "--bash-completion" "Show bash completion"
 args::parse "$@"
 set -- "${args_cleaned[@]}"
 
-# Skip explicit command word from positional args
-if [[ -n "${1:-}" && -v "args_aliases[${1}]" && "${1:-}" != -* ]]; then
-  shift
-fi
-
 OPT_OUTPUT="table"
 [[ -v args_options["--output"] ]] && OPT_OUTPUT="${args_options["--output"]}"
 
