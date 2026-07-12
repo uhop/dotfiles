@@ -7,10 +7,10 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.1.0" "Optimize and convert images for the web" "https://github.com/uhop/dotfiles/wiki/imop"
+args::program "$script_name" "1.2.0" "Optimize and convert images for the web" "https://github.com/uhop/dotfiles/wiki/imop"
 
 args_program_header="${BOLD}imop${RESET_BOLD} optimizes and converts images for web use.
-Supports JPEG, PNG, WebP, AVIF with automatic tool selection."
+Supports JPEG, PNG, WebP, AVIF, JXL with automatic tool selection."
 
 args_program_usage="${BOLD}imop${RESET_BOLD} photo.jpg                # Optimize in place
 ${BOLD}imop${RESET_BOLD} photo.jpg photo.webp     # Convert to WebP
@@ -31,7 +31,7 @@ args::option "--best" "Use slow-but-best compressor"
 args::option "--to" "Target format for batch conversion" "EXT"
 args::option "--suffix" "Append tag to output names" "TAG"
 args::option "--no-suffix-on-top" "Replace extension instead of appending in batch+to (foo.webp not foo.jpg.webp)"
-args::option "--include-variants" "Process pre-generated variants (.webp/.avif siblings of .jpg/.png) in batch"
+args::option "--include-variants" "Process pre-generated variants (.webp/.avif/.jxl siblings of .jpg/.png) in batch"
 args::option "--min-ratio" "Drop output unless at least PCT% smaller; 0 = unconditional (default: 0)" "PCT"
 args::option "-j, --jobs" "Parallel jobs for batch (default: 1, 0 = nproc)" "N"
 args::option "-n, --dry-run" "Show commands without running"
@@ -91,6 +91,7 @@ TOOL_PNGQUANT=""
 TOOL_ZOPFLIPNG=""
 TOOL_CWEBP=""
 TOOL_AVIFENC=""
+TOOL_CJXL=""
 
 detect_tools() {
   command -v jpegoptim &>/dev/null && TOOL_JPEGOPTIM="jpegoptim" || true
@@ -101,6 +102,7 @@ detect_tools() {
   command -v zopflipng &>/dev/null && TOOL_ZOPFLIPNG="zopflipng" || true
   command -v cwebp &>/dev/null && TOOL_CWEBP="cwebp" || true
   command -v avifenc &>/dev/null && TOOL_AVIFENC="avifenc" || true
+  command -v cjxl &>/dev/null && TOOL_CJXL="cjxl" || true
 
   # mozjpeg is keg-only; check brew prefix
   if command -v brew &>/dev/null; then
@@ -144,13 +146,14 @@ normalize_ext() {
     png)      echo "png" ;;
     webp)     echo "webp" ;;
     avif)     echo "avif" ;;
+    jxl)      echo "jxl" ;;
     *)        echo "$1" ;;
   esac
 }
 
 is_image() {
   case "$(get_ext "$1")" in
-    jpg|jpeg|png|webp|avif) return 0 ;;
+    jpg|jpeg|png|webp|avif|jxl) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -244,14 +247,14 @@ make_output_name() {
   fi
 }
 
-# Returns 0 if `file` is a pre-generated variant (.webp/.avif) of a JPEG/PNG
-# source that exists alongside. Both naming schemes recognized:
+# Returns 0 if `file` is a pre-generated variant (.webp/.avif/.jxl) of a
+# JPEG/PNG source that exists alongside. Both naming schemes recognized:
 #   - suffix-on-top: foo.jpg.webp  → check for foo.jpg
 #   - extension-replace: foo.webp   → check for foo.{jpg,jpeg,png}
 is_variant_sibling() {
   local file="$1"
   case "$(get_ext "$file")" in
-    webp|avif) ;;
+    webp|avif|jxl) ;;
     *) return 1 ;;
   esac
 
@@ -432,6 +435,29 @@ optimize_file() {
       fi
       ;;
 
+    jxl)
+      if [ -z "$TOOL_CJXL" ]; then
+        require_tool "cjxl" "jpeg-xl"
+      fi
+      if [ "$OPT_LOSSLESS" -eq 1 ]; then
+        if [ "$in_place" -eq 1 ]; then
+          local tmp="${input}.tmp.jxl"
+          run_or_dry "$TOOL_CJXL" -d 0 "$input" "$tmp"
+          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+        else
+          run_or_dry "$TOOL_CJXL" -d 0 "$input" "$output"
+        fi
+      else
+        if [ "$in_place" -eq 1 ]; then
+          local tmp="${input}.tmp.jxl"
+          run_or_dry "$TOOL_CJXL" -q "$QUALITY" "$input" "$tmp"
+          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+        else
+          run_or_dry "$TOOL_CJXL" -q "$QUALITY" "$input" "$output"
+        fi
+      fi
+      ;;
+
     *)
       ansi::err "${ERROR}'$input' — unsupported format ($(get_ext "$input"))${RESET_ALL}"
       return 1
@@ -516,6 +542,20 @@ convert_file() {
         run_or_dry "$TOOL_AVIFENC" --lossless "$input" "$output"
       else
         run_or_dry "$TOOL_AVIFENC" -q "$QUALITY" "$input" "$output"
+      fi
+      ;;
+
+    jxl)
+      if [ -z "$TOOL_CJXL" ]; then
+        require_tool "cjxl" "jpeg-xl"
+      fi
+      # JPEG sources default to cjxl's bit-exact transcode; --lossy re-encodes
+      if [ "$(normalize_ext "$(get_ext "$input")")" = "jpeg" ] && [ "$OPT_LOSSY" -eq 0 ]; then
+        run_or_dry "$TOOL_CJXL" --lossless_jpeg=1 "$input" "$output"
+      elif [ "$OPT_LOSSLESS" -eq 1 ]; then
+        run_or_dry "$TOOL_CJXL" -d 0 "$input" "$output"
+      else
+        run_or_dry "$TOOL_CJXL" --lossless_jpeg=0 -q "$QUALITY" "$input" "$output"
       fi
       ;;
 
