@@ -318,7 +318,7 @@ Decision-table overrides (design §3.8):
 - `detect::should_force_ipv4` — no IPv6 route → consumer curl/wget should pass `-4`.
 
 Internals:
-- `detect::_version_normalize <raw>` — strips epoch (`1:`), Debian/RPM packaging suffixes (`-1ubuntu1`, `-3.fc39`), pre-release markers (`~rc1`, `-beta3`), build metadata (`+build4`). MVP — no SemVer pre-release ordering; single seam for a future port (`private_dot_local/private_share/utils/semver.js`).
+- `detect::_version_normalize <raw>` — strips epoch (`1:`), Debian/RPM packaging suffixes (`-1ubuntu1`, `-3.fc39`), pre-release markers (`~rc1`, `-beta3`), build metadata (`+build4`). MVP — no SemVer pre-release ordering; kept as the single seam for a future full-SemVer upgrade.
 - `detect::_version_compare <a> <b>` — component-wise numeric compare. Missing trailing components treated as 0.
 
 #### Section 4 — Diagnostics

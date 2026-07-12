@@ -59,8 +59,8 @@ dotfiles/                                          # chezmoi source directory
 │   │   ├── executable_pick                        # interactive command reference (fzf)
 │   │   ├── executable_upd.tmpl                    # system updater
 │   │   ├── executable_update-dependencies         # project dependency updater
-│   │   ├── executable_trim-node-versions.js       # trim old node versions
-│   │   ├── executable_update-node-versions.js     # update node major versions
+│   │   ├── executable_trim-node-versions          # trim old node versions (bash, nvm in-process)
+│   │   ├── executable_update-node-versions        # update node major versions (bash, nvm in-process)
 │   │   ├── executable_git-{br,brr,bs,mbs,pick,pull-main,super-clean}  # git helpers
 │   │   ├── executable_notify-on-failure           # generic failure email wrapper (launchd/cron)
 │   │   ├── executable_notify-playbash             # playbash notification wrapper (all platforms)
@@ -84,7 +84,7 @@ dotfiles/                                          # chezmoi source directory
 │   │   │   ├── sidecar.js                         # JSON-lines parser + summary + aggregator
 │   │   │   ├── staging.js                         # SSH helpers, file staging for vanilla hosts
 │   │   │   └── completion.bash                    # bash completion script
-│   │   ├── utils/                                 # general Node helpers
+│   │   ├── utils/                                 # general Node helpers (empty since 2026-07-11)
 │   │   │   ├── comp.js                            # sorting comparator/less-function adapters
 │   │   │   ├── semver.js                          # semver parsing
 │   │   │   └── nvm.js                             # nvm helper functions

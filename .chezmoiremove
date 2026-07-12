@@ -1,1 +1,6 @@
 .local/libs/flatpak-install.sh
+.local/bin/update-node-versions.js
+.local/bin/trim-node-versions.js
+.local/share/utils/comp.js
+.local/share/utils/nvm.js
+.local/share/utils/semver.js

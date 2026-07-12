@@ -70,11 +70,10 @@ _cln_docker() {
 }
 
 _cln_node() {
-  . "$(brew --prefix nvm)/nvm.sh"
   ansi::out "${INFO}Update major node versions...${RESET_ALL}"
-  update-node-versions.js
+  update-node-versions
   ansi::out "${INFO}Trim minor node versions...${RESET_ALL}"
-  trim-node-versions.js
+  trim-node-versions
 }
 
 # --- Run sections ---

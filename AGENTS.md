@@ -68,8 +68,8 @@ dotfiles/                              # chezmoi source directory
 │   │   ├── executable_pick            # Interactive command reference (fzf)
 │   │   ├── executable_upd.tmpl        # System updater (apt/dnf, snap, flatpak, brew, bun)
 │   │   ├── executable_update-dependencies   # Update project dependencies
-│   │   ├── executable_trim-node-versions.js    # Trim old node versions
-│   │   ├── executable_update-node-versions.js  # Update node major versions
+│   │   ├── executable_trim-node-versions       # Trim old node versions (bash, nvm in-process)
+│   │   ├── executable_update-node-versions     # Update node major versions (bash, nvm in-process)
 │   │   ├── executable_git-*           # Git helper scripts (incl. git-pick → pick git)
 │   │   ├── executable_notify-on-failure   # Generic failure wrapper (launchd/cron)
 │   │   ├── executable_notify-playbash     # Playbash notification wrapper (all platforms)
@@ -88,7 +88,7 @@ dotfiles/                              # chezmoi source directory
 │   │                                  # JSON-lines events to $PLAYBASH_REPORT when set)
 │   ├── private_share/                 # → ~/.local/share/ (private permissions)
 │   │   ├── playbash/                  # playbash runner modules (runner, render, inventory, sidecar, staging, transfer, commands, doctor, capabilities, errors, paths, shell-escape, subprocess, ssh-config, completion)
-│   │   ├── utils/                     # general Node helpers (comp, semver, nvm)
+│   │   ├── utils/                     # general Node helpers (empty since the 2026-07-11 bash conversion)
 │   │   └── private_gnome-shell/       # GNOME shell extensions
 │   └── vendors/                       # → ~/.local/vendors/ (fetched via .chezmoiexternal.toml)
 │       └── fzf-git.sh                 # fzf git integration (weekly refresh from upstream main)
@@ -215,7 +215,7 @@ The `dev-docs/` directory holds active design documents — long-lived reference
 - Do not hardcode paths — use `$HOME`, `~`, or `$(brew --prefix)`.
 - Platform-specific code goes in `.tmpl` files guarded by chezmoi template conditionals.
 - `sudo` operations check for group membership first (`groups "$(id -un)" | grep -qE '\b(sudo|admin|wheel)\b'`).
-- Node.js helper modules live under `private_share/utils/` (general) and `private_share/playbash/` (runner-specific). They deploy to `~/.local/share/utils/` and `~/.local/share/playbash/` respectively. Executables in `bin/` import them via relative paths like `../share/utils/nvm.js`.
+- Node.js helper modules live under `private_share/playbash/` (runner-specific); they deploy to `~/.local/share/playbash/`. The general `private_share/utils/` helpers (comp/semver/nvm) retired 2026-07-11 with the node-version tools' JS→bash conversion — a Node script cannot safely switch or prune the Node version executing it.
 - Maintenance scripts (`upd`, `cln`) source `~/.local/libs/maintenance.sh` for shared `report_reboot` / `report_warn` / `report_action` helpers. Each helper prints a colored message via options.bash AND writes a JSON-lines event to `$PLAYBASH_REPORT` when the script runs under the playbash runner. The helpers do not depend on `playbash.sh`; the JSON writer is inlined.
 - The playbash runner (`~/.local/bin/playbash`) is a multi-host playbook runner (v1–v3 complete, v3.4+). Subcommands: `run`, `push`, `debug`, `exec`, `put`, `get`, `list`, `hosts`, `log`, `doctor`. Targets always come first: `playbash <cmd> <targets> <rest>`. The special target `@self` resolves to the local hostname and implies `--self` — used for scheduled local runs. Options include `--sudo` (prompt once for a password; for run/exec/push/debug injects via PTY stdin relay; for put/get wraps remote commands with `sudo -S` and prepends the password to stdin) and `--report` (writes a plain-text summary of actionable events to stdout for notification wrappers). `log` supports `--stats` (per-host/per-command breakdown with `--by-command`) and `--prune AGE` (dry-run by default, `--apply` to delete, `--verbose` to list files; ages like `2w`, `7d`, `24h`). `doctor` includes run log file count and size and probes per-host `zstd` availability (warms the capability cache at `~/.cache/playbash/capabilities/<host>.json`). Every byte-transport path in playbash — directory `put`/`get` (tar), single-file `put`/`get`, directory staging, and single-file staging (wrapper/helper/custom playbook pushes) — compresses with zstd when both ends have it; single-file paths compress unconditionally and trade ~1-2% framing overhead on already-compressed content for consistency. Falls back to raw transport if either side lacks zstd — never fails a transfer on a capability miss. Inventory hosts are managed; bare ssh aliases get playbooks pushed automatically. See [Playbash Server Management](https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management) on the wiki and [`dev-docs/playbash-design.md`](./dev-docs/playbash-design.md) for technical rationale.
 - Periodic task scheduling uses `setup-periodic` to create systemd timers (Linux) or launchd system daemons (macOS). The primary pattern is `playbash run @self daily --report` on each managed host. Notification wrappers (`notify-playbash`, `notify-on-failure`, `notify-systemd-failure`) handle failure emails via msmtp/sendmail. See [`dev-docs/periodic-tasks-design.md`](./dev-docs/periodic-tasks-design.md) for rationale.
