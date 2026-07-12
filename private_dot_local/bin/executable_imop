@@ -7,7 +7,7 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.1.0" "Optimize and convert images for the web" "https://github.com/uhop/dotfiles/wiki/Imop"
+args::program "$script_name" "1.1.0" "Optimize and convert images for the web" "https://github.com/uhop/dotfiles/wiki/imop"
 
 args_program_header="${BOLD}imop${RESET_BOLD} optimizes and converts images for web use.
 Supports JPEG, PNG, WebP, AVIF with automatic tool selection."

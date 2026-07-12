@@ -121,7 +121,7 @@ Supported platforms: Ubuntu (Debian), Red Hat-like (Fedora, RHEL, CentOS, Rocky,
 
 # More information
 
-See the [wiki](https://github.com/uhop/dotfiles/wiki) for:
+See the **[wiki](https://github.com/uhop/dotfiles/wiki)** &mdash; browse the [index](https://github.com/uhop/dotfiles/wiki/Home), or [search it](https://uhop.github.io/wiki-search/app/?wiki=uhop/dotfiles) by name &mdash; for:
 
 - **[Shell Environment](https://github.com/uhop/dotfiles/wiki/Shell-Environment)** &mdash; `.bashrc` / `.bash_aliases` setup, prompt, completions, navigation
 - **[Git Configuration](https://github.com/uhop/dotfiles/wiki/Git-Configuration)** &mdash; aliases, pretty formats, custom git commands

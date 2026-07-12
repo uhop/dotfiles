@@ -2,9 +2,11 @@ README.md
 AGENTS.md
 ARCHITECTURE.md
 CLAUDE.md
+LICENSE
 llms.txt
 install.sh
 .claude/**
+.github
 .clinerules
 .cursor
 .cursorrules

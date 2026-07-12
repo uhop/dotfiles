@@ -135,7 +135,7 @@ Sniffed values from the detection library under `.detect.*` (see `dev-docs/boots
 - **Minimal external dependencies.** Prefer standard system tools and already-available solutions over adding new packages. Every external dependency must be explicitly discussed, justified, approved, and documented (what and why). When in doubt, code it rather than import it.
 - **Bash 4.0+** for all shell scripts. Start with `#!/usr/bin/env bash`.
 - **`set -euCo pipefail`** and **`shopt -s expand_aliases`** at the top of every utility script.
-- **Do not add comments or remove comments** unless explicitly asked.
+- **No comments that narrate the code.** Comments are short *why*-markers only — a non-trivial decision or constraint, an algorithm reference, or explicitly requested docs; never a restatement of *what* the code does. Strip narrating comments opportunistically in files you already touch.
 - **Do not modify or delete test scripts** without understanding what they verify.
 - **Bash utilities with options or non-trivial output must use `options.bash`** (via `. ~/.local/libs/bootstrap.sh`). It handles option parsing, help screens, colored output, terminal-aware formatting, and shell completions (bash today; zsh/fish in the future). It is a controlled dependency (same author) and should be the default choice over hand-rolled argument parsing or raw `echo`/`printf` for user-facing output. If a utility pattern exposes a generic gap in options.bash, flag it — improvements flow back to the library.
 - **`args_cleaned` is an array.** Use `set -- "${args_cleaned[@]}"` (not `eval set -- "${args_cleaned}"`).

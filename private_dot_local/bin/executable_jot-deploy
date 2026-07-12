@@ -9,7 +9,7 @@ script_name=$(basename "$0")
 
 deps::need jot tar
 
-args::program "$script_name" "1.0.0" "Download a jot-bundle and install files per its embedded manifest" "https://github.com/uhop/dotfiles/wiki/Jot#bundle-helpers"
+args::program "$script_name" "1.0.0" "Download a jot-bundle and install files per its embedded manifest" "https://github.com/uhop/dotfiles/wiki/jot#bundle-helpers"
 
 args_program_header="${BOLD}jot-deploy${RESET_BOLD} downloads a bundle uploaded by ${BOLD}jot-bundle${RESET_BOLD},
 reads the embedded manifest, and either reports the diff (default) or installs

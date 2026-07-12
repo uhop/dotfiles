@@ -9,7 +9,7 @@ script_name=$(basename "$0")
 
 deps::need jot tar
 
-args::program "$script_name" "1.0.0" "Bundle system files per a manifest and upload via jot" "https://github.com/uhop/dotfiles/wiki/Jot#bundle-helpers"
+args::program "$script_name" "1.0.0" "Bundle system files per a manifest and upload via jot" "https://github.com/uhop/dotfiles/wiki/jot#bundle-helpers"
 
 args_program_header="${BOLD}jot-bundle${RESET_BOLD} gathers files listed in a manifest, packs them
 into a tarball under a two-tier ${BOLD}home/${RESET_BOLD} + ${BOLD}root/${RESET_BOLD} layout,

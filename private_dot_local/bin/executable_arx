@@ -8,7 +8,7 @@ shopt -s expand_aliases
 script_dir="$(dirname "$(readlink -f "$0")")"
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.1" "View/extract archives" "https://github.com/uhop/dotfiles/wiki/Arx"
+args::program "$script_name" "1.0.1" "View/extract archives" "https://github.com/uhop/dotfiles/wiki/arx"
 
 args_program_header="${BOLD}arx${RESET_BOLD} views and extracts archives of various types.
 Handles compression and archive formats automatically."

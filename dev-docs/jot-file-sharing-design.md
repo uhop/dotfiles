@@ -366,7 +366,7 @@ S3 bucket versioning can keep old versions of shared files automatically. This i
 
 ## What to document in the wiki
 
-Add a "Sharing sensitive files" section to the [Jot wiki page](https://github.com/uhop/dotfiles/wiki/Jot) covering:
+Add a "Sharing sensitive files" section to the [Jot wiki page](https://github.com/uhop/dotfiles/wiki/jot) covering:
 
 - The `sys/` naming convention
 - Upload/download workflow with permission notes

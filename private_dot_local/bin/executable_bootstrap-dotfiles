@@ -124,7 +124,7 @@ if (( ${#missing[@]} > 0 )); then
   ansi::warn ""
   ansi::warn "These secrets must arrive out-of-band (USB, password manager, scp from another machine)"
   ansi::warn "before --from-jot can pull anything from S3. See:"
-  ansi::warn "  ${BOLD}https://github.com/$GITHUB_USER/dotfiles/wiki/Jot#bootstrap-sequence${RESET_ALL}"
+  ansi::warn "  ${BOLD}https://github.com/$GITHUB_USER/dotfiles/wiki/jot#bootstrap-sequence${RESET_ALL}"
   exit 1
 fi
 

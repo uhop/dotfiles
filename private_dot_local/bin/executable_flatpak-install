@@ -10,7 +10,7 @@ deps::need flatpak
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Install flatpak packages, dispatching between --system and --user" "https://github.com/uhop/dotfiles/wiki/Flatpak-Install"
+args::program "$script_name" "1.0.0" "Install flatpak packages, dispatching between --system and --user" "https://github.com/uhop/dotfiles/wiki/flatpak‐install"
 
 args_program_usage="${args_help_program}${args_program_name}${args_help_reset} ${args_help_option}[options]${args_help_reset} ${args_help_command_arg}<package>...${args_help_reset}"
 

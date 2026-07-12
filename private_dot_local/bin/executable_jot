@@ -10,7 +10,7 @@ script_name=$(basename "$0")
 
 deps::need aws
 
-args::program "$script_name" "1.2.0" "Encrypted notes editor using S3" "https://github.com/uhop/dotfiles/wiki/Jot"
+args::program "$script_name" "1.2.0" "Encrypted notes editor using S3" "https://github.com/uhop/dotfiles/wiki/jot"
 
 args_program_header="${BOLD}Jot${RESET_BOLD} reads and writes notes as text files using S3 as storage.
 Files are decoded by extension (e.g. ${BOLD}.gz.age${RESET_BOLD} is decrypted then decompressed)."

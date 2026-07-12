@@ -9,7 +9,7 @@ deps::need gh jq
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.0.0" "Sync package.json metadata with the GitHub repo (About + topics)" "https://github.com/uhop/dotfiles/wiki/Ghmeta"
+args::program "$script_name" "1.0.0" "Sync package.json metadata with the GitHub repo (About + topics)" "https://github.com/uhop/dotfiles/wiki/ghmeta"
 
 args_program_header="${BOLD}ghmeta${RESET_BOLD} copies ${BOLD}description${RESET_BOLD} and ${BOLD}keywords${RESET_BOLD}/topics between package.json and the GitHub repo.
 The repo resolves from the current git remote; package.json from the git toplevel.
