@@ -47,11 +47,10 @@ if len(sys.argv) < 2:
     sys.stderr.write("usage: playbash-wrap.py <playbook> [args...]\n")
     sys.exit(2)
 
-# A named playbook is deliberately allowed to exist on only some hosts, so
-# "not here" is a skip, not a failure. Report it before pty.fork, where the
-# marker still reaches the runner's real stdout and can't be confused with a
-# playbook that merely exits 127 of its own accord. Bare names are left to
-# execvp's PATH search — the child's handler below covers those.
+# A named playbook may legitimately exist on only some hosts, so "not here"
+# is a skip, not a failure. Pre-fork so the marker reaches real stdout and
+# can't be confused with a playbook that itself exits 127; bare names fall
+# through to execvp's PATH search below.
 target = sys.argv[1]
 if "/" in target and not os.access(target, os.X_OK):
     os.write(1, b"__playbash_wrap_noexec\n")
