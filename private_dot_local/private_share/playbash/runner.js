@@ -408,6 +408,7 @@ async function runHost({
     }
   };
 
+  let noExec = false;
   let result;
   try {
     result = await new Promise((resolve, reject) => {
@@ -520,6 +521,7 @@ async function runHost({
       let preambleParsed = false;
       let preambleBuf = Buffer.alloc(0);
       const PREAMBLE_RE = /^__playbash_wrap_pid (\d+)\r?\n/;
+      const NOEXEC_RE = /^__playbash_wrap_noexec\r?\n/;
       const stripPreamble = chunk => {
         if (preambleParsed) return chunk;
         preambleBuf = Buffer.concat([preambleBuf, chunk]);
@@ -530,6 +532,9 @@ async function runHost({
         let rest;
         if (m && nl >= 0) {
           recordRemoteWrapperPid(child.pid, parseInt(m[1], 10));
+          rest = preambleBuf.subarray(nl + 1);
+        } else if (nl >= 0 && NOEXEC_RE.test(head)) {
+          noExec = true;
           rest = preambleBuf.subarray(nl + 1);
         } else {
           rest = preambleBuf;
@@ -627,8 +632,12 @@ async function runHost({
   // wait-status from the wrapped script). The status word reflects the
   // detection signal so the user can distinguish "needs sudo" from a
   // genuine non-zero exit.
-  const ok = !stuckReason && !result.signal && result.code === 0;
-  const statusWord = stuckReason
+  // The wrapper's noexec marker means the playbook is not deployed here —
+  // an expected per-host absence, reported like a template miss.
+  const ok = noExec || (!stuckReason && !result.signal && result.code === 0);
+  const statusWord = noExec
+    ? 'skipped'
+    : stuckReason
     ? stuckReason === 'sudo'
       ? 'needs sudo'
       : stuckReason === 'wrong password'

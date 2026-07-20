@@ -47,6 +47,16 @@ if len(sys.argv) < 2:
     sys.stderr.write("usage: playbash-wrap.py <playbook> [args...]\n")
     sys.exit(2)
 
+# A named playbook is deliberately allowed to exist on only some hosts, so
+# "not here" is a skip, not a failure. Report it before pty.fork, where the
+# marker still reaches the runner's real stdout and can't be confused with a
+# playbook that merely exits 127 of its own accord. Bare names are left to
+# execvp's PATH search — the child's handler below covers those.
+target = sys.argv[1]
+if "/" in target and not os.access(target, os.X_OK):
+    os.write(1, b"__playbash_wrap_noexec\n")
+    sys.exit(127)
+
 # Announce our PID to the runner over stdout BEFORE pty.fork. This is the
 # load-bearing piece of the cleanup story under ssh ControlMaster: when
 # the operator hits Ctrl+C, the runner sends SIGTERM to its local ssh
@@ -63,7 +73,13 @@ except OSError:
 
 pid, fd = pty.fork()
 if pid == 0:
-    os.execvp(sys.argv[1], sys.argv[1:])
+    try:
+        os.execvp(sys.argv[1], sys.argv[1:])
+    except OSError as e:
+        # _exit, not exit: a forked child must not run atexit handlers or
+        # flush stdio buffers it inherited from the parent.
+        os.write(2, f"playbash-wrap: cannot exec {sys.argv[1]}: {e.strerror}\n".encode())
+    os._exit(127)
 
 done = False
 def _kill(*_):
