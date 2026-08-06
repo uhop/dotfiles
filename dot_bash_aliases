@@ -373,6 +373,36 @@ kssht() {
   kitten ssh -t "$1" "$TMUX || bash"
 }
 
+## herdr helpers — the tmux helpers above with an `h` suffix
+
+sshh() {
+  local session_name="$2"
+  local session_name="${session_name:=std}"
+  local HERDR="(command -v herdr &> /dev/null && herdr --session $session_name)"
+  ssh -t "$1" "$HERDR || bash"
+}
+
+moshh() {
+  local session_name="$2"
+  local session_name="${session_name:=std}"
+  local HERDR="herdr --session $session_name"
+  mosh "$1" -- $HERDR
+}
+
+eth() {
+  local session_name="$2"
+  local session_name="${session_name:=std}"
+  local HERDR="(command -v herdr &> /dev/null && herdr --session $session_name)"
+  et "$1" -c "$HERDR || bash"
+}
+
+ksshh() {
+  local session_name="$2"
+  local session_name="${session_name:=std}"
+  local HERDR="(command -v herdr &> /dev/null && herdr --session $session_name)"
+  kitten ssh -t "$1" "$HERDR || bash"
+}
+
 ## remote-GUI helpers
 
 # Run a remote app and display its window locally over SSH via waypipe.

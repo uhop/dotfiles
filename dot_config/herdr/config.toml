@@ -1,0 +1,13 @@
+onboarding = false
+
+[theme]
+name = "dracula"
+
+[ui]
+# Left panel closed on launch; set collapsed_mode = "hidden" for zero width.
+sidebar_start_collapsed = true
+# sidebar_collapsed_mode = "hidden"
+
+[advanced]
+# tmux history-limit 1000000 equivalent (herdr counts bytes, not lines).
+scrollback_limit_bytes = 100000000
