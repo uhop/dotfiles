@@ -1,4 +1,5 @@
-Include config.d/*
+# Absolute: et's ssh-config parser resolves a relative Include against the cwd, then aborts
+Include ~/.ssh/config.d/*
 
 Host *
   AddKeysToAgent yes
