@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Label the current herdr tab "host:owner/repo", or "host:~/path" outside a repo
+# root, so the tab row says which machine and which project.
+#
+# Hand-typed labels are left alone: only a herdr-generated label (a bare number)
+# or one this script wrote (host: prefix) is overwritten. herdr has no
+# automatic-rename flag to disable, so the prefix is what stands in for one.
+
+set -u
+
+[ "${HERDR_ENV:-}" = 1 ] || exit 0
+[ -n "${HERDR_SOCKET_PATH:-}" ] && [ -S "$HERDR_SOCKET_PATH" ] || exit 0
+# HERDR_ENV is inherited, so tmux started inside a herdr pane would otherwise
+# relabel the herdr tab from tmux's cwd. Leave tmux sessions alone.
+[ -z "${TMUX:-}" ] || exit 0
+command -v herdr >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || exit 0
+
+host=$(hostname -s)
+
+tab=$(herdr pane current 2>/dev/null | jq -r '.result.pane.tab_id // empty')
+[ -n "$tab" ] || exit 0
+
+current=$(herdr tab list 2>/dev/null |
+	jq -r --arg t "$tab" '.result.tabs[] | select(.tab_id == $t) | .label // empty')
+
+[[ -z $current || $current =~ ^[0-9]+$ || $current == "$host:"* ]] || exit 0
+
+url=
+[ -f .git/config ] &&
+	url=$(awk '/^\[remote "origin"\]/{f=1;next} /^\[/{f=0} f && $1=="url"{print $3; exit}' .git/config)
+
+if [ -n "$url" ]; then
+	slug=${url%.git}
+	slug=${slug##*:}
+	slug=$(printf '%s\n' "$slug" | awk -F/ '{if (NF>=2) print $(NF-1)"/"$NF; else print $NF}')
+else
+	slug=${PWD/#$HOME/\~}
+fi
+
+label="$host:$slug"
+[ "$label" = "$current" ] && exit 0
+
+herdr tab rename "$tab" "$label" >/dev/null 2>&1 || true
+exit 0

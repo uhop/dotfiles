@@ -104,6 +104,19 @@ if [ "$__INTERACTIVE" == yes ]; then
 	esac
 fi
 
+# Keep the herdr tab labelled host:owner/repo as the directory changes. Only
+# inside a herdr pane and never under tmux, so bare bash and tmux are untouched.
+# Appended after gitprompt.sh, which owns PROMPT_COMMAND. Subshell so the
+# background job never prints a [1]+ notice.
+if [ "$__INTERACTIVE" == yes ] && [ "${HERDR_ENV:-}" = 1 ] && [ -z "${TMUX:-}" ]; then
+	__herdr_tab_label() {
+		[ "$PWD" = "${__HERDR_TAB_PWD:-}" ] && return 0
+		__HERDR_TAB_PWD=$PWD
+		( herdr-tab-label & )
+	}
+	PROMPT_COMMAND="__herdr_tab_label${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+fi
+
 [ -d ~/bin ] && PATH="$HOME/bin:$PATH" || true
 [ -d ~/.local/bin ] && PATH="$HOME/.local/bin:$PATH" || true
 {{ if $brew_prefix }}
