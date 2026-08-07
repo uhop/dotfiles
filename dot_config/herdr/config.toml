@@ -3,6 +3,12 @@ onboarding = false
 [theme]
 name = "dracula"
 
+# Inactive tab labels are near-illegible on a laptop screen. No tab-specific
+# token exists (config check rejects tab_inactive_fg); overlay0 is the one that
+# draws them, and it also draws sidebar titles (those stay bold).
+[theme.custom]
+overlay0 = "#dfe3f2"
+
 [ui]
 # Left panel closed on launch; set collapsed_mode = "hidden" for zero width.
 sidebar_start_collapsed = true
