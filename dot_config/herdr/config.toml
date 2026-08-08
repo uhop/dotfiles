@@ -14,6 +14,11 @@ overlay0 = "#dfe3f2"
 sidebar_start_collapsed = true
 # sidebar_collapsed_mode = "hidden"
 
+# Default "" leaves pane apps with no right-click at all; ctrl+right-click now
+# reaches editors/TUIs while plain right-click keeps herdr's pane menu.
+# (shift is rejected as a modifier here.)
+right_click_passthrough_modifier = "ctrl"
+
 [advanced]
 # tmux history-limit 1000000 equivalent (herdr counts bytes, not lines).
 scrollback_limit_bytes = 100000000
