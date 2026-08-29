@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# fleet-status — the claude-config fleet-status skill's script on $PATH, so the
+# GitHub dashboard reads the same outside a Claude Code session:
+#
+#   fleet-status show --cwd                      # this repository: stored baseline + movement
+#   fleet-status show --repo OWNER/NAME
+#   fleet-status show --fleet [--since 7d]       # the brief over the stored runs
+#   fleet-status show --fleet --table            # standing counts per repository
+#   fleet-status collect --fleet --brief --out FILE && fleet-status commit FILE
+#
+# A shim, not a copy: the script lives in ~/.claude/skills/fleet-status, a
+# claude-config symlink kept current by claude-config-update.
+
+set -u
+
+SCRIPT="$HOME/.claude/skills/fleet-status/fleet-status.mjs"
+if [ ! -f "$SCRIPT" ]; then
+  echo "fleet-status: $SCRIPT is missing — install claude-config (claude-config-update)" >&2
+  exit 2
+fi
+
+exec node "$SCRIPT" "$@"
