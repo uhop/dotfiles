@@ -14,14 +14,18 @@ playbash_section chezmoi       chezmoi update
 playbash_section claude-config claude-config-update
 
 {{ if eq .chezmoi.hostname "croc" -}}
-# GitHub-side fleet state (claude-config's fleet-status skill, on $PATH via the
-# shim): collect every public repository, then commit the run — the baselines
-# in the vault's projects/<name>/state.md and the fleet digest — so a later
-# `/fleet-status show --fleet` reads the movement from the vault. One host
-# only: a second collection the same day finds what the first consumed. Runs
-# after claude-config-update so the script is current; needs the vault env
-# (~/.env) and a gh login in the invoking shell, and fails as a section, never
-# silently, without them. Manual cadence by ruling (2026-09-05): no cron.
+# Fleet state (claude-config's fleet-status skill, on $PATH via the shim): the
+# GitHub side of every public repository and the npm side of every published
+# package (downloads, versions, deps.dev dependents, the fleet-deps graph),
+# then commit the run — the `## GitHub` and `## Packages` baselines in the
+# vault's projects/<name>/state.md and the fleet digest — so a later
+# `/fleet-status show --fleet` and /ui/fleet.html read it from the vault. One
+# host only: a second collection the same day finds what the first consumed.
+# Runs after chezmoi update and claude-config-update so fleet-deps and the
+# script are current; needs the vault env (~/.env) and a gh login in the
+# invoking shell, and fails as a section, never silently, without them. The
+# npm and deps.dev reads need no keys. Manual cadence by ruling (2026-09-05):
+# no cron.
 playbash_section fleet-status  sh -c 'F=$(mktemp) && fleet-status collect --fleet --out "$F" && fleet-status commit "$F"; rc=$?; rm -f "$F"; exit $rc'
 
 {{ end -}}
