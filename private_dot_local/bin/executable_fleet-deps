@@ -10,12 +10,12 @@
 // cache from a previous run > $GITHUB_USERNAME (or "uhop" if unset).
 // Whatever was last fetched persists. See --help for invocation details.
 
-import {execSync, spawnSync} from 'node:child_process';
+import {execFile, execSync} from 'node:child_process';
 import {writeFileSync, readFileSync, existsSync, mkdirSync, statSync} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const DEFAULT_ORG = process.env.GITHUB_USERNAME || 'uhop';
 
 const args = process.argv.slice(2);
@@ -84,7 +84,14 @@ const sortedEq = (a, b) => {
   return as.every((v, i) => v === bs[i]);
 };
 
-function fetchFromGitHub(orgs) {
+const ghApiAsync = argv =>
+  new Promise(resolve =>
+    execFile('gh', argv, {encoding: 'utf8', maxBuffer: 64 * 1024 * 1024}, (err, stdout, stderr) =>
+      resolve({status: err ? (err.code ?? 1) : 0, stdout, stderr})
+    )
+  );
+
+async function fetchFromGitHub(orgs) {
   try {
     execSync('gh --version', {stdio: 'ignore'});
   } catch {
@@ -94,9 +101,9 @@ function fetchFromGitHub(orgs) {
     process.exit(1);
   }
 
-  // gh api is rate-limited but we have plenty of budget; do it serially in
-  // small batches to avoid hammering. ~50 calls completes in seconds.
-  const batchSize = 8;
+  // gh api is rate-limited but we have plenty of budget; eight concurrent reads
+  // keep ~60 calls to a few seconds (sequential took 27 s on 2026-09-14).
+  const concurrency = 8;
   const pkgs = [];
   for (const org of orgs) {
     process.stderr.write(`fetching repo list for ${org}…\n`);
@@ -107,37 +114,45 @@ function fetchFromGitHub(orgs) {
       )
     ).filter(r => !r.isArchived && !r.isFork);
 
-    process.stderr.write(`  ${list.length} package.json files (batches of ${batchSize})…\n`);
-    for (let i = 0; i < list.length; i += batchSize) {
-      const batch = list.slice(i, i + batchSize);
-      const results = batch.map(r => {
-        const ref = r.defaultBranchRef?.name ?? 'main';
-        const result = spawnSync(
-          'gh',
-          ['api', `repos/${org}/${r.name}/contents/package.json?ref=${ref}`, '--jq', '.content'],
-          {encoding: 'utf8'}
-        );
-        if (result.status !== 0) {
-          const stderr = (result.stderr ?? '').trim();
-          // 404 == repo has no package.json (expected). Anything else
-          // (auth, rate-limit, network, 5xx) gets surfaced.
-          if (!stderr.includes('HTTP 404')) {
-            process.stderr.write(`  ${org}/${r.name}: ${stderr.split('\n')[0] || 'gh api failed'}\n`);
-          }
-          return null;
+    process.stderr.write(`  ${list.length} package.json files (${concurrency} at a time)…\n`);
+    const fetchOne = async r => {
+      const ref = r.defaultBranchRef?.name ?? 'main';
+      const result = await ghApiAsync([
+        'api',
+        `repos/${org}/${r.name}/contents/package.json?ref=${ref}`,
+        '--jq',
+        '.content'
+      ]);
+      if (result.status !== 0) {
+        const stderr = (result.stderr ?? '').trim();
+        // 404 == repo has no package.json (expected). Anything else
+        // (auth, rate-limit, network, 5xx) gets surfaced.
+        if (!stderr.includes('HTTP 404')) {
+          process.stderr.write(`  ${org}/${r.name}: ${stderr.split('\n')[0] || 'gh api failed'}\n`);
         }
-        const out = result.stdout.trim();
-        if (!out) return null;
-        try {
-          const pkg = JSON.parse(Buffer.from(out, 'base64').toString('utf8'));
-          return {org, repo: r.name, branch: ref, pkg};
-        } catch (e) {
-          process.stderr.write(`  ${org}/${r.name}: failed to parse package.json: ${e.message}\n`);
-          return null;
-        }
-      });
-      for (const r of results) if (r) pkgs.push(r);
-    }
+        return null;
+      }
+      const out = result.stdout.trim();
+      if (!out) return null;
+      try {
+        const pkg = JSON.parse(Buffer.from(out, 'base64').toString('utf8'));
+        return {org, repo: r.name, branch: ref, pkg};
+      } catch (e) {
+        process.stderr.write(`  ${org}/${r.name}: failed to parse package.json: ${e.message}\n`);
+        return null;
+      }
+    };
+    // Results keep the repo-list order, so the cache file does not churn.
+    const results = new Array(list.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < list.length) {
+        const i = next++;
+        results[i] = await fetchOne(list[i]);
+      }
+    };
+    await Promise.all(Array.from({length: Math.min(concurrency, list.length)}, worker));
+    for (const r of results) if (r) pkgs.push(r);
   }
   return {fetchedAt: new Date().toISOString(), orgs, pkgs};
 }
@@ -154,7 +169,7 @@ if (cacheFresh) {
   data = cached;
   process.stderr.write(`using cache from ${data.fetchedAt} (orgs: ${data.orgs.join(', ')})\n`);
 } else {
-  data = fetchFromGitHub(orgs);
+  data = await fetchFromGitHub(orgs);
   writeFileSync(cacheFile, JSON.stringify(data, null, 2));
 }
 
