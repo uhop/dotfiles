@@ -12,15 +12,18 @@ deps::need docker jq
 
 # --- Program definition ---
 
-args::program "$script_name" "1.5.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/dcm"
+args::program "$script_name" "1.6.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/dcm"
 
 args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service lifecycles
 with automatic AppArmor recovery on Linux. Optional per-stack scripts
 (daily.sh / weekly.sh / health.sh / pre-update.sh / post-update.sh)
-extend the lifecycle without compose-yaml changes."
+extend the lifecycle without compose-yaml changes. A sweep over a parent
+directory refreshes what is running and starts nothing: stopped and downed
+stacks stay as they are, and a .dcm-skip file keeps a stack out of sweeps."
 
 args_program_usage="${BOLD}dcm${RESET_BOLD}                          # Update current dir (pull + up)
 ${BOLD}dcm${RESET_BOLD} update ~/servers/monitor # Update specific setup
+${BOLD}dcm${RESET_BOLD} ~/servers                # Sweep: refresh what runs, start nothing
 ${BOLD}dcm${RESET_BOLD} status ~/servers         # Status for all setups under ~/servers
 ${BOLD}dcm${RESET_BOLD} daily ~/servers          # Run daily.sh for each setup (no-op if absent)
 ${BOLD}dcm${RESET_BOLD} check ~/servers          # Run health.sh for each setup
@@ -56,6 +59,9 @@ DRY_RUN=0
 
 OPT_FORCE=0
 [[ -v args_options["--force"] ]] && OPT_FORCE=1
+
+DCM_SKIP_FILE=".dcm-skip"
+DCM_SWEEP=0
 
 IS_LINUX=0
 [[ "$(uname -s)" == "Linux" ]] && IS_LINUX=1
@@ -244,35 +250,144 @@ report_changes() {
   fi
 }
 
-# Show a compact one-line-per-service status summary. Includes stopped/exited
-# services (-a) so a fully-down stack is visible as ✗ lines instead of silence.
-# Uses ASCII Unit Separator (\x1f) instead of \t because bash's `read` collapses
-# consecutive whitespace IFS chars, which would shift fields when Health is empty.
-report_status() {
-  local service state health status printed=0
-  while IFS=$'\x1f' read -r service state health status; do
-    [[ -z "$service" ]] && continue
-    printed=1
-    case "$state" in
+# One line per container: id, service, class, docker status, exit code,
+# restart count. \x1f separates fields because `read` collapses runs of IFS
+# whitespace, which shifts fields when Health is empty. Under always /
+# unless-stopped an exited container was stopped by hand: the daemon would
+# have restarted a crash. Under no / on-failure only the exit code tells,
+# and 137 / 143 are SIGKILL / SIGTERM.
+classify_containers() {
+  local ids
+  ids="$(docker compose ps -a -q 2>/dev/null)" || return 0
+  [ -n "$ids" ] || return 0
+  local since
+  since="$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%S)"
+  local id service status exit oom policy health restarts finished class
+  while IFS=$'\x1f' read -r id service status exit oom policy health restarts finished; do
+    [ -n "$id" ] || continue
+    case "$status" in
       running)
-        if [[ "$health" == "unhealthy" ]]; then
-          ansi::out "  ${WARN}$service${RESET_ALL}: running (unhealthy)"
+        if [[ "$health" == unhealthy ]]; then
+          class=unhealthy
+        elif (( restarts > 0 )) && [[ "$finished" > "$since" ]]; then
+          class=flapping
         else
-          ansi::out "  ${OK}✓${RESET_ALL} $service: $status"
+          class=running
         fi
         ;;
-      *)
-        local label="$state"
-        [[ -n "$health" ]] && label="$state ($health)"
-        ansi::out "  ${ERROR}✗${RESET_ALL} $service: $label — $status"
+      restarting) class=restarting ;;
+      exited|dead|created)
+        if [[ "$oom" == true ]]; then
+          class=crashed
+        elif [[ "$policy" == always || "$policy" == unless-stopped ]]; then
+          class=stopped
+        else
+          case "$exit" in
+            0|137|143) class=stopped ;;
+            *) class=crashed ;;
+          esac
+        fi
+        ;;
+      *) class=stopped ;;
+    esac
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$id" "$service" "$class" "$status" "$exit" "$restarts"
+  done < <(xargs docker inspect --format '{{.ID}}{{"\x1f"}}{{index .Config.Labels "com.docker.compose.service"}}{{"\x1f"}}{{.State.Status}}{{"\x1f"}}{{.State.ExitCode}}{{"\x1f"}}{{.State.OOMKilled}}{{"\x1f"}}{{.HostConfig.RestartPolicy.Name}}{{"\x1f"}}{{if .State.Health}}{{.State.Health.Status}}{{end}}{{"\x1f"}}{{.RestartCount}}{{"\x1f"}}{{.State.FinishedAt}}' <<< "$ids" 2>/dev/null)
+}
+
+# Filter: classify_containers lines in, the services a sweep may touch out.
+targets_of() {
+  local id service class rest
+  while IFS=$'\x1f' read -r id service class rest; do
+    [[ "$class" == stopped ]] || echo "$service"
+  done | sort -u
+}
+
+# Prints why a sweep leaves DIR alone and returns 0; returns 1 when the stack
+# is a sweep target. A daily.sh / weekly.sh decides for its own stack.
+sweep_skip_reason() (
+  cd "$1"
+  local cmd="$2"
+  if [ -e "$DCM_SKIP_FILE" ]; then
+    echo "$DCM_SKIP_FILE present"
+    return 0
+  fi
+  if [[ "$cmd" == daily && -e ./daily.sh ]] || [[ "$cmd" == weekly && -e ./weekly.sh ]]; then
+    return 1
+  fi
+  local lines
+  lines="$(classify_containers)"
+  if [ -z "$lines" ]; then
+    echo "not deployed"
+    return 0
+  fi
+  [ -z "$(targets_of <<< "$lines")" ] || return 1
+  echo "stopped, $(docker compose ps -a --format '{{.Status}}' 2>/dev/null | head -1)"
+  return 0
+)
+
+# Under playbash the daily mail carries only action / error events, so a
+# container in trouble files one naming the stack; interactive runs stay quiet.
+report_trouble_event() {
+  [ -n "${PLAYBASH_REPORT:-}" ] || return 0
+  playbash_action container-trouble "$2" --target "$1"
+}
+
+# What was in trouble before this run touched anything, so a crash the update
+# fixes is still reported once.
+report_trouble() {
+  local stack="$1" id service class status exit restarts msg found=0
+  while IFS=$'\x1f' read -r id service class status exit restarts; do
+    [ -n "$id" ] || continue
+    case "$class" in
+      restarting) msg="$service: restarting, exit $exit, $restarts restarts" ;;
+      crashed)    msg="$service: crashed, exit $exit" ;;
+      flapping)   msg="$service: restarted ${restarts}x in the last 24h" ;;
+      unhealthy)  msg="$service: running (unhealthy)" ;;
+      *) continue ;;
+    esac
+    found=1
+    ansi::warn "  ${WARN}before update: $msg${RESET_ALL}"
+    report_trouble_event "$stack" "before update: $msg"
+  done < <(classify_containers)
+  [ "$found" -eq 0 ]
+}
+
+# Compact one-line-per-service status. Returns 1 when any container is in
+# trouble (unhealthy, flapping, restarting, crashed); a stopped service is
+# not trouble.
+report_status() {
+  local -A text=()
+  local id status
+  while IFS=$'\t' read -r id status; do
+    [ -n "$id" ] && text["${id:0:12}"]="$status"
+  done < <(docker compose ps -a --format json 2>/dev/null | jq -r '[.ID, .Status] | @tsv')
+
+  local stack service class exit restarts label problems=0 printed=0
+  stack="$(basename "$(pwd)")"
+  while IFS=$'\x1f' read -r id service class status exit restarts; do
+    [ -n "$id" ] || continue
+    printed=1
+    label="${text[${id:0:12}]:-$status}"
+    case "$class" in
+      running)    ansi::out "  ${OK}✓${RESET_ALL} $service: $label" ;;
+      stopped)    ansi::out "  ${INFO}○${RESET_ALL} $service: stopped, $label" ;;
+      unhealthy)  ansi::out "  ${WARN}$service${RESET_ALL}: running (unhealthy)" ;;
+      flapping)   ansi::out "  ${WARN}$service${RESET_ALL}: $label, restarted ${restarts}x in the last 24h" ;;
+      restarting) ansi::out "  ${ERROR}✗${RESET_ALL} $service: restarting, exit $exit, $restarts restarts" ;;
+      crashed)    ansi::out "  ${ERROR}✗${RESET_ALL} $service: crashed, $label" ;;
+    esac
+    case "$class" in
+      unhealthy|flapping|restarting|crashed)
+        problems=$((problems + 1))
+        report_trouble_event "$stack" "$service: $class, $label"
         ;;
     esac
-  done < <(docker compose ps -a --format json 2>/dev/null \
-    | jq -r '"\(.Service)\u001f\(.State)\u001f\(.Health // "")\u001f\(.Status)"')
+  done < <(classify_containers)
 
   if [[ "$printed" -eq 0 ]]; then
     ansi::out "  ${INFO}(no services)${RESET_ALL}"
   fi
+  [ "$problems" -eq 0 ]
 }
 
 # --- Commands ---
@@ -284,7 +399,20 @@ cmd_update() (
   local dir_name
   dir_name="$(basename "$(pwd)")"
 
+  local services=() deps=() trouble=0
+  if [ "$DCM_SWEEP" -eq 1 ]; then
+    mapfile -t services < <(classify_containers | targets_of)
+    if [ ${#services[@]} -eq 0 ]; then
+      ansi::out "${INFO}Skipping: ${BOLD}$dir_name${RESET_BOLD} (nothing running)${RESET_ALL}"
+      return 0
+    fi
+    deps=(--no-deps)
+  elif [ -e "$DCM_SKIP_FILE" ]; then
+    ansi::out "${INFO}$DCM_SKIP_FILE present: sweeps skip ${BOLD}$dir_name${RESET_ALL}"
+  fi
+
   ansi::out "${OK}Updating: ${BOLD}$dir_name${RESET_ALL}"
+  report_trouble "$dir_name" || trouble=1
 
   # Optional pre-update hook: backups, safety checks. Failure ABORTS
   # the update — don't pull/up if the prep didn't succeed.
@@ -295,7 +423,7 @@ cmd_update() (
 
   if [ "$DRY_RUN" -eq 1 ]; then
     ansi::out "${INFO}[dry-run] docker compose images (snapshot before + persist for rollback)${RESET_ALL}"
-    ansi::out "${INFO}[dry-run] docker compose pull${RESET_ALL}"
+    ansi::out "${INFO}[dry-run] docker compose pull ${services[*]}${RESET_ALL}"
     ansi::out "${INFO}[dry-run] docker compose images (snapshot after)${RESET_ALL}"
   else
     local before after
@@ -306,17 +434,17 @@ cmd_update() (
     # --ignore-buildable: services with a `build:` block (locally-built
     # images like vault-storage) are skipped instead of failing the pull
     # with "pull access denied". Compose v2.13+.
-    echoRun docker compose pull --ignore-buildable || return $?
+    echoRun docker compose pull --ignore-buildable ${services[@]+"${services[@]}"} || return $?
     after="$(snapshot_images)"
     report_changes "$before" "$after"
   fi
   if [ "$OPT_FORCE" -eq 1 ]; then
-    run_compose up -d --force-recreate || return $?
+    run_compose up -d --force-recreate ${deps[@]+"${deps[@]}"} ${services[@]+"${services[@]}"} || return $?
   else
-    run_compose up -d || return $?
+    run_compose up -d ${deps[@]+"${deps[@]}"} ${services[@]+"${services[@]}"} || return $?
   fi
 
-  report_status
+  report_status || trouble=1
 
   # Optional post-update hook: smoke tests, migrations, notifications.
   # Failure WARNS but doesn't fail the command — the update is already
@@ -329,6 +457,7 @@ cmd_update() (
   fi
 
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
+  [ "$trouble" -eq 0 ]
 )
 
 cmd_daily() (
@@ -470,8 +599,10 @@ cmd_rollback() (
   # tag string itself didn't change.
   run_compose up -d --force-recreate || return $?
 
-  report_status
+  local trouble=0
+  report_status || trouble=1
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
+  [ "$trouble" -eq 0 ]
 )
 
 cmd_status() (
@@ -530,6 +661,8 @@ dispatch() {
 
   local setups
   setups="$(find_compose_dirs "$target_dir")" || exit 1
+  DCM_SWEEP=0
+  [ -n "$(find_compose_file "$target_dir")" ] || DCM_SWEEP=1
 
   local total
   total="$(echo "$setups" | wc -l)"
@@ -542,20 +675,31 @@ dispatch() {
   # but possible if dcm is sourced multiple times) doesn't leak.
   playbash_section_reset
 
+  local skipped=0 reason
   while IFS= read -r dir; do
-    # Blank line before each iteration in multi-dir runs (separates the
-    # "Found N..." header from the first stack and stacks from each other).
-    # Single-dir runs stay tight: no leading blank.
     [[ "$total" -gt 1 ]] && echo
+    if [ "$DCM_SWEEP" -eq 1 ]; then
+      case "$cmd" in
+        update|daily|weekly)
+          if reason="$(sweep_skip_reason "$dir" "$cmd")"; then
+            ansi::out "${INFO}Skipping: ${BOLD}$(basename "$dir")${RESET_BOLD} ($reason)${RESET_ALL}"
+            skipped=$((skipped + 1))
+            continue
+          fi
+          ;;
+      esac
+    fi
     playbash_section "$(basename "$dir")" "cmd_$cmd" "$dir"
   done <<< "$setups"
 
   local failed=${#_PLAYBASH_FAILED_SECTIONS[@]}
-  local succeeded=$((total - failed))
+  local succeeded=$((total - failed - skipped))
+  local skipped_text=
+  [ "$skipped" -eq 0 ] || skipped_text=", ${BOLD}$skipped${RESET_BOLD} skipped"
 
   if [ "$total" -gt 1 ]; then
     echo
-    ansi::out "${OK}Results: ${BOLD}$succeeded${RESET_BOLD} succeeded, ${BOLD}$failed${RESET_BOLD} failed${RESET_ALL}"
+    ansi::out "${OK}Results: ${BOLD}$succeeded${RESET_BOLD} succeeded, ${BOLD}$failed${RESET_BOLD} failed${skipped_text}${RESET_ALL}"
     if [ "$failed" -gt 0 ]; then
       ansi::warn "${WARN}Failed:${RESET_ALL}"
       local name
