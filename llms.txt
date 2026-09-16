@@ -123,6 +123,40 @@ Re-runs skip sources whose siblings are already up-to-date by mtime — fast inc
 
 Intended downstream: the `aws-website-cdn-cdk` edge Lambda (`lambda/index.mjs`) reads `<original> + .br|.zst|.gz` from S3 keyed on `Accept-Encoding`. `cxop` is the producer; the Lambda is the consumer. Current Lambda content-type dispatch covers text/plain, text/html, text/css, application/javascript, application/json, application/xml — broadening it to more text-ish types is a separate Lambda change; `cxop` itself is not constrained by that narrower set.
 
+### imop
+
+Image optimizer/converter for the web (1.4.0). Re-compresses JPEG, PNG, WebP, AVIF, and JXL in place or to a new file, converts between them, and batches a directory tree, picking the best installed tool per format. Sibling-shaped to `cxop` (batch producer with options.bash): `imop` handles raster images, `cxop` the generic compression siblings.
+
+Commands:
+- `imop photo.jpg` — optimize in place (the default command `auto` infers optimize / convert / batch from the arguments)
+- `imop photo.jpg out.jpg` — optimize to a new file
+- `imop photo.jpg photo.webp` — convert; the target format comes from the output extension
+- `imop images/` — batch optimize in place; `imop images/ out/` — batch into an output tree
+- `imop --to webp images/` — batch convert
+- Explicit subcommands: `optimize` / `o`, `convert` / `c`, `batch` / `b`
+
+Options:
+- `-q, --quality N` — 0-100, default 80
+- `--lossy` / `--lossless` — force the mode
+- `--best` — slow-but-best compressors (`guetzli`, `zopflipng`)
+- `--to EXT` — target format for batch conversion
+- `--suffix TAG` — append a tag to output names
+- `--no-suffix-on-top` — in `batch --to`, replace the extension (`photo.webp`) instead of appending it (`photo.jpg.webp`, the default, matching `cxop` and the CDN variant probe)
+- `--include-variants` — process `.webp`/`.avif`/`.jxl` siblings of a `.jpg`/`.png` source, which batch skips by default as the output of a previous pass
+- `--min-ratio PCT` — drop the result unless at least PCT% smaller (default 0)
+- `-j, --jobs N` — parallel batch workers, `0` = nproc
+- `-n, --dry-run`, `-v, --version`, `-h, --help`, `--bash-completion`
+
+Tools, in preference order: JPEG lossless `jpegoptim`, lossy `mozjpeg` (cjpeg) > `jpegoptim`, best `guetzli`; PNG lossless `oxipng` > `optipng`, lossy `pngquant` + one of those, best `zopflipng`; WebP `cwebp`; AVIF `avifenc`; JXL `cjxl`. A missing tool falls down the chain or fails with an install hint (`brew install jpegoptim mozjpeg oxipng pngquant webp libavif jpeg-xl imagemagick`).
+
+Behaviour worth knowing:
+- Encoders read JPEG and PNG; `cwebp` also reads WebP and `cjxl` reads JXL, and none reads a sibling codec. A source the target encoder cannot read is decoded to `<input>.tmp.png` first and the PNG removed afterwards: `dwebp` for WebP, `djxl` for JXL, ImageMagick (`magick`) for AVIF with `avifdec` as the fallback. ImageMagick because `avifdec`'s PNG carries a `cICP` chunk with an unspecified transfer that `cjxl` 0.12 refuses. This covers in-place AVIF and every cross-codec conversion; on a lossy source it is a generation loss, like re-optimizing a JPEG.
+- A WebP source is re-encoded the way it was encoded: `webpinfo` tells lossy from lossless, so `imop photo.webp` re-encodes a lossy file at `--quality` and a lossless one losslessly; `--lossy` / `--lossless` override.
+- JPEG to JXL defaults to `cjxl`'s bit-exact lossless transcode, where `--quality` is ignored; `--lossy` opts into a real re-encode.
+- In place, the source is snapshotted and restored when the result grew, and with `--min-ratio N` also when it did not shrink by N%. Separate output at `--min-ratio 0` keeps the result regardless.
+- Each file reports `before → after (N% saved)`; batch prints a total and a failure count.
+- An encoder or decoder failure restores the in-place source, removes a partial output, prints `encoder failed`, and exits non-zero; in batch the file counts as failed.
+
 ### cdn-inv
 
 CloudFront invalidation CLI. Thin bash wrapper over `aws cloudfront` &mdash; resolves distributions by domain alias and creates invalidations with built-in completion-wait. Replaces the legacy v2-SDK JS gist; uses the AWS CLI's native paginator + `wait invalidation-completed` + `AWS_PROFILE`/`AWS_REGION` env handling rather than reimplementing them.
@@ -152,6 +186,27 @@ Commands:
 - `-n, --dry-run` — print planned changes plus the exact `gh` calls (push) or the `jq` rewrite (pull) without applying
 
 Repo resolves from the current git remote (`gh repo view`); package.json from the git toplevel. Hard deps: `gh` (authenticated) + `jq`, checked in prelude via `deps::need`.
+
+### dcm
+
+Docker Compose stack manager (1.6.0) with change detection, per-service status, one-step rollback, and AppArmor recovery on Linux. `dcms` runs it over every stack under `~/servers/` (silently skipped when the tree or the daemon is absent) and is the docker step of `playbash-daily` and `playbash-weekly`.
+
+Commands (the argument is a stack directory, or a parent directory whose immediate subdirectories hold stacks; default `.`):
+- `dcm` / `dcm update [dir]` (`up`, `u`) — pull images, recreate changed containers, report which images changed and the per-service status
+- `dcm down` (`d`), `dcm stop`, `dcm start`, `dcm restart` — the Compose verbs
+- `dcm status [dir]` (`s`) — compact per-service status; exits non-zero when a service is in trouble
+- `dcm rollback [dir]` (`r`) — re-tag the image IDs recorded before the last update (`<dir>/.dcm-rollback.json`, one step of history) and recreate
+- `dcm daily [dir]` / `dcm weekly [dir]` — run the stack's `daily.sh` / `weekly.sh`, or the default refresh when absent; `dcm check [dir]` — run `health.sh` and map its exit code (0 healthy, 1 actionable, 2 lookup failed, 3 upstream error)
+- `dcm prune` (`p`) — `docker image prune -af`
+- Per-stack convention scripts, all optional and run with `SERVICE_NAME` and `COMPOSE_FILE` set: `pre-update.sh` (failure aborts the update), `post-update.sh` (failure warns), `daily.sh`, `weekly.sh`, `health.sh`
+
+Options: `--force` (`--force-recreate`), `-n, --dry-run`, `-v, --version`, `-h, --help`, `--bash-completion`
+
+Sweeps, meaning a parent-directory target (`dcm ~/servers`, `dcms`, `daily`, `weekly`), refresh what is running and start nothing: each stack's containers are classified from `docker inspect`, only services that are running, restarting, or crashed are pulled and recreated by name (`up -d --no-deps <services>`), a stack with nothing to target is skipped with the reason (`not deployed`, or `stopped, Exited (0) 3 days ago`), and a `.dcm-skip` file in the stack directory skips it whatever its state. So `dcm stop` and `dcm down` hold across the daily. An explicit target (`dcm` inside the stack directory) starts everything, which is how a stack comes back and how a new one gets its first start. A stack's own `daily.sh` / `weekly.sh` still runs unless the flag is present.
+
+Status classes: `✓` running; `○` stopped (under `restart: always` / `unless-stopped` an exited container was stopped by hand, since the daemon restarts a crash; under `no` / `on-failure`, exit 0, 137, and 143 read as stopped); no symbol, warning colour: unhealthy, or restarted by the daemon in the last 24 h; `✗` in trouble: `restarting` (a crash loop) or `crashed`. Trouble is read from the state before an update, so a crash the update fixes is still reported once; it fails the stack's playbash section and, under playbash, files a `container-trouble` action event, which is what `notify-playbash` mails. Multi-stack runs end with `Results: N succeeded, M failed[, K skipped]`.
+
+`docker compose pull --ignore-buildable` skips services with a `build:` block. On Linux a `permission denied` / `cannot kill container` failure triggers `sudo aa-remove-unknown` and one retry; the eager path is `upd`/`cln` detecting an AppArmor upgrade. Wiki: `dcm`.
 
 ### Playbash Server Management
 
