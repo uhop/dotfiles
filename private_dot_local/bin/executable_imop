@@ -7,10 +7,12 @@ shopt -s expand_aliases
 
 script_name=$(basename "$0")
 
-args::program "$script_name" "1.2.0" "Optimize and convert images for the web" "https://github.com/uhop/dotfiles/wiki/imop"
+args::program "$script_name" "1.3.0" "Optimize and convert images for the web" "https://github.com/uhop/dotfiles/wiki/imop"
 
 args_program_header="${BOLD}imop${RESET_BOLD} optimizes and converts images for web use.
-Supports JPEG, PNG, WebP, AVIF, JXL with automatic tool selection."
+Supports JPEG, PNG, WebP, AVIF, JXL with automatic tool selection. A source
+the target encoder cannot read is decoded through PNG first (dwebp, djxl,
+ImageMagick or avifdec); an encoder failure rolls back and exits non-zero."
 
 args_program_usage="${BOLD}imop${RESET_BOLD} photo.jpg                # Optimize in place
 ${BOLD}imop${RESET_BOLD} photo.jpg photo.webp     # Convert to WebP
@@ -128,6 +130,7 @@ require_tool() {
   # Dynamic-scope cleanup: if caller (optimize_file) set $_backup for in-place
   # size-checking, remove it before exiting so we don't leak a stale copy.
   [ -n "${_backup:-}" ] && [ -f "${_backup:-}" ] && command rm -f "$_backup"
+  [ -n "${DECODE_TMP:-}" ] && [ -f "${DECODE_TMP:-}" ] && command rm -f "$DECODE_TMP"
   ansi::err "${ERROR}$name is not installed. Install: brew install $install${RESET_ALL}"
   exit 1
 }
@@ -198,12 +201,79 @@ should_keep_result() { # usage: should_keep_result <src_size> <out_size> [in_pla
   [ "$sz_out" -lt "$threshold" ]
 }
 
+# optimize_file / convert_file run in an `||` context, where set -e is off,
+# so a failed encoder is recorded here and checked after the branch.
+RUN_FAILED=0
 run_or_dry() {
   if [ "$DRY_RUN" -eq 1 ]; then
     ansi::out "${INFO}[dry-run] $*${RESET_ALL}"
-  else
-    echoRun "$@"
+    return 0
   fi
+  echoRun "$@" && return 0
+  RUN_FAILED=1
+  return 1
+}
+
+# In-place branches encode into a sibling temp file; it replaces the source
+# only after a successful encode.
+commit_tmp() {
+  [ "$DRY_RUN" -eq 0 ] || return 0
+  [ "$RUN_FAILED" -eq 0 ] || return 0
+  mv "$1" "$2"
+}
+
+# Encoders read JPEG and PNG; cwebp also reads WebP and cjxl reads JXL, and
+# none reads a sibling codec (measured 2026-09-16: cwebp 1.6.0, avifenc 1.4.2,
+# cjxl 0.12.0). Prints the decoder that turns a SRC file into a PNG for the
+# DST encoder; prints nothing when DST reads SRC as is.
+decoder_for() {
+  local src="$1" dst="$2"
+  case "$dst" in
+    jpeg|webp|avif|jxl) ;;
+    *) return 0 ;;
+  esac
+  case "$src" in
+    webp) [ "$dst" = webp ] || echo dwebp ;;
+    jxl)  [ "$dst" = jxl ]  || echo djxl ;;
+    avif) echo avifdec ;;
+  esac
+}
+
+# Sets ENC_INPUT to what the DST encoder should read: INPUT itself, or a PNG
+# decoded beside it (DECODE_TMP, removed by drop_decode_tmp).
+ENC_INPUT=""
+DECODE_TMP=""
+prepare_encoder_input() {
+  local input="$1" dst="$2"
+  ENC_INPUT="$input"
+  DECODE_TMP=""
+  local dec pkg
+  dec="$(decoder_for "$(get_ext "$input")" "$dst")"
+  [ -n "$dec" ] || return 0
+  case "$dec" in
+    dwebp)   pkg=webp ;;
+    avifdec) pkg=libavif ;;
+    djxl)    pkg=jpeg-xl ;;
+  esac
+  # avifdec copies the AVIF's CICP into a PNG cICP chunk, and avifenc's
+  # default transfer there is "unspecified", which cjxl 0.12 refuses
+  # ("Getting pixel data failed"); ImageMagick writes a plain PNG.
+  if [ "$dec" = avifdec ] && command -v magick &>/dev/null; then
+    dec=magick
+  fi
+  command -v "$dec" &>/dev/null || require_tool "$dec" "$pkg"
+  DECODE_TMP="${input}.tmp.png"
+  ENC_INPUT="$DECODE_TMP"
+  if [ "$dec" = dwebp ]; then
+    run_or_dry dwebp "$input" -o "$DECODE_TMP"
+  else
+    run_or_dry "$dec" "$input" "$DECODE_TMP"
+  fi
+}
+
+drop_decode_tmp() {
+  [ -n "$DECODE_TMP" ] && [ -f "$DECODE_TMP" ] && command rm -f "$DECODE_TMP"
+  DECODE_TMP=""
 }
 
 # --- Quality mapping ---
@@ -304,6 +374,8 @@ optimize_file() {
   fi
 
   ansi::out "${INFO}Optimizing: $input${RESET_ALL}"
+  RUN_FAILED=0
+  prepare_encoder_input "$input" "$(normalize_ext "$ext")"
 
   case "$ext" in
     jpg|jpeg)
@@ -313,7 +385,7 @@ optimize_file() {
         if [ "$in_place" -eq 1 ]; then
           local tmp="${input}.tmp.jpg"
           run_or_dry "$TOOL_GUETZLI" --quality "$q" "$input" "$tmp"
-          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+          commit_tmp "$tmp" "$input"
         else
           run_or_dry "$TOOL_GUETZLI" --quality "$q" "$input" "$output"
         fi
@@ -321,9 +393,9 @@ optimize_file() {
         if [ "$in_place" -eq 1 ]; then
           local tmp="${input}.tmp.jpg"
           run_or_dry "$TOOL_MOZJPEG" -quality "$QUALITY" -outfile "$tmp" "$input"
-          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+          commit_tmp "$tmp" "$input"
         else
-          run_or_dry "$TOOL_MOZJPEG" -quality "$QUALITY" -outfile "$output" "$input"
+          run_or_dry "$TOOL_MOZJPEG" -quality "$QUALITY" -outfile "$output" "$ENC_INPUT"
         fi
       elif [ "$is_lossy" -eq 1 ] && [ -n "$TOOL_JPEGOPTIM" ]; then
         warn_once "mozjpeg" "mozjpeg not found, using jpegoptim for lossy JPEG"
@@ -382,7 +454,7 @@ optimize_file() {
           local tmp="${output}.tmp.png"
           run_or_dry "cp" "$input" "$tmp"
           run_or_dry "$TOOL_OPTIPNG" -o "$(quality_oxipng)" "$tmp"
-          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$output"
+          commit_tmp "$tmp" "$output"
         fi
       else
         require_tool "oxipng" "oxipng"
@@ -396,18 +468,18 @@ optimize_file() {
       if [ "$OPT_LOSSLESS" -eq 1 ] || [ "$is_lossy" -eq 0 ]; then
         if [ "$in_place" -eq 1 ]; then
           local tmp="${input}.tmp.webp"
-          run_or_dry "$TOOL_CWEBP" -lossless "$input" -o "$tmp"
-          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+          run_or_dry "$TOOL_CWEBP" -lossless "$ENC_INPUT" -o "$tmp"
+          commit_tmp "$tmp" "$input"
         else
-          run_or_dry "$TOOL_CWEBP" -lossless "$input" -o "$output"
+          run_or_dry "$TOOL_CWEBP" -lossless "$ENC_INPUT" -o "$output"
         fi
       else
         if [ "$in_place" -eq 1 ]; then
           local tmp="${input}.tmp.webp"
-          run_or_dry "$TOOL_CWEBP" -q "$QUALITY" "$input" -o "$tmp"
-          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+          run_or_dry "$TOOL_CWEBP" -q "$QUALITY" "$ENC_INPUT" -o "$tmp"
+          commit_tmp "$tmp" "$input"
         else
-          run_or_dry "$TOOL_CWEBP" -q "$QUALITY" "$input" -o "$output"
+          run_or_dry "$TOOL_CWEBP" -q "$QUALITY" "$ENC_INPUT" -o "$output"
         fi
       fi
       ;;
@@ -419,18 +491,18 @@ optimize_file() {
       if [ "$OPT_LOSSLESS" -eq 1 ]; then
         if [ "$in_place" -eq 1 ]; then
           local tmp="${input}.tmp.avif"
-          run_or_dry "$TOOL_AVIFENC" --lossless "$input" "$tmp"
-          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+          run_or_dry "$TOOL_AVIFENC" --lossless "$ENC_INPUT" "$tmp"
+          commit_tmp "$tmp" "$input"
         else
-          run_or_dry "$TOOL_AVIFENC" --lossless "$input" "$output"
+          run_or_dry "$TOOL_AVIFENC" --lossless "$ENC_INPUT" "$output"
         fi
       else
         if [ "$in_place" -eq 1 ]; then
           local tmp="${input}.tmp.avif"
-          run_or_dry "$TOOL_AVIFENC" -q "$QUALITY" "$input" "$tmp"
-          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+          run_or_dry "$TOOL_AVIFENC" -q "$QUALITY" "$ENC_INPUT" "$tmp"
+          commit_tmp "$tmp" "$input"
         else
-          run_or_dry "$TOOL_AVIFENC" -q "$QUALITY" "$input" "$output"
+          run_or_dry "$TOOL_AVIFENC" -q "$QUALITY" "$ENC_INPUT" "$output"
         fi
       fi
       ;;
@@ -442,18 +514,18 @@ optimize_file() {
       if [ "$OPT_LOSSLESS" -eq 1 ]; then
         if [ "$in_place" -eq 1 ]; then
           local tmp="${input}.tmp.jxl"
-          run_or_dry "$TOOL_CJXL" -d 0 "$input" "$tmp"
-          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+          run_or_dry "$TOOL_CJXL" -d 0 "$ENC_INPUT" "$tmp"
+          commit_tmp "$tmp" "$input"
         else
-          run_or_dry "$TOOL_CJXL" -d 0 "$input" "$output"
+          run_or_dry "$TOOL_CJXL" -d 0 "$ENC_INPUT" "$output"
         fi
       else
         if [ "$in_place" -eq 1 ]; then
           local tmp="${input}.tmp.jxl"
-          run_or_dry "$TOOL_CJXL" -q "$QUALITY" "$input" "$tmp"
-          [ "$DRY_RUN" -eq 0 ] && mv "$tmp" "$input"
+          run_or_dry "$TOOL_CJXL" -q "$QUALITY" "$ENC_INPUT" "$tmp"
+          commit_tmp "$tmp" "$input"
         else
-          run_or_dry "$TOOL_CJXL" -q "$QUALITY" "$input" "$output"
+          run_or_dry "$TOOL_CJXL" -q "$QUALITY" "$ENC_INPUT" "$output"
         fi
       fi
       ;;
@@ -463,6 +535,19 @@ optimize_file() {
       return 1
       ;;
   esac
+
+  drop_decode_tmp
+  if [ "$RUN_FAILED" -ne 0 ]; then
+    [ -n "${tmp:-}" ] && command rm -f "$tmp"
+    if [ -n "$_backup" ] && [ -f "$_backup" ]; then
+      mv "$_backup" "$input"
+      _backup=""
+    elif [ "$in_place" -eq 0 ]; then
+      command rm -f "$output"
+    fi
+    ansi::err "${ERROR}  encoder failed, nothing changed${RESET_ALL}"
+    return 1
+  fi
 
   if [ "$DRY_RUN" -eq 0 ] && [ -f "$output" ]; then
     local size_after
@@ -503,15 +588,18 @@ convert_file() {
   size_before=$(stat -c%s "$input" 2>/dev/null || stat -f%z "$input")
 
   ansi::out "${INFO}Converting: $input → $output${RESET_ALL}"
+  RUN_FAILED=0
+  prepare_encoder_input "$input" "$(normalize_ext "$out_ext")"
 
   case "$out_ext" in
     jpg|jpeg)
       if [ "$OPT_BEST" -eq 1 ] && [ -n "$TOOL_GUETZLI" ]; then
-        run_or_dry "$TOOL_GUETZLI" --quality "$(quality_guetzli)" "$input" "$output"
+        run_or_dry "$TOOL_GUETZLI" --quality "$(quality_guetzli)" "$ENC_INPUT" "$output"
       elif [ -n "$TOOL_MOZJPEG" ]; then
-        run_or_dry "$TOOL_MOZJPEG" -quality "$QUALITY" -outfile "$output" "$input"
+        run_or_dry "$TOOL_MOZJPEG" -quality "$QUALITY" -outfile "$output" "$ENC_INPUT"
       elif [ -n "$TOOL_JPEGOPTIM" ]; then
         ansi::err "${ERROR}Cannot convert to JPEG: mozjpeg (cjpeg) is required. Install: brew install mozjpeg${RESET_ALL}"
+        drop_decode_tmp
         return 1
       else
         require_tool "mozjpeg (cjpeg)" "mozjpeg"
@@ -528,9 +616,9 @@ convert_file() {
         require_tool "cwebp" "webp"
       fi
       if [ "$OPT_LOSSLESS" -eq 1 ]; then
-        run_or_dry "$TOOL_CWEBP" -lossless "$input" -o "$output"
+        run_or_dry "$TOOL_CWEBP" -lossless "$ENC_INPUT" -o "$output"
       else
-        run_or_dry "$TOOL_CWEBP" -q "$QUALITY" "$input" -o "$output"
+        run_or_dry "$TOOL_CWEBP" -q "$QUALITY" "$ENC_INPUT" -o "$output"
       fi
       ;;
 
@@ -539,9 +627,9 @@ convert_file() {
         require_tool "avifenc" "libavif"
       fi
       if [ "$OPT_LOSSLESS" -eq 1 ]; then
-        run_or_dry "$TOOL_AVIFENC" --lossless "$input" "$output"
+        run_or_dry "$TOOL_AVIFENC" --lossless "$ENC_INPUT" "$output"
       else
-        run_or_dry "$TOOL_AVIFENC" -q "$QUALITY" "$input" "$output"
+        run_or_dry "$TOOL_AVIFENC" -q "$QUALITY" "$ENC_INPUT" "$output"
       fi
       ;;
 
@@ -553,17 +641,25 @@ convert_file() {
       if [ "$(normalize_ext "$(get_ext "$input")")" = "jpeg" ] && [ "$OPT_LOSSY" -eq 0 ]; then
         run_or_dry "$TOOL_CJXL" --lossless_jpeg=1 "$input" "$output"
       elif [ "$OPT_LOSSLESS" -eq 1 ]; then
-        run_or_dry "$TOOL_CJXL" -d 0 "$input" "$output"
+        run_or_dry "$TOOL_CJXL" -d 0 "$ENC_INPUT" "$output"
       else
-        run_or_dry "$TOOL_CJXL" --lossless_jpeg=0 -q "$QUALITY" "$input" "$output"
+        run_or_dry "$TOOL_CJXL" --lossless_jpeg=0 -q "$QUALITY" "$ENC_INPUT" "$output"
       fi
       ;;
 
     *)
       ansi::err "${ERROR}Unsupported output format: .$out_ext${RESET_ALL}"
+      drop_decode_tmp
       return 1
       ;;
   esac
+
+  drop_decode_tmp
+  if [ "$RUN_FAILED" -ne 0 ]; then
+    command rm -f "$output"
+    ansi::err "${ERROR}  encoder failed, nothing written${RESET_ALL}"
+    return 1
+  fi
 
   if [ "$DRY_RUN" -eq 0 ] && [ -f "$output" ]; then
     local size_after
