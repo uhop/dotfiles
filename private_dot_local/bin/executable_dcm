@@ -12,18 +12,20 @@ deps::need docker jq
 
 # --- Program definition ---
 
-args::program "$script_name" "1.6.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/dcm"
+args::program "$script_name" "1.7.0" "Manage Docker Compose setups" "https://github.com/uhop/dotfiles/wiki/dcm"
 
 args_program_header="${BOLD}dcm${RESET_BOLD} manages Docker Compose service lifecycles
 with automatic AppArmor recovery on Linux. Optional per-stack scripts
 (daily.sh / weekly.sh / health.sh / pre-update.sh / post-update.sh)
 extend the lifecycle without compose-yaml changes. A sweep over a parent
 directory refreshes what is running and starts nothing: stopped and downed
-stacks stay as they are, and a .dcm-skip file keeps a stack out of sweeps."
+stacks stay as they are, and a .dcm-skip file keeps a stack out of sweeps.
+${BOLD}dcm up${RESET_BOLD} over a parent directory starts every stack without a .dcm-skip file."
 
 args_program_usage="${BOLD}dcm${RESET_BOLD}                          # Update current dir (pull + up)
 ${BOLD}dcm${RESET_BOLD} update ~/servers/monitor # Update specific setup
 ${BOLD}dcm${RESET_BOLD} ~/servers                # Sweep: refresh what runs, start nothing
+${BOLD}dcm${RESET_BOLD} up ~/servers             # Start every stack, .dcm-skip ones excepted
 ${BOLD}dcm${RESET_BOLD} status ~/servers         # Status for all setups under ~/servers
 ${BOLD}dcm${RESET_BOLD} daily ~/servers          # Run daily.sh for each setup (no-op if absent)
 ${BOLD}dcm${RESET_BOLD} check ~/servers          # Run health.sh for each setup
@@ -31,7 +33,8 @@ ${BOLD}dcm${RESET_BOLD} prune                    # Prune unused Docker images gl
 
 args_program_default_command="update"
 
-args::option "update, up, u" "Pull images, recreate changed containers" "dir" "opt"
+args::option "update, u" "Pull images, recreate changed containers" "dir" "opt"
+args::option "up" "Pull images, start every stack and service" "dir" "opt"
 args::option "down, d" "Compose down (stop and remove)" "dir" "opt"
 args::option "stop" "Compose stop (pause without removing)" "dir" "opt"
 args::option "start" "Compose start (resume stopped services)" "dir" "opt"
@@ -303,7 +306,8 @@ targets_of() {
 }
 
 # Prints why a sweep leaves DIR alone and returns 0; returns 1 when the stack
-# is a sweep target. A daily.sh / weekly.sh decides for its own stack.
+# is a sweep target. `up` takes every unflagged stack, and a daily.sh /
+# weekly.sh decides for its own stack.
 sweep_skip_reason() (
   cd "$1"
   local cmd="$2"
@@ -311,7 +315,7 @@ sweep_skip_reason() (
     echo "$DCM_SKIP_FILE present"
     return 0
   fi
-  if [[ "$cmd" == daily && -e ./daily.sh ]] || [[ "$cmd" == weekly && -e ./weekly.sh ]]; then
+  if [[ "$cmd" == up ]] || [[ "$cmd" == daily && -e ./daily.sh ]] || [[ "$cmd" == weekly && -e ./weekly.sh ]]; then
     return 1
   fi
   local lines
@@ -408,7 +412,7 @@ cmd_update() (
     fi
     deps=(--no-deps)
   elif [ -e "$DCM_SKIP_FILE" ]; then
-    ansi::out "${INFO}$DCM_SKIP_FILE present: sweeps skip ${BOLD}$dir_name${RESET_ALL}"
+    ansi::out "${INFO}$DCM_SKIP_FILE present: sweeps and dcm up over a parent skip ${BOLD}$dir_name${RESET_ALL}"
   fi
 
   ansi::out "${OK}Updating: ${BOLD}$dir_name${RESET_ALL}"
@@ -458,6 +462,12 @@ cmd_update() (
 
   ansi::out "${OK}Done: ${BOLD}$dir_name${RESET_ALL}"
   [ "$trouble" -eq 0 ]
+)
+
+# The inverse of `down`: each stack is updated as an explicit target.
+cmd_up() (
+  DCM_SWEEP=0
+  cmd_update "$1"
 )
 
 cmd_daily() (
@@ -680,7 +690,7 @@ dispatch() {
     [[ "$total" -gt 1 ]] && echo
     if [ "$DCM_SWEEP" -eq 1 ]; then
       case "$cmd" in
-        update|daily|weekly)
+        update|up|daily|weekly)
           if reason="$(sweep_skip_reason "$dir" "$cmd")"; then
             ansi::out "${INFO}Skipping: ${BOLD}$(basename "$dir")${RESET_BOLD} ($reason)${RESET_ALL}"
             skipped=$((skipped + 1))
@@ -731,6 +741,7 @@ target_dir="${1:-}"
 
 case "$cmd" in
   update)  dispatch update "$target_dir" ;;
+  up)      dispatch up "$target_dir" ;;
   down)    dispatch down "$target_dir" ;;
   stop)    dispatch stop "$target_dir" ;;
   start)   dispatch start "$target_dir" ;;

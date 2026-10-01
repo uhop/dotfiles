@@ -7,7 +7,12 @@
   {
     "cmd": "dcm update",
     "desc": "Update one or more stacks (pull + up + status)",
-    "doc": "dcm update            — current dir\ndcm update <dir>      — specific dir\ndcm update <parent>   — every immediate subdir with a compose file\ndcm -n update         — dry-run\ndcm --force update    — pass --force-recreate"
+    "doc": "dcm update            — current dir\ndcm update <dir>      — specific dir\ndcm update <parent>   — sweep: refresh what runs, start nothing\ndcm -n update         — dry-run\ndcm --force update    — pass --force-recreate"
+  },
+  {
+    "cmd": "dcm up",
+    "desc": "Pull and start every stack, stopped and downed ones too (inverse of down)",
+    "doc": "dcm up [<dir>]\ndcm up <parent>   — every stack without a .dcm-skip file"
   },
   {
     "cmd": "dcm down",

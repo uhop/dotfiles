@@ -189,10 +189,11 @@ Repo resolves from the current git remote (`gh repo view`); package.json from th
 
 ### dcm
 
-Docker Compose stack manager (1.6.0) with change detection, per-service status, one-step rollback, and AppArmor recovery on Linux. `dcms` runs it over every stack under `~/servers/` (silently skipped when the tree or the daemon is absent) and is the docker step of `playbash-daily` and `playbash-weekly`.
+Docker Compose stack manager (1.7.0) with change detection, per-service status, one-step rollback, and AppArmor recovery on Linux. `dcms` runs it over every stack under `~/servers/` (silently skipped when the tree or the daemon is absent) and is the docker step of `playbash-daily` and `playbash-weekly`.
 
 Commands (the argument is a stack directory, or a parent directory whose immediate subdirectories hold stacks; default `.`):
-- `dcm` / `dcm update [dir]` (`up`, `u`) — pull images, recreate changed containers, report which images changed and the per-service status
+- `dcm` / `dcm update [dir]` (`u`) — pull images, recreate changed containers, report which images changed and the per-service status
+- `dcm up [dir]` — the inverse of `dcm down`: an update of every stack under the target as an explicit target, so stopped and downed stacks start; a parent-directory `up` skips a stack with a `.dcm-skip` file
 - `dcm down` (`d`), `dcm stop`, `dcm start`, `dcm restart` — the Compose verbs
 - `dcm status [dir]` (`s`) — compact per-service status; exits non-zero when a service is in trouble
 - `dcm rollback [dir]` (`r`) — re-tag the image IDs recorded before the last update (`<dir>/.dcm-rollback.json`, one step of history) and recreate
@@ -202,7 +203,7 @@ Commands (the argument is a stack directory, or a parent directory whose immedia
 
 Options: `--force` (`--force-recreate`), `-n, --dry-run`, `-v, --version`, `-h, --help`, `--bash-completion`
 
-Sweeps, meaning a parent-directory target (`dcm ~/servers`, `dcms`, `daily`, `weekly`), refresh what is running and start nothing: each stack's containers are classified from `docker inspect`, only services that are running, restarting, or crashed are pulled and recreated by name (`up -d --no-deps <services>`), a stack with nothing to target is skipped with the reason (`not deployed`, or `stopped, Exited (0) 3 days ago`), and a `.dcm-skip` file in the stack directory skips it whatever its state. So `dcm stop` and `dcm down` hold across the daily. An explicit target (`dcm` inside the stack directory) starts everything, which is how a stack comes back and how a new one gets its first start. A stack's own `daily.sh` / `weekly.sh` still runs unless the flag is present.
+Sweeps, meaning a parent-directory target (`dcm ~/servers`, `dcms`, `daily`, `weekly`), refresh what is running and start nothing: each stack's containers are classified from `docker inspect`, only services that are running, restarting, or crashed are pulled and recreated by name (`up -d --no-deps <services>`), a stack with nothing to target is skipped with the reason (`not deployed`, or `stopped, Exited (0) 3 days ago`), and a `.dcm-skip` file in the stack directory skips it whatever its state. So `dcm stop` and `dcm down` hold across the daily. An explicit target (`dcm` inside the stack directory) starts everything, which is how a stack comes back and how a new one gets its first start; `dcm up ~/servers` does the same for every stack without the flag, so `dcm down ~/servers` and `dcm up ~/servers` are a pair. A stack's own `daily.sh` / `weekly.sh` still runs unless the flag is present.
 
 Status classes: `✓` running; `○` stopped (under `restart: always` / `unless-stopped` an exited container was stopped by hand, since the daemon restarts a crash; under `no` / `on-failure`, exit 0, 137, and 143 read as stopped); no symbol, warning colour: unhealthy, or restarted by the daemon in the last 24 h; `✗` in trouble: `restarting` (a crash loop) or `crashed`. Trouble is read from the state before an update, so a crash the update fixes is still reported once; it fails the stack's playbash section and, under playbash, files a `container-trouble` action event, which is what `notify-playbash` mails. Multi-stack runs end with `Results: N succeeded, M failed[, K skipped]`.
 
