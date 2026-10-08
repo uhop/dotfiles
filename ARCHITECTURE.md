@@ -28,6 +28,7 @@ dotfiles/                                          # chezmoi source directory
 │   ├── fleet-deps/ignore                          # ignore patterns for fleet-deps
 │   ├── ghostty/private_config.tmpl                # terminal config (templated)
 │   ├── git/git-completion.bash                    # git completions
+│   ├── git/hooks/executable_pre-commit            # global secret scan before every commit (core.hooksPath)
 │   ├── kitty/private_kitty.conf.tmpl              # terminal config (templated)
 │   ├── micro/{bindings,settings,plugins}.json     # editor config
 │   ├── nano/private_nanorc                        # editor config
@@ -99,6 +100,7 @@ dotfiles/                                          # chezmoi source directory
 │   └── detect-packages.sh                         # candidate tables: logical capability → ordered mgr:pkg tuples
 │
 ├── tests/detect/                                  # unit tests for the detection library
+├── tests/git-hooks/                               # tests for the pre-commit secret scan
 │   ├── run-tests.sh                               # harness; discovers test_*.sh, runs each in a subshell
 │   ├── lib.sh                                     # assert::eq / assert::ok / assert::fail helpers
 │   ├── fixtures/os-release/                       # per-distro /etc/os-release fixtures (11 distros + Silverblue + MicroOS + slim variants)

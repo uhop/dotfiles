@@ -38,6 +38,7 @@ dotfiles/                              # chezmoi source directory
 │   ├── fleet-deps/                    # ignore patterns for fleet-deps
 │   ├── ghostty/
 │   ├── git/
+│   │   └── hooks/pre-commit           # global secret scan (core.hooksPath), then the repo's own pre-commit
 │   ├── kitty/
 │   ├── micro/
 │   ├── nano/
@@ -98,6 +99,7 @@ dotfiles/                              # chezmoi source directory
 │   ├── detect-distro.sh               # bootstrap detection library (identity + capabilities + resolver)
 │   └── detect-packages.sh             # candidate tables (logical-cap → mgr:pkg tuples) for the resolver
 ├── tests/detect/                      # unit tests for the detection library
+├── tests/git-hooks/                   # tests for the pre-commit secret scan (bash tests/git-hooks/run-tests.sh)
 ├── private_dot_ssh/                   # → ~/.ssh/ (SSH config)
 ├── run_onchange_before_install-packages.sh.tmpl  # Package installation script
 └── run_once_after_install-vim.sh      # Vim setup

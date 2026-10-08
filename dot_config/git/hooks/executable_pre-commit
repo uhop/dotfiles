@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Global pre-commit (core.hooksPath in ~/.gitconfig): stops a commit whose staged
+# changes add a private key or a token in a known format, then runs the repository's
+# own pre-commit, which a global core.hooksPath would otherwise skip.
+# Plain bash on purpose: bootstrap.sh updates options.bash from git, never inside a commit.
+
+set -euCo pipefail
+
+patterns=(
+  '-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----'
+  '(AKIA|ASIA)[0-9A-Z]{16}'
+  'gh[pousr]_[A-Za-z0-9]{36}'
+  'github_pat_[A-Za-z0-9_]{22,}'
+  'npm_[A-Za-z0-9]{36}'
+  'sk-ant-[A-Za-z0-9_-]{20,}'
+  'sk-or-v1-[0-9a-f]{64}'
+)
+regex=$(
+  IFS='|'
+  printf '%s' "${patterns[*]}"
+)
+
+# Captured first, so a failing git diff stops the commit instead of passing it unscanned.
+diff=$(git diff --cached --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ -U0 --diff-filter=ACMR)
+
+hits=$(
+  printf '%s\n' "$diff" |
+    awk '
+      /^diff --git / { header = 1; next }
+      header && /^\+\+\+ / { file = substr($0, 7); sub(/\t$/, "", file); next }
+      /^@@ / { header = 0; split($3, start, ","); line = substr(start[1], 2) + 0; next }
+      !header && /^\+/ { print file ":" line ":" substr($0, 2); line++ }
+    ' |
+    { grep -E -e "$regex" || true; } |
+    cut -d: -f1,2
+)
+
+if [[ -n $hits ]]; then
+  {
+    printf 'pre-commit: stopped, a staged line looks like a secret:\n'
+    printf '%s\n' "$hits" | sed 's/^/  /'
+    printf 'Unstage it (git restore --staged <file>) and keep it out of every repository.\n'
+    printf 'A deliberate fake, such as a test fixture, commits with git commit --no-verify.\n'
+  } >&2
+  exit 1
+fi
+
+own="$(git rev-parse --git-common-dir)/hooks/pre-commit"
+if [[ -x $own ]]; then
+  exec "$own" "$@"
+fi

@@ -11,6 +11,8 @@
 	# vim / vi), so hosts without micro still get a sane default.
 	autocrlf = input
 	whitespace = trailing-space,-space-before-tab,cr-at-eol
+	# The secret scan before every commit; it runs each repository's own pre-commit after it.
+	hooksPath = ~/.config/git/hooks
 [interactive]
 	diffFilter = delta --color-only
 [init]
