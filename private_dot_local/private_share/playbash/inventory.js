@@ -16,8 +16,12 @@ export const INVENTORY_PATH = join(homedir(), '.config', 'playbash', 'inventory.
 
 // --- Inventory ---
 
+// A host entry with "managed": false (an ssh alias playbash must not touch, such as a
+// cloud host) goes to `unmanaged`, so `hosts` stays the fleet every caller iterates.
 export function loadInventory() {
-  const empty = {hosts: new Map(), groups: new Map(), path: INVENTORY_PATH, present: false};
+  const empty = {
+    hosts: new Map(), groups: new Map(), unmanaged: new Map(), path: INVENTORY_PATH, present: false
+  };
   if (!existsSync(INVENTORY_PATH)) return empty;
   let raw;
   try {
@@ -30,6 +34,7 @@ export function loadInventory() {
   }
   const hosts = new Map();
   const groups = new Map();
+  const unmanaged = new Map();
   for (const [name, value] of Object.entries(raw)) {
     if (typeof value === 'string') {
       hosts.set(name, {address: value});
@@ -40,12 +45,15 @@ export function loadInventory() {
       if (typeof value.address !== 'string') {
         die(`inventory entry "${name}" has no string "address"`);
       }
-      hosts.set(name, value);
+      if ('managed' in value && typeof value.managed !== 'boolean') {
+        die(`inventory entry "${name}" has a non-boolean "managed"`);
+      }
+      (value.managed === false ? unmanaged : hosts).set(name, value);
     } else {
       die(`inventory entry "${name}" has unsupported type`);
     }
   }
-  return {hosts, groups, path: INVENTORY_PATH, present: true};
+  return {hosts, groups, unmanaged, path: INVENTORY_PATH, present: true};
 }
 
 // Resolve a single name to an ssh-target string.
@@ -66,6 +74,7 @@ export function resolveHost(name, inventory) {
 //   - A token matching a group name expands to its members in the order
 //     they appear in the group definition.
 //   - A token matching a host entry expands to that one host.
+//   - A token naming a "managed": false entry is refused, alone or in a group.
 //   - An unknown token is treated as a literal — passed through to ssh,
 //     same as a single-host call (so ~/.ssh/config aliases keep working).
 //   - The result is deduped by name, preserving first-seen order.
@@ -103,6 +112,9 @@ export function resolveTargets(arg, inventory) {
         if (inventory.groups.has(m)) {
           die(`group "${tok}" references group "${m}"; nested groups are not supported`);
         }
+        if (inventory.unmanaged.has(m)) {
+          die(`group "${tok}" references "${m}", which ${inventory.path} marks "managed": false`);
+        }
         const entry = inventory.hosts.get(m);
         if (!entry) {
           die(`group "${tok}" references unknown host "${m}"`);
@@ -110,6 +122,9 @@ export function resolveTargets(arg, inventory) {
         push(m, entry.address);
       }
       continue;
+    }
+    if (inventory.unmanaged.has(tok)) {
+      die(`"${tok}" is not managed by playbash ("managed": false in ${inventory.path})`);
     }
     // Plain host name (in inventory) or literal pass-through (for ssh-config aliases).
     push(tok, resolveHost(tok, inventory));

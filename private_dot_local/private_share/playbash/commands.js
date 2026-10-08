@@ -318,6 +318,7 @@ export async function cmdHosts() {
   const inv = loadInventory();
   const hostNames = inv.present ? [...inv.hosts.keys()].sort() : [];
   const groupNames = inv.present ? [...inv.groups.keys()].sort() : [];
+  const unmanagedNames = [...inv.unmanaged.keys()].sort();
 
   // Inventory-level notices go to stderr so they don't pollute the host
   // list on stdout, but we continue to the ssh-only section regardless —
@@ -325,7 +326,7 @@ export async function cmdHosts() {
   // deserves to see them here.
   if (!inv.present) {
     process.stderr.write(`no inventory at ${inv.path}\n`);
-  } else if (hostNames.length === 0 && groupNames.length === 0) {
+  } else if (hostNames.length === 0 && groupNames.length === 0 && unmanagedNames.length === 0) {
     process.stderr.write(`inventory at ${inv.path} is empty\n`);
   }
 
@@ -356,18 +357,28 @@ export async function cmdHosts() {
       );
     }
   }
-  // Third section: ssh-config Host aliases that aren't in inventory.
+  // Third section: "managed": false entries, listed so they stay visible
+  // while every command refuses them.
+  if (unmanagedNames.length > 0) {
+    const prefix = hostNames.length > 0 || groupNames.length > 0 ? '\n' : '';
+    const width = Math.max(...unmanagedNames.map(n => n.length));
+    process.stdout.write(`${prefix}${COLOR.dim}not managed by playbash:${COLOR.reset}\n`);
+    for (const name of unmanagedNames) {
+      process.stdout.write(`  ${name.padEnd(width)}  ${inv.unmanaged.get(name).address}\n`);
+    }
+  }
+  // Fourth section: ssh-config Host aliases that aren't in inventory.
   // These work as bare aliases at runtime (the dispatcher passes
   // unknown names verbatim to ssh) but are not part of `all` and don't
   // belong to any group. Surfacing them here makes them discoverable
   // alongside the canonical fleet. Shown regardless of inventory state —
   // a missing or empty inventory doesn't imply a missing ssh config.
-  const inventoryNames = new Set(hostNames);
+  const inventoryNames = new Set([...hostNames, ...unmanagedNames]);
   const sshOnly = [...parseHostNames()]
     .filter(n => !inventoryNames.has(n))
     .sort();
   if (sshOnly.length > 0) {
-    const printedAbove = hostNames.length > 0 || groupNames.length > 0;
+    const printedAbove = hostNames.length > 0 || groupNames.length > 0 || unmanagedNames.length > 0;
     const prefix = printedAbove ? '\n' : '';
     process.stdout.write(`${prefix}${COLOR.dim}ssh aliases (not in inventory):${COLOR.reset}\n`);
     for (const name of sshOnly) process.stdout.write(`  ${name}\n`);
@@ -391,7 +402,9 @@ export function cmdCompleteTargets() {
   //   2. ~/.ssh/config: literal Host entries (no wildcards). These work
   //      as bare ssh aliases at runtime — the dispatcher passes unknown
   //      names verbatim to ssh — but completion didn't know about them
-  //      until now, so the user had to type them from memory.
+  //      until now, so the user had to type them from memory. Entries
+  //      the inventory marks "managed": false are left out: every
+  //      command refuses them.
   // We merge both sources, dedupe (a name in both ends up once), and
   // emit alphabetically. Plain strings, no descriptions — see
   // dev-docs/bash-rich-completion.md if we ever want richer suggestions.
@@ -403,7 +416,7 @@ export function cmdCompleteTargets() {
     for (const n of inv.hosts.keys()) names.add(n);
     for (const n of inv.groups.keys()) names.add(n);
   }
-  for (const n of parseHostNames()) names.add(n);
+  for (const n of parseHostNames()) if (!inv.unmanaged.has(n)) names.add(n);
   for (const n of [...names].sort()) process.stdout.write(`${n}\n`);
 }
 

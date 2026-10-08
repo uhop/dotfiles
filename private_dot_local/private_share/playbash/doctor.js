@@ -216,7 +216,9 @@ async function checkEnv() {
   } else {
     const nh = inv.hosts.size;
     const ng = inv.groups.size;
-    checks.push(result('inventory', 'ok', `${nh} host${nh === 1 ? '' : 's'}, ${ng} group${ng === 1 ? '' : 's'}`));
+    const nu = inv.unmanaged.size;
+    const unmanaged = nu > 0 ? `, ${nu} not managed` : '';
+    checks.push(result('inventory', 'ok', `${nh} host${nh === 1 ? '' : 's'}, ${ng} group${ng === 1 ? '' : 's'}${unmanaged}`));
   }
 
   // Local playbooks

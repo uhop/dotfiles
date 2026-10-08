@@ -45,14 +45,15 @@ playbash log   [path]
 
 ## Inventory
 
-Plain JSON, flat object, at `~/.config/playbash/inventory.json`. Chosen because Node parses it natively (no extra dep) and it's the same format as the sidecar — one parser to learn. Deployed identically to every managed host via chezmoi (`dot_config/playbash/inventory.json`).
+Plain JSON, flat object, at `~/.config/playbash/inventory.json`. Chosen because Node parses it natively (no extra dep) and it's the same format as the sidecar — one parser to learn. Each machine keeps its own copy; chezmoi does not manage it (the source has no `dot_config/playbash/`), so a change such as a new `"managed": false` entry is made on every machine that needs it.
 
 ### Schema
 
 A value in the top-level object is one of:
 
 - **String** — host address shorthand. `"web1": "web1.example.com"` is sugar for `{"address": "web1.example.com"}`.
-- **Object with `address`** — host with extra attributes. Anything beyond `address` (`user`, `port`, ...) is currently informational; ssh-side overrides should live in `~/.ssh/config`.
+- **Object with `address`** — host with extra attributes. Anything beyond `address` and `managed` (`user`, `port`, ...) is currently informational; ssh-side overrides should live in `~/.ssh/config`.
+- **Object with `"managed": false`** — a host playbash never touches (2026-10-08, for Program Clerk's AWS host `pc`, an ssh alias outside the fleet). `loadInventory` keeps it in its own `unmanaged` map, so `hosts` stays the fleet that `all`, groups, the managed-path check, and `doctor` iterate; `resolveTargets` refuses it as a token and as a group member; `hosts` lists it in its own section and completion leaves it out. A non-boolean `managed` is an error, and `true` equals absent. An explicit field rather than a rule inferred from ssh config (a custom `User`), which would tie fleet membership to a login name.
 - **Array of strings** — group. Members are flat host names; nested groups are rejected with a clear error.
 
 ```json
@@ -60,6 +61,7 @@ A value in the top-level object is one of:
   "web1":      "web1.example.com",
   "db1":       { "address": "10.0.0.5", "user": "eugene", "port": 2222 },
   "mac":       "mac.local",
+  "pc":        { "address": "pc", "managed": false },
   "databases": ["db1"]
 }
 ```
@@ -72,6 +74,7 @@ The CLI takes one positional `<targets>` token, which may be comma-separated. Re
 - `all` expands to every host entry, alphabetically.
 - A token matching a group name expands to its members in declaration order. Nested groups are rejected.
 - A token matching a host entry expands to that one host (with the entry's `address` for ssh, the inventory name for display).
+- A token naming a `"managed": false` entry is refused, alone or as a group member, before anything connects.
 - An unknown token is passed verbatim to ssh, so `~/.ssh/config` aliases keep working unchanged. The inventory is purely additive.
 - The result is deduped by name, preserving first-seen order.
 
