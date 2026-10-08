@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Global pre-commit (core.hooksPath in ~/.gitconfig): stops a commit whose staged
-# changes add a private key or a token in a known format, then runs the repository's
-# own pre-commit, which a global core.hooksPath would otherwise skip.
+# changes add a private key, a token in a known format, or the value of a free-form
+# secret this shell holds, then runs the repository's own pre-commit, which a global
+# core.hooksPath would otherwise skip.
 # Plain bash on purpose: bootstrap.sh updates options.bash from git, never inside a commit.
 
 set -euCo pipefail
@@ -14,6 +15,8 @@ patterns=(
   'npm_[A-Za-z0-9]{36}'
   'sk-ant-[A-Za-z0-9_-]{20,}'
   'sk-or-v1-[0-9a-f]{64}'
+  'vsk_[A-Za-z0-9_-]{43}'
+  '[a-z]{3,5}_[1-9A-HJ-NP-Za-km-z]{8}_[1-9A-HJ-NP-Za-km-z]{30}'
 )
 regex=$(
   IFS='|'
@@ -23,16 +26,27 @@ regex=$(
 # Captured first, so a failing git diff stops the commit instead of passing it unscanned.
 diff=$(git diff --cached --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ -U0 --diff-filter=ACMR)
 
-hits=$(
+added=$(
   printf '%s\n' "$diff" |
     awk '
       /^diff --git / { header = 1; next }
       header && /^\+\+\+ / { file = substr($0, 7); sub(/\t$/, "", file); next }
       /^@@ / { header = 0; split($3, start, ","); line = substr(start[1], 2) + 0; next }
       !header && /^\+/ { print file ":" line ":" substr($0, 2); line++ }
-    ' |
-    { grep -E -e "$regex" || true; } |
-    cut -d: -f1,2
+    '
+)
+
+hits=$(
+  {
+    printf '%s\n' "$added" | { grep -E -e "$regex" || true; }
+    # The vault's operator key is free-form, so only its exact value can be matched.
+    for name in VAULT_API_TOKEN PROGRAM_CLERK_KEY; do
+      value=${!name:-}
+      # Shorter, it would match ordinary text; empty, every line.
+      ((${#value} >= 16)) || continue
+      printf '%s\n' "$added" | { grep -F -e "$value" || true; }
+    done
+  } | cut -d: -f1,2 | sort -t: -k1,1 -k2,2n -u
 )
 
 if [[ -n $hits ]]; then

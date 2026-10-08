@@ -13,6 +13,7 @@ source_dir="$(readlink -f "$(dirname "$(readlink -f "$0")")/../..")"
 work=$(mktemp -d)
 trap 'cd / && command rm -rf "$work"' EXIT
 
+unset VAULT_API_TOKEN PROGRAM_CLERK_KEY
 export HOME="$work/home"
 export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
 export GIT_CONFIG_NOSYSTEM=1
@@ -54,6 +55,9 @@ begin='-----BEGIN'
 private_key="$begin OPENSSH PRIVATE KEY-----"
 aws_id="AKIA$(printf 'Q%.0s' {1..16})"
 github_token="ghp_$(printf 'a%.0s' {1..36})"
+named_key="vsk_$(printf 'A%.0s' {1..43})"
+account_key="pck_$(printf 'a%.0s' {1..8})_$(printf 'b%.0s' {1..30})"
+operator_token=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
 
 printf '=== the hook comes from the template'"'"'s hooksPath line ===\n'
 fresh_repo
@@ -86,6 +90,36 @@ commit
 printf 'token=%s\n' "$github_token" >>t.txt
 check 'a GitHub token added by commit -a stops it' stopped -a
 check 'the line number counts from the hunk' said 't.txt:2'
+
+printf '=== our own keys ===\n'
+fresh_repo
+printf 'key: %s\n' "$named_key" >named.txt
+git add named.txt
+check 'a Program Clerk named key stops it' stopped
+fresh_repo
+printf 'key: %s\n' "$account_key" >account.txt
+git add account.txt
+check 'an account-system key stops it' stopped
+
+fresh_repo
+export VAULT_API_TOKEN="$operator_token"
+printf 'curl -H "Authorization: Bearer %s"\n' "$operator_token" >call.sh
+git add call.sh
+check 'the operator token, by its exact value, stops it' stopped
+check 'the report names the file and line' said 'call.sh:1'
+check 'the report leaves the value out' kept_quiet "$operator_token"
+unset VAULT_API_TOKEN
+
+fresh_repo
+export PROGRAM_CLERK_KEY=short123
+printf 'short123\n' >short.txt
+git add short.txt
+check 'a value under 16 characters stops nothing' commit
+export PROGRAM_CLERK_KEY=
+printf 'anything\n' >|short.txt
+git add short.txt
+check 'an empty value stops nothing' commit
+unset PROGRAM_CLERK_KEY
 
 printf '=== what passes on purpose ===\n'
 fresh_repo
