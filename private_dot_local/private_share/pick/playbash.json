@@ -6,13 +6,13 @@
   },
   {
     "cmd": "playbash doctor",
-    "desc": "Health-check local + inventory hosts",
+    "desc": "Health-check local + fleet hosts",
     "args": false
   },
   {
     "cmd": "playbash run",
     "desc": "Run a playbook against host(s)",
-    "doc": "playbash run <target> <playbook> [args...]\n  <target>:  host, group, all, @self\n  <playbook>: name (resolves to playbash-<name>) or path (slash → file)\n\nplaybash run @self daily --report          — local maintenance + machine-readable summary\nplaybash run all weekly                    — fan out to inventory\nplaybash run somehost dev-docs/setup.sh    — ad-hoc script (auto-pushed)"
+    "doc": "playbash run <targets> <playbook> [args...]\n  <targets>:  hosts, groups, all, @self; -name removes (not first)\n  <playbook>: name (resolves to playbash-<name>) or path (slash → file)\n\nplaybash run @self daily --report          — local maintenance + machine-readable summary\nplaybash run all weekly                    — fan out to the fleet\nplaybash run all,-host2 weekly             — the fleet without host2\nplaybash run web dev-docs/setup.sh         — a group outside all (auto-pushed)"
   },
   {
     "cmd": "playbash exec",
@@ -21,8 +21,8 @@
   },
   {
     "cmd": "playbash push",
-    "desc": "Push a playbook script to host(s) without running it",
-    "doc": "playbash push <target> <playbook>"
+    "desc": "Upload a local script to host(s) and run it",
+    "doc": "playbash push <targets> <script-path>"
   },
   {
     "cmd": "playbash put",
@@ -50,8 +50,8 @@
     "args": false
   },
   {
-    "cmd": "playbash --debug",
-    "desc": "Verbose mode (status board + per-host events)",
-    "doc": "playbash --debug run <target> <playbook>"
+    "cmd": "playbash debug",
+    "desc": "Run with every event shown (no rectangle)",
+    "doc": "playbash debug <targets> <playbook>"
   }
 ]

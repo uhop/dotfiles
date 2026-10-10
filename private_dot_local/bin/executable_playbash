@@ -60,19 +60,19 @@ import {spawnSync} from 'node:child_process';
 
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
-const VERSION = '3.6.0';
+const VERSION = '3.7.0';
 
 const WIKI = 'https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management';
 
 const USAGE = `Multi-host playbook runner for system maintenance.
 
 usage:
-  playbash run    <targets> <playbook> [-n LINES] [-p N] [--self] [--sudo] [--report]
-  playbash push   <targets> <script-path> [-n LINES] [-p N] [--self] [--sudo] [--report]
-  playbash debug  <targets> <playbook> [--self] [--sudo]
-  playbash exec   <targets> [--] <command...> [-n LINES] [-p N] [--self] [-N] [--sudo]
-  playbash put    <targets> <local-path> [<remote-path>] [-p N] [--self] [--sudo] [-N]
-  playbash get    <targets> <remote-path> [<local-path>] [-p N] [--self] [--sudo] [-N]
+  playbash run    <targets> <playbook> [-n LINES] [-p N] [--sudo] [--report]
+  playbash push   <targets> <script-path> [-n LINES] [-p N] [--sudo] [--report]
+  playbash debug  <targets> <playbook> [--sudo]
+  playbash exec   <targets> [--] <command...> [-n LINES] [-p N] [-N] [--sudo]
+  playbash put    <targets> <local-path> [<remote-path>] [-p N] [--sudo] [-N]
+  playbash get    <targets> <remote-path> [<local-path>] [-p N] [--sudo] [-N]
   playbash list
   playbash hosts
   playbash log    [host] [command] [--stats [--by-command]] [--prune AGE [--apply]]
@@ -80,11 +80,15 @@ usage:
   playbash -v, --version            # print version and exit
   playbash --bash-completion        # print bash completion script
 
+targets:
+  comma-separated hosts and groups from ~/.config/playbash/inventory.json;
+  "all" is the fleet, "-name" removes a host or a group (anywhere but first),
+  and "@self" adds this machine, which every other name skips
+
 options:
   -n, --lines N      live output rectangle height (default 5; exec defaults to 0)
   -p, --parallel N   max concurrent hosts (default 0 = unlimited)
-  --self             allow running on the local host
-  --sudo             prompt for a password and inject on sudo/doas prompts
+  --sudo            prompt for a password and inject on sudo/doas prompts
   --report           plain-text summary of actionable events to stdout (run/push)
   -N, --no-precheck  skip ssh connectivity pre-flight check
   --stats            show log file counts and sizes (per-host or per-command)
@@ -107,7 +111,6 @@ try {
   ({values, positionals} = parseArgs({
     options: {
       lines: {type: 'string', short: 'n'},
-      self: {type: 'boolean', default: false},
       sudo: {type: 'boolean', default: false},
       report: {type: 'boolean', default: false},
       'no-precheck': {type: 'boolean', short: 'N', default: false},
@@ -126,6 +129,14 @@ try {
 } catch (err) {
   if (err.code === 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE' && /--prune/.test(err.message)) {
     die('--prune requires an age value (e.g. --prune 7d)');
+  }
+  if (
+    err.code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION' &&
+    /'--self'/.test(err.message)
+  ) {
+    die(
+      '--self is gone: add @self to the target list (for example, all,@self)'
+    );
   }
   die(err.message);
 }
@@ -163,33 +174,34 @@ const [command, ...rest] = positionals;
 
 // Pick the right execution backend for the user's target argument. The
 // argument may be a single name or a comma-separated list mixing host
-// names, group names, and the implicit `all` group.
+// names, group names (`all` among them), removals, and `@self`.
 //
 // Decision tree:
 //   - If the resolved-and-self-filtered list is empty, refuse.
 //   - If length is 1: existing single-host pipeline.
-//     - If that one host is self and --self was not passed: hard refusal
-//       with the bare-script hint (existing behavior).
 //   - If length > 1: fan-out path (StatusBoard, parallel runs, aggregated
-//     summary). Self entries are silently dropped from the list unless
-//     --self is passed; a one-line dim notice is printed before launch.
+//     summary).
+//   - Either way, a target that is this machine runs only as `@self`;
+//     any other name for it is dropped with a one-line dim notice, and
+//     a list of nothing else is refused.
 // Shared target validation: resolve, self-filter, empty-check, precheck,
 // offline detection. Used by dispatch, put, and get. Returns validated
 // {inventory, resolved, targets, offlineNames, parallelLimit} or dies.
 async function resolveAndValidate(targetArg) {
   const inventory = loadInventory();
   const resolved = resolveTargets(targetArg, inventory);
-  const {targets, skipped} = await filterSelf(resolved, values.self);
+  const {targets, skipped} = await filterSelf(resolved);
 
   if (targets.length === 0) {
     if (skipped.length > 0)
-      die(`all targets resolved to self; pass --self to include`);
+      die(`all targets resolved to self; add @self to include`);
     die('target list resolved to nothing');
   }
 
-  if (skipped.length > 0) {
+  // With @self in the list, a skipped name is this machine under another name.
+  if (skipped.length > 0 && !targets.some(t => t.isSelf)) {
     process.stderr.write(
-      `${COLOR.dim}· skipping self (${skipped.join(', ')}); pass --self to include${COLOR.reset}\n`
+      `${COLOR.dim}· skipping self (${skipped.join(', ')}); add @self to include${COLOR.reset}\n`
     );
   }
 
@@ -267,25 +279,22 @@ async function dispatch({job, targetArg, rectHeight, verbose, report, push, sudo
   } = await resolveAndValidate(targetArg);
 
   // Pick single-host vs fan-out based on the *post-self-filter* target
-  // count. A two-host call where one target is self and --self was not
-  // passed has resolved.length === 2 but targets.length === 1; it should
+  // count. A two-host call where one target is self and @self is not in
+  // the list has resolved.length === 2 but targets.length === 1; it should
   // use the single-host pipeline (live rectangle) on the one real host,
   // not the status board.
   if (targets.length === 1) {
     const only = targets[0];
-    // With targets.length === 1, either the target is non-self (filterSelf
-    // left it alone) or --self was passed and the target happens to be self.
-    // The `isSelf && !values.self` case is unreachable: filterSelf would
-    // have moved it to `skipped`, and resolveAndValidate would have died
-    // with "all targets resolved to self" before dispatch runs.
+    // With targets.length === 1, the target is either non-self (filterSelf
+    // left it alone) or the @self entry, whose address is localhost.
     const isSelf = await isSelfAddress(only.address);
     if (isSelf) {
       await runLocally({...job, hostName: only.name, rectHeight, verbose, report, sudoPassword});
     } else {
-      const managed = !push && inv.hosts.has(only.name);
+      const managed = !push && inv.fleet.has(only.name);
       if (!push && job.playbook && !managed) {
         process.stderr.write(
-          `${COLOR.dim}· ${only.name} not in inventory — pushing playbook${COLOR.reset}\n`
+          `${COLOR.dim}· ${only.name} not in all — pushing playbook${COLOR.reset}\n`
         );
       }
       await runRemote({
@@ -303,12 +312,12 @@ async function dispatch({job, targetArg, rectHeight, verbose, report, push, sudo
   }
 
   if (!push && job.playbook) {
-    const nonInv = targets.filter(
-      t => !inv.hosts.has(t.name) && !offlineNames.has(t.name)
+    const nonFleet = targets.filter(
+      t => !t.isSelf && !inv.fleet.has(t.name) && !offlineNames.has(t.name)
     );
-    if (nonInv.length > 0) {
+    if (nonFleet.length > 0) {
       process.stderr.write(
-        `${COLOR.dim}· pushing playbook to ${nonInv.map(t => t.name).join(', ')} (not in inventory)${COLOR.reset}\n`
+        `${COLOR.dim}· pushing playbook to ${nonFleet.map(t => t.name).join(', ')} (not in all)${COLOR.reset}\n`
       );
     }
   }

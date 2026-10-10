@@ -2,15 +2,12 @@
 //
 // Walks ~/.ssh/config plus any Include'd files and returns the set of
 // literal Host names defined in them. Wildcard patterns (`*`, `?`) are
-// skipped — they aren't useful as completion candidates and would need a
-// known universe to match against.
+// skipped — a wildcard names no host and would need a known universe to
+// match against.
 //
-// Used by:
-//   - doctor.js: warn on inventory hosts that have no matching Host entry
-//   - executable_playbash __complete-targets: enrich tab completion with
-//     ssh-config aliases that aren't in inventory
-//   - executable_playbash cmdHosts: list ssh-config hosts that aren't in
-//     inventory under their own section in `playbash hosts`
+// Used by doctor.js, to warn on fleet hosts that have no matching Host
+// entry. Playbash reaches only the hosts its inventory lists, so ssh
+// aliases are not targets or completion candidates.
 //
 // Pure: no I/O beyond reading files. Throws nothing — files that fail to
 // read or directories that fail to list silently contribute zero hosts.

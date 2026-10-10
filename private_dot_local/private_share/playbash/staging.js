@@ -12,9 +12,9 @@
 // directory tree (tar'd and extracted into STAGING_DIR/<dirname>/, with
 // main.sh as the entry point).
 //
-// The caller decides managed vs. upload based on inventory membership:
-// hosts in the inventory are managed (wrapper + playbooks pre-deployed via
-// chezmoi); bare SSH aliases are vanilla and get everything staged.
+// The caller decides managed vs. upload based on membership in `all`:
+// hosts in the fleet are managed (wrapper + playbooks pre-deployed via
+// chezmoi); other inventory hosts are vanilla and get everything staged.
 // Wrapper staging is cached under ~/.cache/playbash/staging/<hostName>.json,
 // keyed by the local wrapper's SHA-256. For playbook files, a remote SHA-256
 // probe (one ssh round trip) replaces local caching — the remote is the
@@ -367,7 +367,7 @@ export function extractTarFromBuffer(data, localPath, decompress) {
 // --- public API ---
 
 // Ensure the Python PTY wrapper is staged at STAGING_DIR on the remote.
-// Used by `exec` on non-inventory hosts (no playbook to stage, just the
+// Used by `exec` on hosts outside `all` (no playbook to stage, just the
 // wrapper). For playbook runs, stagePlaybookFiles() handles the wrapper
 // as part of its probe. Returns the remote wrapper path (always STAGED).
 // Cached by wrapper SHA-256 so repeat runs cost zero ssh calls.

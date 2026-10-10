@@ -16,11 +16,19 @@ export const INVENTORY_PATH = join(homedir(), '.config', 'playbash', 'inventory.
 
 // --- Inventory ---
 
-// A host entry with "managed": false (an ssh alias playbash must not touch, such as a
-// cloud host) goes to `unmanaged`, so `hosts` stays the fleet every caller iterates.
+// A string (or {"address": ...}) gives a host's ssh address; an array is a group. A group
+// member names a group or a host, and `-name` removes one. A member that names no group
+// is a host whose address defaults to its name, so a host needs its own entry only when
+// the two differ. The required `all` group is the fleet: fan-outs reach it, and its hosts
+// carry the playbooks. Every group is expanded here, so a broken one fails every command.
 export function loadInventory() {
   const empty = {
-    hosts: new Map(), groups: new Map(), unmanaged: new Map(), path: INVENTORY_PATH, present: false
+    hosts: new Map(),
+    groups: new Map(),
+    expanded: new Map(),
+    fleet: new Set(),
+    path: INVENTORY_PATH,
+    present: false
   };
   if (!existsSync(INVENTORY_PATH)) return empty;
   let raw;
@@ -34,121 +42,153 @@ export function loadInventory() {
   }
   const hosts = new Map();
   const groups = new Map();
-  const unmanaged = new Map();
   for (const [name, value] of Object.entries(raw)) {
+    checkName(name, `inventory entry "${name}"`);
     if (typeof value === 'string') {
       hosts.set(name, {address: value});
     } else if (Array.isArray(value)) {
-      // Group entry — loaded for `playbash hosts` and resolveTargets.
       groups.set(name, value);
     } else if (value && typeof value === 'object') {
+      if ('managed' in value) {
+        die(
+          `inventory entry "${name}" has "managed", which playbash no longer reads: ` +
+            'a name the inventory does not list is refused, so delete the entry'
+        );
+      }
       if (typeof value.address !== 'string') {
         die(`inventory entry "${name}" has no string "address"`);
       }
-      if ('managed' in value && typeof value.managed !== 'boolean') {
-        die(`inventory entry "${name}" has a non-boolean "managed"`);
-      }
-      (value.managed === false ? unmanaged : hosts).set(name, value);
+      hosts.set(name, {address: value.address});
     } else {
       die(`inventory entry "${name}" has unsupported type`);
     }
   }
-  return {hosts, groups, unmanaged, path: INVENTORY_PATH, present: true};
-}
-
-// Resolve a single name to an ssh-target string.
-// If the name matches a host entry, return its address. Otherwise pass
-// the name through verbatim so ~/.ssh/config aliases still work.
-export function resolveHost(name, inventory) {
-  const entry = inventory.hosts.get(name);
-  return entry ? entry.address : name;
-}
-
-// Expand `arg` (a single CLI positional, possibly comma-separated, possibly
-// containing host names, group names, or the implicit `all` group) into an
-// ordered, deduped list of {name, address} entries.
-//
-// Resolution rules:
-//   - Tokens are split on `,` and trimmed of whitespace.
-//   - `all` expands to every host entry in inventory, alphabetically.
-//   - A token matching a group name expands to its members in the order
-//     they appear in the group definition.
-//   - A token matching a host entry expands to that one host.
-//   - A token naming a "managed": false entry is refused, alone or in a group.
-//   - An unknown token is treated as a literal — passed through to ssh,
-//     same as a single-host call (so ~/.ssh/config aliases keep working).
-//   - The result is deduped by name, preserving first-seen order.
-//
-// Groups are flat: a group's members must be host names, not other group
-// names. An array entry whose member matches a group name is rejected
-// with a clear error.
-export function resolveTargets(arg, inventory) {
-  const tokens = arg.split(',').map(t => t.trim()).filter(Boolean);
-  if (tokens.length === 0) die('empty target list (pass a host name, group name, or "all")');
-  // When @self appears anywhere in the token list, the local hostname
-  // gets isSelf: true — even if the same name was also added by `all`
-  // or a group. Pre-scan so ordering doesn't matter.
-  const selfName = tokens.includes('@self') ? hostname() : null;
-  const out = [];
-  const seen = new Set();
-  const push = (name, address) => {
-    if (seen.has(name)) return;
-    seen.add(name);
-    out.push({name, address, ...(name === selfName && {isSelf: true})});
-  };
-  for (const tok of tokens) {
-    if (tok === '@self') {
-      push(selfName, 'localhost');
-      continue;
-    }
-    if (tok === 'all') {
-      const names = [...inventory.hosts.keys()].sort();
-      for (const n of names) push(n, inventory.hosts.get(n).address);
-      continue;
-    }
-    if (inventory.groups.has(tok)) {
-      const members = inventory.groups.get(tok);
-      for (const m of members) {
-        if (inventory.groups.has(m)) {
-          die(`group "${tok}" references group "${m}"; nested groups are not supported`);
-        }
-        if (inventory.unmanaged.has(m)) {
-          die(`group "${tok}" references "${m}", which ${inventory.path} marks "managed": false`);
-        }
-        const entry = inventory.hosts.get(m);
-        if (!entry) {
-          die(`group "${tok}" references unknown host "${m}"`);
-        }
-        push(m, entry.address);
+  for (const [group, members] of groups) {
+    for (const member of members) {
+      if (typeof member !== 'string')
+        die(`group "${group}" has a member that is not a string`);
+      const name = member.startsWith('-') ? member.slice(1) : member;
+      checkName(name, `group "${group}" member "${member}"`);
+      if (name === member && !groups.has(name) && !hosts.has(name)) {
+        hosts.set(name, {address: name});
       }
-      continue;
     }
-    if (inventory.unmanaged.has(tok)) {
-      die(`"${tok}" is not managed by playbash ("managed": false in ${inventory.path})`);
-    }
-    // Plain host name (in inventory) or literal pass-through (for ssh-config aliases).
-    push(tok, resolveHost(tok, inventory));
   }
-  return out;
+  if (hosts.size > 0 && !groups.has('all')) {
+    die(
+      `inventory at ${INVENTORY_PATH} has no "all" group: list the fleet's hosts or groups in it`
+    );
+  }
+
+  const expanded = new Map();
+  const visiting = [];
+  const expand = group => {
+    if (expanded.has(group)) return expanded.get(group);
+    const at = visiting.indexOf(group);
+    if (at >= 0)
+      die(
+        `inventory groups form a cycle: ${[...visiting.slice(at), group].join(' → ')}`
+      );
+    visiting.push(group);
+    const names = combine(groups.get(group), name => {
+      if (groups.has(name)) return expand(name);
+      if (hosts.has(name)) return [name];
+      die(
+        `group "${group}" removes "${name}", which is neither a host nor a group`
+      );
+    });
+    visiting.pop();
+    expanded.set(group, names);
+    return names;
+  };
+  for (const group of groups.keys()) expand(group);
+
+  return {
+    hosts,
+    groups,
+    expanded,
+    fleet: new Set(expanded.get('all')),
+    path: INVENTORY_PATH,
+    present: true
+  };
 }
 
-// Filter self entries out of a target list. Returns {targets, skipped}
-// where `skipped` is the list of names that were dropped because they
-// resolve to a local interface. When `keepSelf` is true, returns the
-// original list unchanged (and skipped is empty).
-export async function filterSelf(targets, keepSelf) {
-  if (keepSelf) return {targets, skipped: []};
-  const flags = await Promise.all(targets.map(t => isSelfAddress(t.address)));
+// Commas split a target list, a leading `-` removes, and `@self` is a command-line word.
+function checkName(name, where) {
+  if (
+    !name ||
+    name.includes(',') ||
+    name.startsWith('-') ||
+    name.startsWith('@')
+  ) {
+    die(
+      `${where}: a name must be non-empty, hold no comma, and start with neither "-" nor "@"` +
+        ' (@self works on the command line only)'
+    );
+  }
+}
+
+// Every removal applies after every addition, so a member's position never matters.
+function combine(members, expandName) {
+  const added = [];
+  const removed = new Set();
+  for (const member of members) {
+    if (member.startsWith('-')) {
+      for (const name of expandName(member.slice(1))) removed.add(name);
+    } else {
+      added.push(...expandName(member));
+    }
+  }
+  return [...new Set(added)].filter(name => !removed.has(name));
+}
+
+// Expand `arg` (one CLI positional: comma-separated tokens) into an ordered, deduped list
+// of {name, address, isSelf?}. A token is a group, a host, or `@self`, and `-token`
+// removes one, by the same rules as group members. A name the inventory does not list is
+// refused. `@self` is this machine under its hostname; its address is `localhost` even
+// when the inventory lists that name, so it runs locally whatever DNS says.
+export function resolveTargets(arg, inventory) {
+  const tokens = arg
+    .split(',')
+    .map(t => t.trim())
+    .filter(Boolean);
+  if (tokens.length === 0)
+    die('empty target list (pass a host name, a group name, or "all")');
+  if (tokens.includes('-'))
+    die('a "-" in a target list must be followed by a host or group name');
+  const selfName = hostname();
+  const selfNamed = tokens.includes('@self');
+  const names = combine(tokens, name => {
+    if (name === '@self') return [selfName];
+    if (inventory.expanded.has(name)) return inventory.expanded.get(name);
+    if (inventory.hosts.has(name)) return [name];
+    die(
+      inventory.present
+        ? `"${name}" is not in the inventory at ${inventory.path}; playbash reaches only the hosts and groups listed there`
+        : `"${name}" is not in an inventory: there is none at ${inventory.path}`
+    );
+  });
+  return names.map(name =>
+    selfNamed && name === selfName
+      ? {name, address: 'localhost', isSelf: true}
+      : {name, address: inventory.hosts.get(name).address}
+  );
+}
+
+// Split a target list into the targets to run and the names skipped as this machine: a
+// target that resolves to a local interface runs only as the `@self` entry.
+export async function filterSelf(targets) {
+  const flags = await Promise.all(
+    targets.map(t => !t.isSelf && isSelfAddress(t.address))
+  );
   const kept = [];
   const skipped = [];
-  for (let i = 0; i < targets.length; i++) {
-    // @self entries (isSelf flag) are never filtered — they imply --self.
-    if (flags[i] && !targets[i].isSelf) skipped.push(targets[i].name);
+  for (let i = 0; i < targets.length; ++i) {
+    if (flags[i]) skipped.push(targets[i].name);
     else kept.push(targets[i]);
   }
   return {targets: kept, skipped};
 }
-
 // --- Self detection ---
 
 // Set of IPs bound to any local interface, plus the loopback ranges.

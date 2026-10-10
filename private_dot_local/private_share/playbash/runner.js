@@ -12,7 +12,7 @@
 //     and parse the sidecar after exit.
 //   - runHostSingle: single-host wrapper around runHost with a Rectangle.
 //   - runRemote: single-host remote run (managed or staged).
-//   - runLocally: single-host --self run as a direct child.
+//   - runLocally: single-host @self run as a direct child.
 //   - runFanout: multi-host parallel runs through the StatusBoard.
 //   - validateCustomPlaybookPath: slash-convention path validator.
 //   - expandTemplate: tiny per-host template substitution.
@@ -68,7 +68,7 @@ import {run} from './subprocess.js';
 // before the runner exits. Without this, Ctrl+C delivers SIGINT only to
 // node — detached children are in a different process group and survive
 // as orphans (bash playbook → upd → sudo blocked on a password prompt).
-// Verified on macOS: previously a stuck `playbash run daily ... --self`
+// Verified on macOS: previously a stuck `playbash run @self daily`
 // followed by Ctrl+C left bash + sudo behind indefinitely.
 //
 // For ssh-backed runs there is a second cleanup channel needed because
@@ -564,7 +564,7 @@ async function runHost({
         // stderr does not feed the live display (rectangle / status board)
         // but it does feed the failure-context tail and the stuck-on-input
         // detector. macOS sudo writes its "a terminal is required" error
-        // to stderr only — without this, the local --self path would
+        // to stderr only — without this, the local @self path would
         // miss it entirely.
         lastChunkAt = Date.now();
         appendToTail(chunk);
@@ -803,7 +803,7 @@ export function validateCustomPlaybookPath(path) {
 // runRemote, runLocally, and runFanout's per-host launcher all build the
 // same shapes: a "remote job" (wrapper path + playbook path + libs path,
 // for ssh-backed runs) or a "local job" (childCmd + childArgs + env, for
-// --self runs). Before extraction this was ~150 lines of duplication.
+// @self runs). Before extraction this was ~150 lines of duplication.
 //
 // Each helper either returns a value or throws Error. The caller decides
 // whether to die() (single-host paths) or mark a per-host failure
@@ -821,7 +821,7 @@ const CHILD_SPAWN_OPTS_SUDO = {
 
 // Build a fresh per-run sidecar report path. baseDir is `/tmp` for the
 // remote case (works on every Unix we support without thinking about
-// $TMPDIR) and `tmpdir()` for the operator-side --self case.
+// $TMPDIR) and `tmpdir()` for the operator-side @self case.
 function makeReportPath(baseDir) {
   return `${baseDir}/playbash-report-${randomBytes(8).toString('hex')}.jsonl`;
 }
@@ -864,7 +864,7 @@ async function prepareRemoteJob({playbook, customPath, customPathKind, hostName,
   };
 }
 
-// Build the local-job tuple for a --self run: a makeChild closure that
+// Build the local-job tuple for an @self run: a makeChild closure that
 // runHost can call, plus a getSidecarText fetcher. Throws if a named
 // playbook does not exist locally — caller decides die vs per-host fail.
 function prepareLocalJob({playbook, command, hostName, sudoPassword}) {
@@ -1153,7 +1153,7 @@ export async function runFanout({
         });
         return;
       }
-      const managed = !push && inventory.hosts.has(slot.name);
+      const managed = !push && inventory.fleet.has(slot.name);
       let job;
       try {
         job = await prepareRemoteJob({

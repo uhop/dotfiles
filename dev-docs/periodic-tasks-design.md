@@ -66,7 +66,7 @@ This is self-contained: the host's own timer, its own msmtp, its own
 notifications. No dependence on an operator machine being up.
 
 `@self` is a built-in pseudo-host that resolves to the local hostname and
-implies `--self`. It avoids hardcoding the hostname in timer configs,
+runs it locally, without ssh. It avoids hardcoding the hostname in timer configs,
 making the same command work on every host.
 
 Fleet-wide setup via playbash:
@@ -87,7 +87,7 @@ SSH. Document this.
 
 ### Unmanaged hosts: operator fan-out
 
-Unmanaged hosts (not in inventory, no chezmoi) don't have local timers.
+Hosts outside the fleet (`all`; no chezmoi) don't have local timers.
 An operator machine runs a timer that fans out to them:
 
 ```
@@ -122,7 +122,7 @@ all subcommands (`run`, `push`, `debug`, `exec`, `put`, `get`).
 Behavior:
 - Resolves to the actual system hostname for display (reports and status
   lines show "think", not "@self").
-- Implies `--self` — no need to pass the flag.
+- Runs locally, without ssh; no flag needed.
 - Works in mixed target lists: `playbash run @self,host2 daily` runs
   locally on `@self` and remotely on `host2`.
 - Implemented in the target resolver (core), not per-command.
@@ -579,8 +579,8 @@ The `--remove` interface stays the same but uses the explicit name:
 - **Mixed week/month days:** allowed but warns. Schedulers fire
   independently (possible double-run on overlap).
 - **`last` day of month:** deferred — no native backend support.
-- **`@self` pseudo-host.** Resolves to actual hostname for display, implies
-  `--self`, works with all subcommands. Implemented in the target resolver.
+- **`@self` pseudo-host.** Resolves to actual hostname for display, runs
+  locally, works with all subcommands. Implemented in the target resolver.
 - **Local timers as primary path.** Each managed host runs
   `playbash run @self daily --report` via its own timer. Self-contained.
 - **Operator fan-out for unmanaged hosts.** Timer on operator machine runs

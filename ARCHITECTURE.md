@@ -81,7 +81,7 @@ dotfiles/                                          # chezmoi source directory
 │   ├── private_share/                             # → ~/.local/share/ (private permissions)
 │   │   ├── playbash/                              # playbash runner modules
 │   │   │   ├── render.js                          # COLOR, Rectangle, StatusBoard, sanitizer
-│   │   │   ├── inventory.js                       # load + group + self detection
+│   │   │   ├── inventory.js                       # load + group arithmetic + self detection
 │   │   │   ├── sidecar.js                         # JSON-lines parser + summary + aggregator
 │   │   │   ├── staging.js                         # SSH helpers, file staging for vanilla hosts
 │   │   │   └── completion.bash                    # bash completion script
@@ -101,6 +101,7 @@ dotfiles/                                          # chezmoi source directory
 │
 ├── tests/detect/                                  # unit tests for the detection library
 ├── tests/git-hooks/                               # tests for the pre-commit secret scan
+├── tests/playbash/                               # tests for playbash's inventory and targets
 │   ├── run-tests.sh                               # harness; discovers test_*.sh, runs each in a subshell
 │   ├── lib.sh                                     # assert::eq / assert::ok / assert::fail helpers
 │   ├── fixtures/os-release/                       # per-distro /etc/os-release fixtures (11 distros + Silverblue + MicroOS + slim variants)
@@ -151,7 +152,7 @@ playbash (Node entry, ~/.local/bin/playbash)
     ↓
 private_share/playbash/runner.js       ← execution pipeline: spawn, tee, sidecar, fan-out
 private_share/playbash/render.js       ← COLOR, Rectangle, StatusBoard, ANSI sanitizer
-private_share/playbash/inventory.js    ← inventory load, group expansion, self detection
+private_share/playbash/inventory.js    ← inventory load, group arithmetic, target resolution, self detection
 private_share/playbash/sidecar.js      ← JSON-lines parser, per-host summary, cross-host aggregator
 private_share/playbash/staging.js      ← SSH helpers (sshRun), file staging for vanilla hosts
 private_share/playbash/transfer.js     ← put/get file transfer over ssh

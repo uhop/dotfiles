@@ -1,4 +1,24 @@
 # playbash bash completion — sourced from ~/.bashrc
+
+# Complete the comma-separated target list in $1 by its last item: a host,
+# a group, or @self, with an optional leading - that removes it.
+__playbash_complete_targets() {
+  local cur=$1 prefix="" last=$1 sign="" m
+  if [[ "$cur" == *,* ]]; then
+    prefix="${cur%,*},"
+    last="${cur##*,}"
+  fi
+  if [[ "$last" == -* ]]; then
+    sign="-"
+    last="${last#-}"
+  fi
+  COMPREPLY=()
+  while IFS= read -r m; do
+    [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${sign}${m}" )
+  done < <(compgen -W "$(playbash __complete-targets 2>/dev/null)" -- "$last")
+  compopt -o nospace 2>/dev/null
+}
+
 _playbash() {
   local cur prev
   COMPREPLY=()
@@ -45,7 +65,7 @@ _playbash() {
       # put <targets> <local-path> [<remote-path>]
       case "$prev" in -p|--parallel) return ;; esac
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "-p --parallel --self --sudo -N --no-precheck -h --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "-p --parallel --sudo -N --no-precheck -h --help" -- "$cur") )
         return
       fi
       local pos=0 skip_next=0
@@ -55,12 +75,7 @@ _playbash() {
         case "$w" in put) ;; -p|--parallel) skip_next=1 ;; -*) ;; *) ((pos++)) ;; esac
       done
       if [[ $pos -eq 0 ]]; then
-        local prefix last
-        if [[ "$cur" == *,* ]]; then prefix="${cur%,*},"; last="${cur##*,}"; else prefix=""; last="$cur"; fi
-        local targets; targets=$(playbash __complete-targets 2>/dev/null)
-        local m; COMPREPLY=()
-        while IFS= read -r m; do [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" ); done < <(compgen -W "$targets" -- "$last")
-        compopt -o nospace 2>/dev/null
+        __playbash_complete_targets "$cur"
       elif [[ $pos -eq 1 || $pos -eq 2 ]]; then
         # -o filenames so directory matches get a trailing / (no space) and
         # the user can keep tab-completing into the tree.
@@ -73,7 +88,7 @@ _playbash() {
       # get <targets> <remote-path> [<local-path>]
       case "$prev" in -p|--parallel) return ;; esac
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "-p --parallel --self --sudo -N --no-precheck -h --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "-p --parallel --sudo -N --no-precheck -h --help" -- "$cur") )
         return
       fi
       local pos=0 skip_next=0
@@ -83,12 +98,7 @@ _playbash() {
         case "$w" in get) ;; -p|--parallel) skip_next=1 ;; -*) ;; *) ((pos++)) ;; esac
       done
       if [[ $pos -eq 0 ]]; then
-        local prefix last
-        if [[ "$cur" == *,* ]]; then prefix="${cur%,*},"; last="${cur##*,}"; else prefix=""; last="$cur"; fi
-        local targets; targets=$(playbash __complete-targets 2>/dev/null)
-        local m; COMPREPLY=()
-        while IFS= read -r m; do [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" ); done < <(compgen -W "$targets" -- "$last")
-        compopt -o nospace 2>/dev/null
+        __playbash_complete_targets "$cur"
       elif [[ $pos -eq 1 || $pos -eq 2 ]]; then
         # pos 1 is the remote path, pos 2 is the local destination. We
         # complete both with the local filesystem: ssh-side completion
@@ -107,7 +117,7 @@ _playbash() {
         -n|--lines|-p|--parallel) return ;;
       esac
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --self --sudo -N --no-precheck -h --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --sudo -N --no-precheck -h --help" -- "$cur") )
         return
       fi
       # Count positional args (same logic as run/debug below).
@@ -123,23 +133,7 @@ _playbash() {
         esac
       done
       if [[ $pos -eq 0 ]]; then
-        # Targets — same comma-separated completion as run/debug.
-        local prefix last
-        if [[ "$cur" == *,* ]]; then
-          prefix="${cur%,*},"
-          last="${cur##*,}"
-        else
-          prefix=""
-          last="$cur"
-        fi
-        local targets
-        targets=$(playbash __complete-targets 2>/dev/null)
-        local m
-        COMPREPLY=()
-        while IFS= read -r m; do
-          [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" )
-        done < <(compgen -W "$targets" -- "$last")
-        compopt -o nospace 2>/dev/null
+        __playbash_complete_targets "$cur"
       fi
       return
       ;;
@@ -147,7 +141,7 @@ _playbash() {
       # push <targets> <script-path> — targets at pos 0, file at pos 1.
       case "$prev" in -n|--lines|-p|--parallel) return ;; esac
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --self --sudo --report -N --no-precheck -h --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --sudo --report -N --no-precheck -h --help" -- "$cur") )
         return
       fi
       local pos=0 skip_next=0
@@ -157,12 +151,7 @@ _playbash() {
         case "$w" in push) ;; -n|--lines|-p|--parallel) skip_next=1 ;; -*) ;; *) ((pos++)) ;; esac
       done
       if [[ $pos -eq 0 ]]; then
-        local prefix last
-        if [[ "$cur" == *,* ]]; then prefix="${cur%,*},"; last="${cur##*,}"; else prefix=""; last="$cur"; fi
-        local targets; targets=$(playbash __complete-targets 2>/dev/null)
-        local m; COMPREPLY=()
-        while IFS= read -r m; do [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" ); done < <(compgen -W "$targets" -- "$last")
-        compopt -o nospace 2>/dev/null
+        __playbash_complete_targets "$cur"
       elif [[ $pos -eq 1 ]]; then
         # -o filenames so directory playbooks (mydir/) keep tab-completing.
         COMPREPLY=( $(compgen -f -- "$cur") )
@@ -197,28 +186,12 @@ _playbash() {
 
       # Option flag completion takes priority over positional shape.
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --self --sudo --report -N --no-precheck -h --help" -- "$cur") )
+        COMPREPLY=( $(compgen -W "-n --lines -p --parallel --sudo --report -N --no-precheck -h --help" -- "$cur") )
         return
       fi
 
       if [[ $pos -eq 0 ]]; then
-        # Targets — comma-separated host/group/all. Split on the last comma.
-        local prefix last
-        if [[ "$cur" == *,* ]]; then
-          prefix="${cur%,*},"
-          last="${cur##*,}"
-        else
-          prefix=""
-          last="$cur"
-        fi
-        local targets
-        targets=$(playbash __complete-targets 2>/dev/null)
-        local m
-        COMPREPLY=()
-        while IFS= read -r m; do
-          [[ -n "$m" ]] && COMPREPLY+=( "${prefix}${m}" )
-        done < <(compgen -W "$targets" -- "$last")
-        compopt -o nospace 2>/dev/null
+        __playbash_complete_targets "$cur"
         return
       fi
 

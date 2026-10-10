@@ -25,60 +25,69 @@ Companion docs:
 ## CLI surface
 
 ```
-playbash run   <targets> <playbook> [-n LINES] [-p N] [--self]
-playbash debug <targets> <playbook> [--self]
+playbash run   <targets> <playbook> [-n LINES] [-p N]
+playbash debug <targets> <playbook>
 playbash exec  <targets> [--] <command...> [options]
 playbash list
 playbash hosts
 playbash log   [path]
 ```
 
-`<targets>` is one positional that may be a single host name, a comma-separated list, a group name, or the implicit `all` group — and any combination (`db1,web,prod`). Names are looked up in `~/.config/playbash/inventory.json`. Unknown names are passed verbatim to ssh, so any `~/.ssh/config` alias works. A single resolved target uses the live rectangle; multiple targets switch to a status board with parallel runs and a focused-host live view.
+`<targets>` is one positional: a comma-separated list of host names, group names (`all` among them), `-name` removals, and `@self`, as in `db1,web,prod` or `all,-host2`. Names are looked up in `~/.config/playbash/inventory.json`, and a name the inventory does not list is refused. A single resolved target uses the live rectangle; multiple targets switch to a status board with parallel runs and a focused-host live view.
 
 `<playbook>` resolves to `~/.local/bin/playbash-<playbook>` on the target host.
 
 `debug` is equivalent to `run` with the rectangle disabled (`-n 0`) and `info` events surfaced in the summary — use it when you want to see everything.
 
-`exec` runs an arbitrary command through the same wrapper / rectangle / fan-out pipeline as `run`, without a playbook script. The wrapper invokes `bash -c '<command>'` on the remote; locally, `bash -c` is spawned directly. No sidecar events are collected. Use `--` before the command when it contains flags that might conflict with playbash options. Same `-n`, `-p`, `--self` options as `run`.
+`exec` runs an arbitrary command through the same wrapper / rectangle / fan-out pipeline as `run`, without a playbook script. The wrapper invokes `bash -c '<command>'` on the remote; locally, `bash -c` is spawned directly. No sidecar events are collected. Use `--` before the command when it contains flags that might conflict with playbash options. Same `-n` and `-p` options as `run`.
 
 `playbash log` prints a per-run log file with terminal-hostile escape sequences stripped — safe to view in any terminal. With no path, picks the most recent log under `~/.cache/playbash/runs/`. Direct `cat` of a log may inject control characters into the user's terminal.
 
 ## Inventory
 
-Plain JSON, flat object, at `~/.config/playbash/inventory.json`. Chosen because Node parses it natively (no extra dep) and it's the same format as the sidecar — one parser to learn. Each machine keeps its own copy; chezmoi does not manage it (the source has no `dot_config/playbash/`), so a change such as a new `"managed": false` entry is made on every machine that needs it.
+Plain JSON, flat object, at `~/.config/playbash/inventory.json`. Chosen because Node parses it natively (no extra dep) and it's the same format as the sidecar — one parser to learn. The file stays out of the repository: the repository is public, and an inventory maps the internal network. Each machine keeps its own copy, and a change goes to the others with `playbash put all ~/.config/playbash/inventory.json ~/.config/playbash/inventory.json`. Since 3.7.0 the copies can be identical, because a host the file does not list is refused, so no machine needs an entry of its own to keep one out.
 
 ### Schema
 
 A value in the top-level object is one of:
 
-- **String** — host address shorthand. `"web1": "web1.example.com"` is sugar for `{"address": "web1.example.com"}`.
-- **Object with `address`** — host with extra attributes. Anything beyond `address` and `managed` (`user`, `port`, ...) is currently informational; ssh-side overrides should live in `~/.ssh/config`.
-- **Object with `"managed": false`** — a host playbash never touches (2026-10-08, for Program Clerk's AWS host `pc`, an ssh alias outside the fleet). `loadInventory` keeps it in its own `unmanaged` map, so `hosts` stays the fleet that `all`, groups, the managed-path check, and `doctor` iterate; `resolveTargets` refuses it as a token and as a group member; `hosts` lists it in its own section and completion leaves it out. A non-boolean `managed` is an error, and `true` equals absent. An explicit field rather than a rule inferred from ssh config (a custom `User`), which would tie fleet membership to a login name.
-- **Array of strings** — group. Members are flat host names; nested groups are rejected with a clear error.
+- **Array of strings**: a group. A member names a group, a host, or, after `-`, a host or a group to remove (§ Group arithmetic). A member that names no group is a host whose address is its name.
+- **String**: a host's address, needed only when it differs from the name: `"web1": "web1.example.com"`.
+- **Object with `address`**: the same, with extra attributes. Anything beyond `address` (`user`, `port`, ...) is informational; ssh-side overrides should live in `~/.ssh/config`. A `managed` key is an error since 3.7.0, with a message that says to delete the entry.
+
+A name must be non-empty, hold no comma, and start with neither `-` nor `@`, so it survives the command line.
+
+**`all` is the fleet.** It is an ordinary group, required whenever the inventory names a host. A fan-out over `all` reaches it, its hosts have the playbooks chezmoi deploys (the managed-path check and `doctor` read it), and it skips every other host. A host outside `all` is reachable only when named, with the playbook pushed; groups of such hosts serve servers playbash does not maintain, for `put`, `get`, and `exec` fan-outs.
 
 ```json
 {
-  "web1":      "web1.example.com",
-  "db1":       { "address": "10.0.0.5", "user": "eugene", "port": 2222 },
-  "mac":       "mac.local",
-  "pc":        { "address": "pc", "managed": false },
-  "databases": ["db1"]
+  "linux": ["host1", "host2", "host3"],
+  "mac": ["host4"],
+  "all": ["linux", "mac"],
+  "web": ["web1", "web2"],
+  "web1": "web1.example.com"
 }
 ```
 
+Keep the fleet's hosts in OS groups and build `all` from them, so a host added without an OS group stays out of the fleet. The other shape, hosts in `all` and `"linux": ["all", "-mac"]`, puts a new Mac forgotten in `mac` into `linux`.
+
+### Group arithmetic
+
+- A group's hosts are its additions, in order and deduped, minus its removals. Every removal applies after every addition, so a member's position never matters: `["-host2", "all"]` equals `["all", "-host2"]`. Ansible's host patterns apply `!` exclusions the same way. A removal that only worked after its additions would do nothing when misplaced, and leave in the host it was meant to drop.
+- A group may name any group, wherever it stands in the file. A JSON object is unordered (RFC 8259), and a tool that sorts keys must not change what the file means. A cycle is an error that names it.
+- A removal that names neither a host nor a group is an error, so a typo cannot leave a host in.
+- Every group is expanded when the inventory loads, so a broken group fails every command, the way invalid JSON does.
+
 ### Host argument resolution
 
-The CLI takes one positional `<targets>` token, which may be comma-separated. Resolution:
+The CLI takes one positional `<targets>` token. Resolution:
 
-- Tokens are split on `,` and trimmed.
-- `all` expands to every host entry, alphabetically.
-- A token matching a group name expands to its members in declaration order. Nested groups are rejected.
-- A token matching a host entry expands to that one host (with the entry's `address` for ssh, the inventory name for display).
-- A token naming a `"managed": false` entry is refused, alone or as a group member, before anything connects.
-- An unknown token is passed verbatim to ssh, so `~/.ssh/config` aliases keep working unchanged. The inventory is purely additive.
+- Tokens are split on `,`, trimmed, and combined by the group arithmetic: `all,-host2` is the fleet without `host2`. The first token cannot be a removal, since `parseArgs` would read it as an option.
+- A group expands to its hosts; a host expands to itself, with the entry's address for ssh and the inventory name for display; `@self` is this machine (§ Self host).
+- A name the inventory does not list is refused before anything connects. Until 3.7.0 an unknown name went to ssh verbatim, so any `~/.ssh/config` alias was a target, and a `"managed": false` entry refused one by hand; refusing by default means a new server needs no marking.
 - The result is deduped by name, preserving first-seen order.
 
-The inventory is **optional**. If `~/.config/playbash/inventory.json` is missing, `run`/`debug` work as before and `hosts` prints a friendly "no inventory" message.
+Without an inventory only `@self` resolves, and `hosts` prints a friendly "no inventory" message.
 
 ### Self host
 
@@ -86,30 +95,32 @@ The inventory is shared across hosts, so on each managed machine one entry refer
 
 **Detection is runtime, by IP comparison. No config file, no chezmoi templating.**
 
-At startup, the runner enumerates IPs bound to local interfaces via `os.networkInterfaces()` and adds the loopback ranges (`127.0.0.0/8`, `::1`). When about to ssh to a host, the runner does a `dns.lookup` on the address; if the resolved IP is in the local-IP set, the target is **self**. If DNS resolution fails (e.g. an `~/.ssh/config` `Host` alias that resolves only at ssh time), the target is treated as **remote** — a conservative miss the user can override with `--self`.
+At startup, the runner enumerates IPs bound to local interfaces via `os.networkInterfaces()` and adds the loopback ranges (`127.0.0.0/8`, `::1`). When about to ssh to a host, the runner does a `dns.lookup` on the address; if the resolved IP is in the local-IP set, the target is **self**. If DNS resolution fails (e.g. an `~/.ssh/config` `Host` alias that resolves only at ssh time), the target is treated as **remote**: a conservative miss, which `@self` overrides, since its address is `localhost`.
 
 This treats "the same physical machine, however addressed" as one thing. On a host known as `think` (127.0.0.1) and `think.lan` (192.168.86.40), both names resolve to local IPs, so both are self. There is no scenario where you'd want a "remote" run to a LAN address that lands on the same `apt` lock and the same filesystem as a local run — they do the same thing, just with extra ssh plumbing.
 
-**Default behavior:** running a playbook on self is **refused** with a clear error pointing at `--self` or the bare script (`playbash-upd`).
+**Default behavior:** a target that resolves to self is dropped from the list with a one-line dim notice, and a list of nothing else is **refused**, with a hint to add `@self`.
 
-**`--self` flag:** opts in to running the playbook on the self host. Implementation runs the playbook **locally as a child process**, no ssh — same pipeline (Rectangle, sidecar, summary) as a remote run, with the sidecar at a local `mktemp` path. Same UX as a remote run; that's the whole point of using the runner on the self host.
+**`@self`:** names this machine under its hostname and runs the playbook **locally as a child process**, no ssh — same pipeline (Rectangle, sidecar, summary) as a remote run, with the sidecar at a local `mktemp` path. Same UX as a remote run; that's the whole point of using the runner on the self host. Its address is `localhost` even when the inventory lists the same name, so it runs locally whatever DNS says, and other names for this machine in the same list are dropped without the notice. `-@self` removes it again. Inside a group it is an error: in a shared inventory it would mean whichever machine reads the file.
+
+**No `--self` flag since 3.7.0.** The flag only switched off the drop for the whole invocation; dispatch then decided local or remote from each address again, so a DNS miss still went over ssh, and two names for this machine both ran. `@self` does its job without either flaw, and `--self` now fails with a pointer to it.
 
 `playbash hosts` marks self entries by resolving each entry's address against the local-IP set at command time (a few DNS lookups for a few hosts; cheap).
 
 **Known blind spots, deferred fixes:**
 
 - **VPN false positive.** If a VPN brings up an interface, addresses on it are detected as self. Fix when it bites: an optional `~/.config/playbash/not-self` allowlist of IPs to exclude from the local-IP set.
-- **ssh-config alias false negative.** A `Host myalias` line in `~/.ssh/config` is invisible to `dns.lookup`. Fix when it bites: an optional `~/.config/playbash/self-aliases` allowlist of names that should always be considered self.
+- **ssh-config alias false negative.** A `Host myalias` line in `~/.ssh/config` is invisible to `dns.lookup`. Naming `@self` runs this machine locally anyway; fix when the miss bites otherwise: an optional `~/.config/playbash/self-aliases` allowlist of names that should always be considered self.
 
 Both are speculative until real use surfaces them. The cost of adding a file later is one option name; the cost of building it speculatively is documenting and testing a feature nobody asked for.
 
 ### Groups and fan-out
 
 - **Schema:** array values in `inventory.json`.
-- **CLI:** comma-separated targets, mixing host and group names: `playbash run db1,web,prod upd`. Resolution flattens to a unique ordered set of host names.
-- **Recursion:** groups are flat lists of *host* names. No groups-of-groups — keeps the mental model and dedup logic simple.
-- **`all`:** implicit group, equals every host entry. Not stored; computed.
-- **Self exclusion:** any list, however constructed (group, ad-hoc list, `all`), silently drops the self host by default with a one-line dim notice. `--self` flips this for the entire invocation. Explicitly naming self as a single argument still requires `--self`.
+- **CLI:** comma-separated targets, mixing host and group names and removals: `playbash run db1,web,prod upd`. Resolution flattens to a unique ordered set of host names.
+- **Recursion:** a group may name groups, with removals (§ Group arithmetic). Until 3.7.0 groups were flat lists of host names; `"all": ["linux", "mac"]` needs more.
+- **`all`:** an ordinary group, required whenever the inventory names a host (§ Schema). Until 3.7.0 it was implicit: every host entry.
+- **Self exclusion:** any list, however constructed (group, ad-hoc list, `all`), drops the self host with a one-line dim notice unless it names `@self` (§ Self host). Naming self alone, under its inventory name, is refused with the same hint.
 - **Parallelism:** unlimited by default; cap with `-p N`. A single resolved target uses the live rectangle; multiple targets switch to the `StatusBoard` with a sticky most-recently-active focused-host rectangle. Per-host summaries print in input order at the end, followed by a cross-host aggregated section. Continue-on-failure; the runner exits with code 1 if any host failed.
 
 ## Connection management
@@ -130,7 +141,7 @@ Revisit if any of these become true: playbooks where deterministic teardown matt
 
 When the operator hits Ctrl+C (or `kill` sends SIGTERM/SIGHUP) to the runner, **every child process across every host must die**. There are three pieces:
 
-1. **Local process registry.** Every spawn that owns its own process group (`detached: true`) registers itself in a `Set` at the top of `runner.js`. The runner installs SIGINT/SIGTERM/SIGHUP handlers on its own process. On signal: `process.kill(-child.pid, 'SIGTERM')` for each entry, which hits the entire process group (the spawn must be detached for the negative PID to mean "process group ID"). For `--self` runs, this is the whole story — the playbook's bash is in our group, gets the signal, dies.
+1. **Local process registry.** Every spawn that owns its own process group (`detached: true`) registers itself in a `Set` at the top of `runner.js`. The runner installs SIGINT/SIGTERM/SIGHUP handlers on its own process. On signal: `process.kill(-child.pid, 'SIGTERM')` for each entry, which hits the entire process group (the spawn must be detached for the negative PID to mean "process group ID"). For `@self` runs, this is the whole story — the playbook's bash is in our group, gets the signal, dies.
 
 2. **PTY wrapper signal trap.** For ssh-backed runs, the entry point on the remote side is `playbash-wrap.py`, a small Python wrapper that `pty.fork`s the playbook in the child and runs a poll loop in the parent. The wrapper installs `SIGTERM/SIGHUP/SIGINT/SIGPIPE` handlers that `os.killpg` the PTY child's process group, then exits. *This used to be the only remote cleanup path*, on the theory that killing the local ssh client would cause sshd to SIGHUP its child the way it does on a real connection drop.
 
@@ -151,7 +162,7 @@ When the operator hits Ctrl+C (or `kill` sends SIGTERM/SIGHUP) to the runner, **
 
    `runHostSingle` and `runFanout` both check a `cleaningUp` flag before their normal `process.exit` calls, so a signal-handler cleanup in flight isn't truncated by the runner's own normal-exit path.
 
-The combination — local registry + wrapper trap + remote-kill via PID preamble — gives deterministic teardown under every connection topology we run (mux, non-mux, --self, Linux target, macOS target). Verified end-to-end with `playbash exec all 'sleep 60'` + Ctrl+C → all hosts cleaned up within 2 seconds, exit code 130.
+The combination — local registry + wrapper trap + remote-kill via PID preamble — gives deterministic teardown under every connection topology we run (mux, non-mux, @self, Linux target, macOS target). Verified end-to-end with `playbash exec all 'sleep 60'` + Ctrl+C → all hosts cleaned up within 2 seconds, exit code 130.
 
 ## Runtime model
 
@@ -387,12 +398,12 @@ Two sections:
   - Effective `ControlMaster`, `ControlPersist`, `ControlPath` queried via `ssh -G nonexistent.example.invalid` — using a non-routable hostname makes the call fast (no network) while still letting `Host *` and `Match` blocks apply. The output is parsed into a `Map<lowercased option name, value>`. `ControlMaster auto` is `ok`; anything else (or unset) is `warn` with a hint.
   - At least one of `id_ed25519`, `id_rsa`, `id_ecdsa`, `id_dsa` exists in `~/.ssh`.
   - `ssh-add -L` exit 0 with output → `ok` (count of identities). Exit 1 (no identities) or 2 (no agent) → `warn` (best-effort: macOS keychain may bypass the agent).
-  - Inventory file present + parseable via the existing `loadInventory()`. Missing inventory is `warn` (it's optional).
+  - Inventory file present + parseable via the existing `loadInventory()`, reported as hosts in `all`, other hosts, and groups. Missing inventory is `warn`, with a hint to copy it from another machine with `playbash put`.
   - `~/.local/bin/playbash-*` are present and executable. Non-executable entries → `fail` with a `chmod +x` hint.
-  - `~/.local/libs/playbash.sh` and `~/.local/libs/playbash-wrap.py` exist locally — operator side, needed for `--self` runs and for staging to non-managed hosts.
+  - `~/.local/libs/playbash.sh` and `~/.local/libs/playbash-wrap.py` exist locally — operator side, needed for `@self` runs and for staging to hosts outside `all`.
   - `python3 --version` succeeds on PATH.
 
-- **Hosts** (parallel, per inventory entry). Each host accumulates a list of items; the host's overall status is the worst of any item:
+- **Hosts** (parallel, per host in `all`; hosts outside it are not playbash's to keep healthy). Each host accumulates a list of items; the host's overall status is the worst of any item:
   - **Self skip.** `isSelfAddress` from `inventory.js`; self entries record a single `(self) — skipped` `ok` item and bypass the ssh probe.
   - **ssh-config alias presence.** Walk `~/.ssh/config` plus `Include` directives (relative paths resolved against `~/.ssh`, the common `dir/*` glob handled inline without a glob lib), collect literal `Host` patterns (skipping wildcards `*`/`?`). The check only fires when the inventory address looks like a *short* name (no `.` or `:`) — FQDNs and IPs resolve directly via DNS and don't benefit from a Host alias. A short name with no matching Host entry is a `warn` with a hint to add one so user/port/identity become explicit.
   - **Connectivity probe.** `ssh -o BatchMode=yes -o ConnectTimeout=5 <addr> true` with an 8-second outer timeout that SIGKILLs the subprocess (the `run()` helper in doctor.js handles this generically — never throws, always resolves with `{code, stdout, stderr, timedOut}`). Failures are routed through `classifySshError()` which buckets stderr into `auth`, `timeout`, `refused`, `no route`, `unknown host`, `host key`, `connection drop`, or a 60-char fallback, each with a tailored hint.
@@ -413,8 +424,8 @@ The whole module is one-shot: no shared state with the runner, no caching, no op
 
 **Bump policy:** every commit that changes playbash's behavior, CLI surface, or output should update `VERSION` in the same commit. Refactors that don't touch behavior (file splits, `die()` consolidation, etc.) also get a patch bump so `--version` reflects the actually-running code and bisection has a usable anchor. The version is the single source of truth for "what's installed" — the wiki and release notes trail it, not the other way around.
 
-**Current:** `3.6.0` — stuck-cancel remote cleanup: when the per-host stuck detector fires (`needs sudo`, wrong password, `stuck (idle)`), the runner now also kills the remote PTY wrapper via a fresh ssh channel (the same `killRemoteWrapper` path Ctrl+C cleanup uses), whose TERM handler killpgs the bash subtree — previously only the local mux client died and ControlMaster kept the remote subtree (bash → playbook → sudo) alive as an orphan needing a manual `pkill -f playbash` on the target. Playbook steps are idempotent by contract: after a stuck kill, re-running the playbook on that host requires no cleanup.
+**Current:** `3.7.0` — the inventory names everything playbash may reach (§ Inventory): `all` is an ordinary group and the fleet, groups take other groups and `-name` removals, and a name the inventory does not list is refused, which retired the `"managed": false` field. `--self` is gone in favor of `@self` (§ Self host). The bump also covers two earlier behavior changes that left `VERSION` at `3.6.0`: a missing playbook on a host is a skip (`3cf03dd`, 2026-07-20), and the `"managed": false` field itself (`9a1881e`, 2026-10-08).
 
-**Previous:** `3.5.0` — all v3 follow-ups shipped, plus shell-quoting fixes, UX polish, `--sudo` password injection via PTY stdin relay (run/exec/push/debug), `--sudo` for put/get via `sudo -S` stdin pipe, and `put` mode-bit preservation (mirrors `scp -p`: single-file transfers stream into a 0600 mktemp tempfile in the destination directory, `chmod` to match the local mode, then atomically `mv` over the target — closes the exposure window a naive `cat > $remote && chmod` would leave for 0600-class secrets like `~/.ssh/id_*` or `~/.ssh/config`).
+**Previous:** `3.6.0` — stuck-cancel remote cleanup: when the per-host stuck detector fires (`needs sudo`, wrong password, `stuck (idle)`), the runner now also kills the remote PTY wrapper via a fresh ssh channel (the same `killRemoteWrapper` path Ctrl+C cleanup uses), whose TERM handler killpgs the bash subtree — previously only the local mux client died and ControlMaster kept the remote subtree (bash → playbook → sudo) alive as an orphan needing a manual `pkill -f playbash` on the target. Playbook steps are idempotent by contract: after a stuck kill, re-running the playbook on that host requires no cleanup.
 
 **Not tracked in `--version`:** the staging cache format, the sidecar protocol version, the PTY wrapper's own version. Those are separate concerns with their own evolution — the sidecar is a newline-delimited JSON stream where consumers ignore unknown event fields; the wrapper announces its protocol via the `__playbash_wrap_pid` preamble (absence = older wrapper, runner falls back gracefully). Bundling all of that into the CLI version would conflate independent compat stories.

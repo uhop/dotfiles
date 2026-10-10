@@ -14,9 +14,9 @@
 //        - ~/.local/bin/playbash-* are executable
 //        - playbash.sh and playbash-wrap.py exist locally
 //        - python3 on PATH (needed for the wrapper on the operator side
-//          when running --self)
+//          when running @self)
 //
-//   2. Host checks (per inventory host, in parallel):
+//   2. Host checks (per host in `all`, in parallel):
 //        - reachable: ssh -o BatchMode=yes -o ConnectTimeout=5 host true
 //          (failures are classified from stderr: timeout, refused, auth,
 //          unknown host, host key, other)
@@ -211,14 +211,14 @@ async function checkEnv() {
   if (!inv.present) {
     checks.push(result(
       'inventory', 'warn', `no inventory at ${INVENTORY_PATH}`,
-      'create ~/.config/playbash/inventory.json (optional but recommended)',
+      'copy it here from a machine that has one, with `playbash put`',
     ));
   } else {
-    const nh = inv.hosts.size;
+    const nf = inv.fleet.size;
+    const no = inv.hosts.size - nf;
     const ng = inv.groups.size;
-    const nu = inv.unmanaged.size;
-    const unmanaged = nu > 0 ? `, ${nu} not managed` : '';
-    checks.push(result('inventory', 'ok', `${nh} host${nh === 1 ? '' : 's'}, ${ng} group${ng === 1 ? '' : 's'}${unmanaged}`));
+    const other = no > 0 ? `, ${no} other host${no === 1 ? '' : 's'}` : '';
+    checks.push(result('inventory', 'ok', `${nf} host${nf === 1 ? '' : 's'} in all${other}, ${ng} group${ng === 1 ? '' : 's'}`));
   }
 
   // Local playbooks
@@ -281,7 +281,7 @@ async function checkEnv() {
     ));
   }
 
-  // python3 on PATH (operator side; needed for --self runs)
+  // python3 on PATH (operator side; needed for @self runs)
   const py = await run('python3', ['--version'], {timeoutMs: 3000});
   if (py.code === 0) {
     const v = (py.stdout || py.stderr).trim();
@@ -444,11 +444,12 @@ export async function runDoctor() {
   const {checks: envChecks, inventory} = await checkEnv();
   renderEnv(envChecks);
 
-  // Per-host checks (parallel). Skip when no inventory.
+  // Per-host checks (parallel) over the fleet; hosts outside `all` are not
+  // playbash's to keep healthy. Skip when no inventory.
   let hostResults = [];
-  if (inventory.present && inventory.hosts.size > 0) {
+  if (inventory.fleet.size > 0) {
     const configHostNames = parseHostNames();
-    const hostNames = [...inventory.hosts.keys()].sort();
+    const hostNames = [...inventory.fleet].sort();
     hostResults = await Promise.all(
       hostNames.map(name => checkHost(name, inventory.hosts.get(name).address, configHostNames)),
     );
