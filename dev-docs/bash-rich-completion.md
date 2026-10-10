@@ -8,7 +8,7 @@ Tab-completion in bash is fundamentally a string-replacement mechanism: whatever
 
 But we *do* want descriptions in the menu, for two reasons:
 
-1. **Disambiguation.** When multiple candidates share a prefix, a one-line annotation tells the user which one they want without forcing them to remember the difference (`croc (inventory)` vs `croc-prod (ssh-only)`).
+1. **Disambiguation.** When multiple candidates share a prefix, a one-line annotation tells the user which one they want without forcing them to remember the difference (`web (group)` vs `web1 (not in all)`).
 2. **Discoverability.** When the user has typed nothing and just wants to see what's available, the menu can act like inline documentation.
 
 The rich completion shown below is the standard answer.
@@ -55,9 +55,9 @@ These two checks together cover every code path: descriptions appear in the menu
 The cleanest way to plumb this is to use a **tab character** as the separator between the match and its description, and keep tab-separated entries internally until the very last step:
 
 ```text
-croc<TAB>inventory
-mini<TAB>inventory
-work-vpn<TAB>ssh-only
+host1<TAB>host
+web<TAB>group
+web1<TAB>not in all
 ```
 
 The completion function loads entries in this format into a temporary array, filters by prefix, then formats `COMPREPLY` for display or insertion based on the two checks above. Tab is a good separator because it never appears in shell-safe identifiers (host names, file paths without escaping, command names) and it's easy to split with `${var%%$tab*}` / `${var#*$tab}` parameter expansion.
@@ -134,9 +134,9 @@ complete -F _myprog myprog
 
 **`compopt -o filenames` is incompatible.** If you use `compopt -o filenames` to make directories tab-continue with `/`, bash will try to stat each `COMPREPLY` entry. With descriptions in there, the stat fails and the trailing-`/` magic stops working. So rich descriptions and filename completion don't mix in the same branch. Pick one per branch of your dispatcher.
 
-**`compopt -o nosort`.** Bash sorts `COMPREPLY` alphabetically by default, which is usually fine. If you want the description groupings to stay in source order (e.g. inventory hosts first, then ssh-only), call `compopt -o nosort` early in the function. Optional.
+**`compopt -o nosort`.** Bash sorts `COMPREPLY` alphabetically by default, which is usually fine. If you want the description groupings to stay in source order (e.g. groups first, then hosts), call `compopt -o nosort` early in the function. Optional.
 
-**Description length.** Multi-match rows are padded to the longest *match*, not the longest description. Long descriptions wrap awkwardly in narrow terminals. The cobra full-fat version truncates descriptions to `$COLUMNS - longest - 4` and appends `…`. For projects where descriptions are short and predictable (one-word source tags, command verbs), the truncation isn't worth the extra code.
+**Description length.** Multi-match rows are padded to the longest *match*, not the longest description. Long descriptions wrap awkwardly in narrow terminals. The cobra full-fat version truncates descriptions to `$COLUMNS - longest - 4` and appends `…`. For projects where descriptions are short and predictable (short kind tags, command verbs), the truncation isn't worth the extra code.
 
 **Producer must filter.** The formatter does not re-filter `COMPREPLY` against `$cur` — that's the producer's job. If you forget the prefix check before pushing into `COMPREPLY`, you'll get every candidate in the menu regardless of what the user typed.
 
@@ -146,7 +146,7 @@ complete -F _myprog myprog
 
 The minimal version is ~50 lines of bash that almost nobody will look at again until something breaks. The pattern is correct, but the maintenance asymmetry is real. Skip rich descriptions if:
 
-- **The candidate set is small and the names are self-describing.** A handful of memorable host names doesn't benefit from `(inventory)` annotations as much as a hundred kubectl resource types does.
+- **The candidate set is small and the names are self-describing.** A handful of memorable host names doesn't benefit from `(host)` annotations as much as a hundred kubectl resource types does.
 - **The disambiguation information lives somewhere else that's easy to reach.** If `myprog list` already shows the categorization, the user can fall back to that instead of needing it inline.
 - **You don't already have an interactive use case justifying the complexity.** Don't add it speculatively.
 
