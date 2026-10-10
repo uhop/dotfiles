@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# run-tests.sh — the global pre-commit secret scan (dot_config/git/hooks/executable_pre-commit).
+# run-tests.sh — the global secret scan (dot_config/git/hooks/executable_pre-commit), as
+# pre-commit and through its symlinks as pre-applypatch (git am) and pre-merge-commit
+# (git merge).
 #
 # Runs git with an isolated HOME whose global config carries dot_gitconfig.tmpl's own
 # hooksPath line, so the tilde expansion is tested with the hook. Fake secrets are built
@@ -20,6 +22,10 @@ export GIT_CONFIG_NOSYSTEM=1
 mkdir -p "$HOME/.config/git/hooks"
 cp "$source_dir/dot_config/git/hooks/executable_pre-commit" "$HOME/.config/git/hooks/pre-commit"
 chmod +x "$HOME/.config/git/hooks/pre-commit"
+for link in "$source_dir"/dot_config/git/hooks/symlink_*; do
+  [[ -e $link ]] || continue
+  ln -s "$(<"$link")" "$HOME/.config/git/hooks/${link##*/symlink_}"
+done
 {
   printf '[user]\n\tname = test\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n[core]\n'
   grep -E '^[[:space:]]*hooksPath = ' "$source_dir/dot_gitconfig.tmpl"
@@ -62,6 +68,8 @@ operator_token=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
 printf '=== the hook comes from the template'"'"'s hooksPath line ===\n'
 fresh_repo
 check 'core.hooksPath expands to the installed hook' test -x "$(git config --path core.hooksPath)/pre-commit"
+check 'it is linked as pre-applypatch' test -x "$(git config --path core.hooksPath)/pre-applypatch"
+check 'and as pre-merge-commit' test -x "$(git config --path core.hooksPath)/pre-merge-commit"
 
 printf '=== clean changes commit ===\n'
 fresh_repo
@@ -142,6 +150,98 @@ printf '#!/bin/sh\nexit 1\n' >|.git/hooks/pre-commit
 printf 'more\n' >>a.txt
 git add a.txt
 check 'its failure stops the commit' stopped
+
+head_is() { [[ $(git rev-parse HEAD) == "$1" ]]; }
+am() { git am -q "$@" >/dev/null 2>|"$work/stderr"; }
+am_stopped() { ! am "$@"; }
+merge() { git merge -q --no-edit "$@" >/dev/null 2>|"$work/stderr"; }
+merge_stopped() { ! merge "$@"; }
+# A patch of one commit on top of the repository's first commit, made without the scan.
+make_patch() {
+  local out=$1 file=$2 line=$3
+  git checkout -q -b patch-src
+  printf '%s\n' "$line" >>"$file"
+  git add "$file"
+  git commit -q -m "add to $file" --no-verify
+  git format-patch -q -1 --stdout >"$out"
+  git checkout -q main
+  git branch -q -D patch-src
+}
+
+printf '=== git am ===\n'
+fresh_repo
+printf 'base\n' >a.txt
+git add a.txt
+commit
+base=$(git rev-parse HEAD)
+make_patch "$work/key.patch" a.txt "keep"$'\n'"id = $aws_id"
+make_patch "$work/clean.patch" b.txt 'hello'
+check 'a patch that adds a secret is stopped' am_stopped "$work/key.patch"
+check 'the report names the hook' said 'pre-applypatch: stopped'
+check 'and the file and line' said 'a.txt:3'
+check 'and points at git am --no-verify' said 'goes through with git am --no-verify'
+check 'nothing was committed' head_is "$base"
+printf 'base\nkeep\n' >|a.txt
+git add a.txt
+check 'git am --continue after taking it out commits the rest of the patch' am --continue
+check 'without the line' bash -c '! grep -q AKIA a.txt'
+git am --abort 2>/dev/null || true
+git reset -q --hard "$base"
+check 'git am --no-verify applies a deliberate fake' am --no-verify "$work/key.patch"
+git reset -q --hard "$base"
+check 'a clean patch applies' am "$work/clean.patch"
+
+fresh_repo
+printf 'base\n' >a.txt
+git add a.txt
+commit
+base=$(git rev-parse HEAD)
+printf '#!/bin/sh\ntouch "%s/own-am-ran"\n' "$work" >.git/hooks/pre-applypatch
+chmod +x .git/hooks/pre-applypatch
+check 'the repository'"'"'s own pre-applypatch runs after a clean scan' \
+  bash -c 'git am -q "$1" >/dev/null 2>&1 && test -e "$2"' _ "$work/clean.patch" "$work/own-am-ran"
+git reset -q --hard "$base"
+printf '#!/bin/sh\nexit 1\n' >|.git/hooks/pre-applypatch
+check 'its failure stops git am' am_stopped "$work/clean.patch"
+git am --abort 2>/dev/null || true
+
+printf '=== git merge ===\n'
+fresh_repo
+printf 'base\n' >a.txt
+git add a.txt
+commit
+git checkout -q -b side
+printf 'token=%s\n' "$github_token" >side.txt
+git add side.txt
+git commit -q -m side --no-verify
+git checkout -q -b clean main
+printf 'clean\n' >clean.txt
+git add clean.txt
+commit
+git checkout -q main
+printf 'main\n' >m.txt
+git add m.txt
+commit
+before=$(git rev-parse HEAD)
+check 'a merge that brings in a secret is stopped' merge_stopped side
+check 'the report names the hook' said 'pre-merge-commit: stopped'
+check 'and the file and line' said 'side.txt:1'
+check 'and points at git merge --no-verify' said 'goes through with git merge --no-verify'
+check 'no merge commit was made' head_is "$before"
+printf 'token=\n' >|side.txt
+git add side.txt
+check 'taking it out, git commit makes the merge commit' commit --no-edit
+check 'with both parents' test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3
+git reset -q --hard "$before"
+merge side || true
+check 'git merge --abort is open' bash -c 'git merge --abort 2>/dev/null'
+check 'git merge --no-verify merges a deliberate fake' merge --no-verify side
+git reset -q --hard "$before"
+check 'a clean merge commits' merge clean
+git reset -q --hard "$before"
+printf '#!/bin/sh\nexit 1\n' >.git/hooks/pre-merge-commit
+chmod +x .git/hooks/pre-merge-commit
+check 'the repository'"'"'s own pre-merge-commit still runs and can stop it' merge_stopped clean
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

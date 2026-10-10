@@ -29,6 +29,7 @@ dotfiles/                                          # chezmoi source directory
 │   ├── ghostty/private_config.tmpl                # terminal config (templated)
 │   ├── git/git-completion.bash                    # git completions
 │   ├── git/hooks/executable_pre-commit            # global secret scan before every commit (core.hooksPath)
+│   ├── git/hooks/symlink_pre-{applypatch,merge-commit}  # the same scan for git am and merge commits
 │   ├── kitty/private_kitty.conf.tmpl              # terminal config (templated)
 │   ├── micro/{bindings,settings,plugins}.json     # editor config
 │   ├── nano/private_nanorc                        # editor config
@@ -100,7 +101,7 @@ dotfiles/                                          # chezmoi source directory
 │   └── detect-packages.sh                         # candidate tables: logical capability → ordered mgr:pkg tuples
 │
 ├── tests/detect/                                  # unit tests for the detection library
-├── tests/git-hooks/                               # tests for the pre-commit secret scan
+├── tests/git-hooks/                               # tests for the secret scan on commit, git am, and merge
 ├── tests/playbash/                               # tests for playbash's inventory and targets
 │   ├── run-tests.sh                               # harness; discovers test_*.sh, runs each in a subshell
 │   ├── lib.sh                                     # assert::eq / assert::ok / assert::fail helpers
