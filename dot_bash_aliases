@@ -75,6 +75,47 @@ alias mkdir='command mkdir -pv'
 mkz() { mkdir "$@" && z "$@"; }
 alias mkcd="mkz"
 
+## pushd that knows z: pushd's own arguments (-n, +N, -N, -) and existing directories go
+## to pushd as they are; anything else names a directory the way `z` does
+zpush() {
+  local flags=() names='' dir
+  while (($#)); do
+    case $1 in
+      -n) flags+=(-n) ;;
+      --) names=1; shift; break ;;
+      *) break ;;
+    esac
+    shift
+  done
+  if (($# == 0)) || [[ -z $names && $# -eq 1 && ($1 == - || $1 =~ ^[-+][0-9]+$) ]]; then
+    builtin pushd "${flags[@]}" "$@"
+  elif [[ $# -eq 1 && -d $1 ]]; then
+    builtin pushd "${flags[@]}" -- "$1"
+  else
+    dir=$(command zoxide query --exclude "$PWD" -- "$@") && builtin pushd "${flags[@]}" -- "$dir"
+  fi
+}
+alias zp='zpush'
+alias zpop='popd'
+
+## dirs through fzf: Esc closes, Enter rotates the picked directory to the top
+## (pushd +N, nothing dropped); with arguments, plain dirs
+zdirs() {
+  if (($#)); then
+    builtin dirs "$@"
+    return
+  fi
+  local pick n
+  # fzf exits 130 on Esc and 1 on no match: a close, not a failure
+  pick=$(builtin dirs -v | command fzf --reverse --no-sort --height='~50%') || {
+    n=$?
+    ((n == 1 || n == 130)) && return 0
+    return "$n"
+  }
+  read -r n _ <<<"$pick"
+  builtin pushd "+$n"
+}
+
 # file operations
 
 ## Add safety nets

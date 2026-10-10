@@ -512,6 +512,9 @@ Key aliases and functions:
 - `up N` → go up N directories
 - `zl [dir]` → `z dir && l`
 - `mkz dir` → `mkdir dir && z dir`
+- `zpush` / `zp` → `pushd` that matches a keyword the way `z` does (`zp proj` pushes the directory `z proj` would go to); `-n`, `+N`, `-N`, `-`, and existing directories go to `pushd` as they are
+- `zpop` → `popd`
+- `zdirs` → the directory stack in `fzf`: Esc closes, Enter rotates the picked directory to the top (`pushd +N`, nothing dropped); with arguments, plain `dirs`
 
 ### File operations
 - `rm` → `rm -I --preserve-root`

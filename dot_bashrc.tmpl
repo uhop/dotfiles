@@ -220,7 +220,7 @@ if [ "$__INTERACTIVE" == yes ]; then
   if command -v fzf &> /dev/null; then
     eval "$(fzf --bash)"
     if declare -F _fzf_setup_completion >/dev/null; then
-      _fzf_setup_completion dir z tree ltr zl
+      _fzf_setup_completion dir z tree ltr zl zpush zp
       _fzf_setup_completion path cp mv rm cat
       _fzf_setup_completion path l ls ll la lla l.
       _fzf_setup_completion path mic micro gimme

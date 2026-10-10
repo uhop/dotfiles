@@ -101,6 +101,7 @@ dotfiles/                                          # chezmoi source directory
 │   └── detect-packages.sh                         # candidate tables: logical capability → ordered mgr:pkg tuples
 │
 ├── tests/detect/                                  # unit tests for the detection library
+├── tests/dir-stack/                               # tests for zpush, zp, zpop, and zdirs
 ├── tests/git-hooks/                               # tests for the secret scan on commit, git am, and merge
 ├── tests/playbash/                               # tests for playbash's inventory and targets
 │   ├── run-tests.sh                               # harness; discovers test_*.sh, runs each in a subshell

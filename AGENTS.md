@@ -100,6 +100,7 @@ dotfiles/                              # chezmoi source directory
 │   ├── detect-distro.sh               # bootstrap detection library (identity + capabilities + resolver)
 │   └── detect-packages.sh             # candidate tables (logical-cap → mgr:pkg tuples) for the resolver
 ├── tests/detect/                      # unit tests for the detection library
+├── tests/dir-stack/                   # tests for zpush, zp, zpop, and zdirs from dot_bash_aliases (bash tests/dir-stack/run-tests.sh)
 ├── tests/git-hooks/                   # tests for the secret scan on commit, git am, and merge (bash tests/git-hooks/run-tests.sh)
 ├── tests/playbash/                    # tests for playbash's inventory and targets (bash tests/playbash/run-tests.sh)
 ├── private_dot_ssh/                   # → ~/.ssh/ (SSH config)

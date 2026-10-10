@@ -40,6 +40,16 @@
     "doc": "mkz <dir>"
   },
   {
+    "cmd": "zp",
+    "desc": "pushd with z matching (zpush)",
+    "doc": "zp <fragment>          — push the dir z would go to\nzp +1 / zp -1 / zp -n <fragment> — pushd as usual"
+  },
+  {
+    "cmd": "zdirs",
+    "desc": "Pick a dir from the stack (fzf)",
+    "doc": "zdirs                  — Esc closes, Enter rotates it to the top\nzdirs -v               — plain dirs\nzpop                   — popd"
+  },
+  {
     "cmd": "up",
     "desc": "Go up N directories (cd ../../...)",
     "doc": "up 3   — same as cd ../../../"
