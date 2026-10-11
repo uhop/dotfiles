@@ -44,7 +44,9 @@
       "Read(//home/eugene/.local/share/libs/**)",
       "Read(//home/eugene/.local/share/libs/scripts/**)",
       "Bash(command -v vault-curl)",
-      "Bash(~/.claude/skills/vault-check-drift/check-drift.sh *)"
+      "Bash(~/.claude/skills/vault-check-drift/check-drift.sh *)",
+      "Bash(git -C external_wiki log -3 --format='%h %s')",
+      "Bash(git -C external_wiki status --short)"
     ]
   }
 }
