@@ -5,7 +5,7 @@
 // skipped — a wildcard names no host and would need a known universe to
 // match against.
 //
-// Used by doctor.js, to warn on fleet hosts that have no matching Host
+// Used by doctor.js, to warn on inventory hosts that have no matching Host
 // entry. Playbash reaches only the hosts its inventory lists, so ssh
 // aliases are not targets or completion candidates.
 //

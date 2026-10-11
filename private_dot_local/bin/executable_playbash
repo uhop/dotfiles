@@ -60,7 +60,7 @@ import {spawnSync} from 'node:child_process';
 
 // Bump on every user-visible change. See dev-docs/playbash-design.md#versioning
 // for the versioning policy and bump rules.
-const VERSION = '3.8.0';
+const VERSION = '3.9.0';
 
 const WIKI = 'https://github.com/uhop/dotfiles/wiki/Playbash-Server-Management';
 
@@ -82,8 +82,9 @@ usage:
 
 targets:
   comma-separated hosts and groups from ~/.config/playbash/inventory.json;
-  "all" is the fleet, "-name" removes a host or a group (anywhere but first),
-  and "@self" adds this machine, which every other name skips
+  "-name" removes a host or a group (anywhere but first), and "@self" adds
+  this machine, which every other name skips; a host without the installed
+  playbook or wrapper gets this machine's copy pushed
 
 options:
   -n, --lines N      live output rectangle height (default 5; exec defaults to 0)
@@ -271,7 +272,6 @@ function promptPassword() {
 // Shared dispatcher for `run`, `push`, `debug`, and `exec`.
 async function dispatch({job, targetArg, rectHeight, verbose, report, push, sudoPassword}) {
   const {
-    inventory: inv,
     targets,
     offlineNames,
     offlineReasons,
@@ -291,12 +291,6 @@ async function dispatch({job, targetArg, rectHeight, verbose, report, push, sudo
     if (isSelf) {
       await runLocally({...job, hostName: only.name, rectHeight, verbose, report, sudoPassword});
     } else {
-      const managed = !push && inv.fleet.has(only.name);
-      if (!push && job.playbook && !managed) {
-        process.stderr.write(
-          `${COLOR.dim}· ${only.name} not in all — pushing playbook${COLOR.reset}\n`
-        );
-      }
       await runRemote({
         ...job,
         hostName: only.name,
@@ -304,22 +298,11 @@ async function dispatch({job, targetArg, rectHeight, verbose, report, push, sudo
         rectHeight,
         verbose,
         report,
-        managed,
+        push,
         sudoPassword
       });
     }
     return;
-  }
-
-  if (!push && job.playbook) {
-    const nonFleet = targets.filter(
-      t => !t.isSelf && !inv.fleet.has(t.name) && !offlineNames.has(t.name)
-    );
-    if (nonFleet.length > 0) {
-      process.stderr.write(
-        `${COLOR.dim}· pushing playbook to ${nonFleet.map(t => t.name).join(', ')} (not in all)${COLOR.reset}\n`
-      );
-    }
   }
 
   await runFanout({
@@ -329,7 +312,6 @@ async function dispatch({job, targetArg, rectHeight, verbose, report, push, sudo
     verbose,
     report,
     parallelLimit,
-    inventory: inv,
     push,
     offlineNames,
     offlineReasons,

@@ -85,9 +85,9 @@ handles the outer `playbash exec` layer, but `setup-periodic` calling
 injected password propagates. If not, set up macOS hosts manually via
 SSH. Document this.
 
-### Unmanaged hosts: operator fan-out
+### Hosts without chezmoi: operator fan-out
 
-Hosts outside the fleet (`all`; no chezmoi) don't have local timers.
+Hosts without chezmoi don't have the playbooks installed or local timers.
 An operator machine runs a timer that fans out to them:
 
 ```

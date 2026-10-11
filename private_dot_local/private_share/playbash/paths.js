@@ -26,7 +26,8 @@ export const LOCAL_DIR_REMOTE = '~/.config/playbash/local';
 // Per-run logs (one file per host/command/timestamp).
 export const LOG_DIR         = join(homedir(), '.cache', 'playbash', 'runs');
 
-// The wrapper path used on the *remote* side of a managed run, expressed
+// The wrapper path used on the *remote* side of a run on the copies chezmoi
+// installed there, expressed
 // as a literal `~`-prefixed string so the remote shell expands it.
 // Distinct from PTY_WRAPPER, which is the operator-side absolute path.
 export const WRAPPER_MANAGED = '~/.local/libs/playbash-wrap.py';

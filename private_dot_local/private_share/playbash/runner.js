@@ -13,7 +13,7 @@
 //   - runHost: spawn one playbook child, tee its output to a log, fetch
 //     and parse the sidecar after exit.
 //   - runHostSingle: single-host wrapper around runHost with a Rectangle.
-//   - runRemote: single-host remote run (managed or staged).
+//   - runRemote: single-host remote run (installed copies, else pushed).
 //   - runLocally: single-host @self run as a direct child.
 //   - runFanout: multi-host parallel runs through the StatusBoard.
 //   - validateCustomPlaybookPath: slash-convention path validator.
@@ -335,6 +335,10 @@ export async function probeConnectivity(targets) {
 // still expanding the leading `~/`. `exec` so python becomes the direct
 // child of sshd's session shell — no intermediate bash -c layer to
 // absorb signals.
+//
+// `installed` runs the copies chezmoi put on the host, behind a guard that
+// answers with the wrapper's own "not here" line when either is missing,
+// so the runner pushes this machine's copies instead (see runInstalledFirst).
 function buildRemoteCommand({
   reportPath,
   hostName,
@@ -342,9 +346,14 @@ function buildRemoteCommand({
   rows,
   playbookPath,
   wrapperPath,
-  libs
+  libs,
+  installed
 }) {
   return (
+    (installed
+      ? `[ -f ${wrapperPath} ] && [ -x ${shellQuotePath(playbookPath)} ] || ` +
+        `{ echo __playbash_wrap_noexec; exit 127; }; `
+      : '') +
     `LC_ALL=C ` +
     `PLAYBASH_REPORT=${reportPath} ` +
     `PLAYBASH_HOST=${hostName} ` +
@@ -357,9 +366,12 @@ function buildRemoteCommand({
 
 // Build a remote command line for `playbash exec` — runs an arbitrary
 // command through the PTY wrapper, no playbook or sidecar.
-function buildExecCommand({cols, rows, command, wrapperPath}) {
+function buildExecCommand({cols, rows, command, wrapperPath, installed}) {
   const escaped = command.replace(/'/g, "'\\''");
   return (
+    (installed
+      ? `[ -f ${wrapperPath} ] || { echo __playbash_wrap_noexec; exit 127; }; `
+      : '') +
     `LC_ALL=C ` +
     `PLAYBASH_WRAP_FEATURES=int ` +
     `COLUMNS=${cols} LINES=${rows} ` +
@@ -679,6 +691,12 @@ async function runHost({
   }
 
   await new Promise(resolve => log.end(resolve));
+  // A host without the playbook ran nothing, so its log is empty noise.
+  if (noExec) {
+    try {
+      if (statSync(logPath).size === 0) unlinkSync(logPath);
+    } catch {}
+  }
 
   // Flush any trailing partial line into the tail buffer (rare — most
   // stream chunks end on a newline — but matters for processes that die
@@ -689,13 +707,15 @@ async function runHost({
   }
 
   let events = [];
-  try {
-    const text = await getSidecarText();
-    events = parseSidecar(text, hostName);
-  } catch (err) {
-    process.stderr.write(
-      `playbash: failed to fetch sidecar for ${hostName}: ${err.message}\n`
-    );
+  if (!noExec) {
+    try {
+      const text = await getSidecarText();
+      events = parseSidecar(text, hostName);
+    } catch (err) {
+      process.stderr.write(
+        `playbash: failed to fetch sidecar for ${hostName}: ${err.message}\n`
+      );
+    }
   }
 
   // Emit a sidecar event for stuck-process detection so the notification
@@ -727,8 +747,8 @@ async function runHost({
   // wait-status from the wrapped script). The status word reflects the
   // detection signal so the user can distinguish "needs sudo" from a
   // genuine non-zero exit.
-  // The wrapper's noexec marker means the playbook is not deployed here —
-  // an expected per-host absence, reported like a template miss.
+  // The noexec line means the host lacks the installed copies, and
+  // runInstalledFirst pushes them; a run it does not retry reports a skip.
   const ok = noExec || (!stuckReason && !result.signal && result.code === 0);
   const statusWord = noExec
     ? 'skipped'
@@ -752,8 +772,36 @@ async function runHost({
     ok,
     statusWord,
     stuckReason,
+    noExec,
     tail: tailBuf
   };
+}
+
+// Run the host's installed copies first. A host without them answers "not
+// here" at once, gets this machine's copies pushed, and runs again; a
+// failed push is that host's failure. `attempt` is {makeChild,
+// getSidecarText}; `pushAttempt` stages and returns the second one.
+async function runInstalledFirst(runAttempt, attempt, pushAttempt) {
+  const summary = await runAttempt(attempt);
+  if (!summary.noExec || !pushAttempt || cleaningUp) return summary;
+  let pushed;
+  try {
+    pushed = await pushAttempt();
+  } catch (err) {
+    return {
+      result: {code: 1, signal: null},
+      events: [],
+      logPath: '',
+      elapsedMs: summary.elapsedMs,
+      ok: false,
+      statusWord: truncateStatus(err.message),
+      stuckReason: null,
+      noExec: false,
+      tail: [],
+      label: '(pushed)'
+    };
+  }
+  return {...(await runAttempt(pushed)), label: '(pushed)'};
 }
 
 // Single-host wrapper around runHost: owns a Rectangle for live output,
@@ -768,7 +816,8 @@ async function runHostSingle({
   report,
   sudoPassword,
   makeChild,
-  getSidecarText
+  getSidecarText,
+  pushAttempt
 }) {
   const rect = new Rectangle(rectHeight);
   rect.start();
@@ -798,17 +847,21 @@ async function runHostSingle({
 
   let summary;
   try {
-    summary = await runHost({
-      playbook,
-      hostName,
-      makeChild,
-      getSidecarText,
-      sudoPassword,
-      onChunk: chunk => {
-        if (rect.active) rect.feed(chunk);
-        else process.stdout.write(chunk);
-      }
-    });
+    summary = await runInstalledFirst(
+      attempt =>
+        runHost({
+          playbook,
+          hostName,
+          ...attempt,
+          sudoPassword,
+          onChunk: chunk => {
+            if (rect.active) rect.feed(chunk);
+            else process.stdout.write(chunk);
+          }
+        }),
+      {makeChild, getSidecarText},
+      pushAttempt
+    );
   } catch (err) {
     live = false;
     setLiveDisplay(null);
@@ -826,7 +879,7 @@ async function runHostSingle({
       ok: summary.ok,
       hostName,
       playbook,
-      label,
+      label: summary.label ?? label,
       status: summary.statusWord,
       elapsed
     }) + '\n'
@@ -838,8 +891,10 @@ async function runHostSingle({
     renderFailureTail(summary.tail);
     // Log path only on failure — when the run is fine, you don't reach
     // for the log; when it failed, you do. `playbash log` finds any past
-    // run regardless.
-    process.stderr.write(`  ${COLOR.dim}↳ ${summary.logPath}${COLOR.reset}\n`);
+    // run regardless. A failed push ran nothing and has none.
+    if (summary.logPath) {
+      process.stderr.write(`  ${COLOR.dim}↳ ${summary.logPath}${COLOR.reset}\n`);
+    }
   }
 
   if (report) {
@@ -954,16 +1009,18 @@ function makeReportPath(baseDir) {
 // validation or staging failure; the caller wraps in try/catch and either
 // die()s (single-host) or marks the host as a per-host failure (fan-out).
 //
-//   managed=true   → use chezmoi-deployed paths, no staging
+//   installed=true → the chezmoi-installed paths, no staging; the command
+//                    line checks they exist (buildRemoteCommand)
 //   playbook=null  → exec mode: stage the wrapper alone via ensureWrapper
 //   playbook=set   → playbook mode: stage wrapper + helper + playbook (or
 //                    directory tree) via stagePlaybook*
-async function prepareRemoteJob({playbook, customPath, customPathKind, hostName, address, managed}) {
-  if (managed) {
+async function prepareRemoteJob({playbook, customPath, customPathKind, hostName, address, installed}) {
+  if (installed) {
     return {
       wrapperPath: WRAPPER_MANAGED,
       playbookPath: playbook ? `~/.local/bin/playbash-${playbook}` : undefined,
-      libs: null
+      libs: null,
+      installed: true
     };
   }
   if (!playbook) {
@@ -1049,6 +1106,50 @@ function makeLocalSidecarFetcher(reportPath) {
   };
 }
 
+// One remote attempt for `job`: the command line and the sidecar it
+// writes, at a fresh report path each time.
+function remoteAttempt({job, playbook, command, hostName, address, sudoPassword}) {
+  const reportPath = playbook ? makeReportPath('/tmp') : '';
+  return {
+    makeChild: ({cols, rows}) => {
+      const wrapped = command
+        ? buildExecCommand({
+            cols,
+            rows,
+            command,
+            wrapperPath: job.wrapperPath,
+            installed: job.installed
+          })
+        : buildRemoteCommand({reportPath, hostName, cols, rows, ...job});
+      return makeRemoteChild(address, wrapped, sudoPassword);
+    },
+    getSidecarText: makeRemoteSidecarFetcher(address, reportPath)
+  };
+}
+
+// The attempts for one remote host: the installed copies first, with a
+// pushed second attempt when the host has none; `push` stages from the start.
+async function remoteAttempts({playbook, command, customPath, customPathKind, hostName, address, push, sudoPassword}) {
+  const attemptFor = async installed =>
+    remoteAttempt({
+      job: await prepareRemoteJob({
+        playbook,
+        customPath,
+        customPathKind,
+        hostName,
+        address,
+        installed
+      }),
+      playbook,
+      command,
+      hostName,
+      address,
+      sudoPassword
+    });
+  if (push) return {attempt: await attemptFor(false), pushAttempt: null};
+  return {attempt: await attemptFor(true), pushAttempt: () => attemptFor(false)};
+}
+
 // --- runRemote / runLocally / runFanout ---
 
 export async function runRemote({
@@ -1061,32 +1162,34 @@ export async function runRemote({
   rectHeight,
   verbose,
   report,
-  managed,
+  push,
   sudoPassword
 }) {
-  let job;
+  let attempts;
   try {
-    job = await prepareRemoteJob({playbook, customPath, customPathKind, hostName, address, managed});
+    attempts = await remoteAttempts({
+      playbook,
+      command,
+      customPath,
+      customPathKind,
+      hostName,
+      address,
+      push,
+      sudoPassword
+    });
   } catch (err) {
     die(err.message);
   }
-  const logLabel = playbook || 'exec';
-  const reportPath = playbook ? makeReportPath('/tmp') : '';
   await runHostSingle({
-    playbook: logLabel,
+    playbook: playbook || 'exec',
     hostName,
     rectHeight,
     verbose,
     report,
     sudoPassword,
     label: null,
-    makeChild: ({cols, rows}) => {
-      const wrapped = command
-        ? buildExecCommand({cols, rows, command, wrapperPath: job.wrapperPath})
-        : buildRemoteCommand({reportPath, hostName, cols, rows, ...job});
-      return makeRemoteChild(address, wrapped, sudoPassword);
-    },
-    getSidecarText: makeRemoteSidecarFetcher(address, reportPath)
+    ...attempts.attempt,
+    pushAttempt: attempts.pushAttempt
   });
 }
 
@@ -1136,7 +1239,7 @@ function renderFanoutSummary(slots, {logLabel, verbose, showCapturedOutput}) {
         ok: slot.state === 'ok',
         hostName: slot.name,
         playbook: logLabel,
-        label: null,
+        label: slot.label,
         status: slot.statusWord,
         elapsed
       }) + '\n'
@@ -1206,7 +1309,6 @@ export async function runFanout({
   verbose,
   report,
   parallelLimit,
-  inventory,
   push,
   offlineNames,
   offlineReasons,
@@ -1271,20 +1373,18 @@ export async function runFanout({
     }
 
     const isSelf = await isSelfAddress(slot.address);
-    let makeChild, getSidecarText;
+    let attempt;
+    let pushAttempt = null;
 
     if (isSelf) {
-      let job;
       try {
-        job = prepareLocalJob({playbook, command, hostName: slot.name, sudoPassword});
+        attempt = prepareLocalJob({playbook, command, hostName: slot.name, sudoPassword});
       } catch {
         board.hostFinished(slot.name, {
           ok: false, statusWord: 'no script', events: [], logPath: '', elapsedMs: 0
         });
         return;
       }
-      makeChild = job.makeChild;
-      getSidecarText = job.getSidecarText;
     } else {
       // Per-host template miss is a "skip" (expected — not every host
       // has a `./reports/{host}/`); other validation/staging errors are
@@ -1296,12 +1396,17 @@ export async function runFanout({
         });
         return;
       }
-      const managed = !push && inventory.fleet.has(slot.name);
-      let job;
       try {
-        job = await prepareRemoteJob({
-          playbook, customPath, customPathKind, hostName: slot.name, address: slot.address, managed
-        });
+        ({attempt, pushAttempt} = await remoteAttempts({
+          playbook,
+          command,
+          customPath,
+          customPathKind,
+          hostName: slot.name,
+          address: slot.address,
+          push,
+          sudoPassword
+        }));
       } catch (err) {
         board.hostFinished(slot.name, {
           ok: false, statusWord: truncateStatus(err.message),
@@ -1309,29 +1414,25 @@ export async function runFanout({
         });
         return;
       }
-      const reportPath = playbook ? makeReportPath('/tmp') : '';
-      makeChild = ({cols, rows}) => {
-        const wrapped = command
-          ? buildExecCommand({cols, rows, command, wrapperPath: job.wrapperPath})
-          : buildRemoteCommand({reportPath, hostName: slot.name, cols, rows, ...job});
-        return makeRemoteChild(slot.address, wrapped, sudoPassword);
-      };
-      getSidecarText = makeRemoteSidecarFetcher(slot.address, reportPath);
     }
 
     try {
       const capturedChunks = command ? [] : null;
-      const summary = await runHost({
-        playbook: logLabel,
-        hostName: slot.name,
-        makeChild,
-        getSidecarText,
-        sudoPassword,
-        onChunk: chunk => {
-          board.hostChunk(slot.name, chunk);
-          if (capturedChunks) capturedChunks.push(chunk);
-        }
-      });
+      const summary = await runInstalledFirst(
+        next =>
+          runHost({
+            playbook: logLabel,
+            hostName: slot.name,
+            ...next,
+            sudoPassword,
+            onChunk: chunk => {
+              board.hostChunk(slot.name, chunk);
+              if (capturedChunks) capturedChunks.push(chunk);
+            }
+          }),
+        attempt,
+        pushAttempt
+      );
       if (capturedChunks) summary.capturedOutput = capturedChunks.join('');
       board.hostFinished(slot.name, summary);
     } catch (err) {

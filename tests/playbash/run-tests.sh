@@ -38,7 +38,7 @@ js() {
 }
 resolve() { js "console.log(resolveTargets('$1', inv).map(t => t.name).join(','));"; }
 addresses() { js "console.log(resolveTargets('$1', inv).map(t => t.address).join(','));"; }
-fleet() { js "console.log([...inv.fleet].join(','));"; }
+load() { js "console.log('loaded');"; }
 complete_targets() {
   PATH="$HOME/.local/bin:$PATH" bash -c \
     'source "$1"; __playbash_complete_targets "$2"; printf "%s\n" "${COMPREPLY[@]}"' \
@@ -69,11 +69,10 @@ section() { awk -v head="$2" '$0 == head { on = 1; next } /^[^ ]/ { on = 0 } on'
 # GNU timeout is missing on a Mac without coreutils; there the run goes unguarded.
 time_limit() { if command -v timeout >/dev/null; then timeout 60 "$@"; else "$@"; fi; }
 
-printf '=== the all group ===\n'
+printf '=== groups ===\n'
 inventory '{"linux": ["a", "b"], "mac": ["m"], "all": ["linux", "mac"], "proj": ["p1", "p2"], "a": "a.example"}'
 check 'all expands its groups in order' test "$(resolve all)" = a,b,m
-check 'the fleet is all, without the project hosts' test "$(fleet)" = a,b,m
-check 'a group outside all resolves when named' test "$(resolve proj)" = p1,p2
+check 'another group resolves the same way' test "$(resolve proj)" = p1,p2
 check 'a host entry sets the address, a bare name is its own' test "$(addresses a,b)" = a.example,b
 
 printf '=== arithmetic ===\n'
@@ -85,21 +84,21 @@ inventory '{"later": ["all", "-odd"], "all": ["odd", "even"], "odd": ["a", "c"],
 check 'a group refers to groups in any file order' test "$(resolve later)" = b
 check 'removing a group removes its hosts' test "$(resolve all,-odd)" = b
 inventory '{"all": ["x"], "x": ["y"], "y": ["x"]}'
-check 'a cycle is an error' fails fleet
+check 'a cycle is an error' fails load
 check 'the error names the cycle' said 'cycle: x → y → x'
 inventory '{"all": ["a", "-zz"]}'
-check 'removing an unknown name is an error' fails fleet
+check 'removing an unknown name is an error' fails load
 check 'the error names it' said 'group "all" removes "zz", which is neither a host nor a group'
 
 printf '=== inventory rules ===\n'
-inventory '{"linux": ["a"]}'
-check 'hosts without an all group are an error' fails fleet
-check 'the error asks for all' said 'has no "all" group'
+inventory '{"linux": ["a"], "b": "b"}'
+check 'an inventory needs no all group' test "$(load)" = loaded
+check 'and its names resolve' test "$(resolve linux,b)" = a,b
 inventory '{"all": ["a"], "cloud": {"address": "cloud", "managed": false}}'
-check '"managed" is an error' fails fleet
+check '"managed" is an error' fails load
 check 'the error says why' said 'has "managed", which playbash no longer reads'
 inventory '{"all": ["a", "@self"]}'
-check '@self in a group is an error' fails fleet
+check '@self in a group is an error' fails load
 check 'the error says where @self works' said '@self works on the command line only'
 inventory '{"all": ["a"], "b": {"address": "b.example"}}'
 check 'the object form of a host entry still works' test "$(addresses b)" = b.example
@@ -126,8 +125,9 @@ check 'the error points at @self' said 'add @self to the target list'
 printf '=== hosts and completion ===\n'
 inventory '{"linux": ["a", "b"], "all": ["linux"], "proj": ["p1"]}'
 out=$(playbash hosts)
-check 'the fleet comes first' matches "$(head -1 <<<"$out")" '^a +a *$'
-check 'hosts outside all have their own section' matches "$(section "$out" 'not in all:')" '^  p1 +p1 *$'
+check 'the hosts come first, with their addresses' matches "$(head -1 <<<"$out")" '^a +a *$'
+check 'all of them in one list' has_line "$(sed 's/ *$//' <<<"$out")" 'p1  p1'
+check 'all marks no host' bash -c '! grep -q "not in all" <<<"$1"' _ "$out"
 check 'a group shows its hosts when they differ' matches "$(section "$out" 'groups:')" '^  all +linux  → a, b$'
 check 'ssh aliases are not listed' bash -c '! grep -q "ssh aliases" <<<"$1"' _ "$out"
 out=$(playbash __complete-targets)
@@ -240,14 +240,63 @@ command rm -f "$local_dir"/*.sh
 out=$(playbash doctor || true)
 check 'with none it says so' matches "$out" '✓ local additions +none \('
 
-printf '=== playbooks outside all ===\n'
-inventory '{"linux": ["a"], "all": ["linux"], "proj": ["p1"]}'
-playbash run p1 daily -N >/dev/null || true
-check 'a host outside all gets the playbook pushed' said 'p1 not in all — pushing playbook'
-playbash run a daily -N >/dev/null || true
-check 'a fleet host does not' not_said 'pushing playbook'
-time_limit "$HOME/.local/bin/playbash" run a,p1 daily -N >/dev/null 2>|"$work/stderr" || true
-check 'a fan-out names only the hosts outside all' said 'pushing playbook to p1 (not in all)'
+printf '=== installed copies first, pushed when missing ===\n'
+# A stub ssh that plays each host: it runs the remote command here under the host's own
+# HOME, so a host's installed and pushed copies are files the checks can look at.
+mkdir -p "$work/hostbin" "$HOME/.local/libs"
+printf '%s\n' '#!/bin/sh' \
+  'while [ $# -gt 0 ]; do' \
+  '  case $1 in -o) shift 2 ;; --) shift; break ;; -*) shift ;; *) host=$1; shift ;; esac' \
+  'done' \
+  'HOME="$HOSTS_DIR/$host" exec sh -c "$1"' >|"$work/hostbin/ssh"
+chmod +x "$work/hostbin/ssh"
+export HOSTS_DIR="$work/hosts"
+libs="$source_dir/private_dot_local/libs"
+cp "$libs/playbash-wrap.py" "$libs/playbash.sh" "$HOME/.local/libs/"
+greet() {
+  printf '%s\n' '#!/usr/bin/env bash' 'source "${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh"' \
+    "echo \"greet: $2 on \$PLAYBASH_HOST\"" "exit ${3:-0}" >|"$1/playbash-greet"
+  chmod +x "$1/playbash-greet"
+}
+greet "$HOME/.local/bin" 'this machine'
+for h in inst half failing bare bare2; do mkdir -p "$HOSTS_DIR/$h/.local/bin" "$HOSTS_DIR/$h/.local/libs"; done
+for h in inst half failing; do cp "$libs/playbash-wrap.py" "$libs/playbash.sh" "$HOSTS_DIR/$h/.local/libs/"; done
+greet "$HOSTS_DIR/inst/.local/bin" 'the host'
+greet "$HOSTS_DIR/failing/.local/bin" 'the host' 3
+inventory '{"inst": "inst", "half": "half", "failing": "failing", "bare": "bare", "bare2": "bare2", "pair": ["inst", "bare"]}'
+on_hosts() {
+  local cmd=$1
+  shift
+  (export PATH="$work/hostbin:$PATH" && time_limit "$HOME/.local/bin/playbash" "$cmd" -N "$@" 2>|"$work/stderr")
+}
+staged() { [[ -e $HOSTS_DIR/$1/.cache/playbash-staging/$2 ]]; }
+out=$(on_hosts run inst greet || true)
+check 'a host with the playbook installed runs its own copy' matches "$out" 'greet: the host on inst'
+check 'with nothing pushed' bash -c '! [[ -e $1 ]]' _ "$HOSTS_DIR/inst/.cache/playbash-staging"
+check 'and no mark' not_said '(pushed)'
+out=$(on_hosts run bare greet || true)
+check 'a host without it gets this machine'"'"'s copy' matches "$out" 'greet: this machine on bare'
+check 'pushed with the wrapper' staged bare playbash-wrap.py
+check 'and marked' said '✓ bare greet in'
+check 'as pushed' said '(pushed)'
+check 'one log, the pushed run'"'"'s: the empty first one is gone' \
+  test "$(find "$HOME/.cache/playbash/runs/bare/greet" -name '*.log' | wc -l)" -eq 1
+out=$(on_hosts run half greet || true)
+check 'a host with the wrapper but not the playbook gets it pushed too' matches "$out" 'greet: this machine on half'
+on_hosts run failing greet >/dev/null || true
+check 'an installed playbook that fails is a failure, not a push' said 'exit 3'
+check 'nothing pushed' not_said '(pushed)'
+on_hosts run pair greet >/dev/null || true
+check 'a fan-out pushes only where it is missing' bash -c \
+  'grep -q "✓ bare greet in .*(pushed)" "$1" && grep -q "✓ inst greet in" "$1" && ! grep -q "inst greet in .*(pushed)" "$1"' \
+  _ "$work/stderr"
+out=$(on_hosts exec bare2 -- echo exec-ran || true)
+check 'exec pushes the wrapper where it is missing' matches "$out" 'exec-ran'
+check 'the wrapper is staged' staged bare2 playbash-wrap.py
+out=$(on_hosts exec inst -- echo exec-ran || true)
+check 'and uses the installed one where it is not' matches "$out" 'exec-ran'
+check 'with nothing pushed' bash -c '! [[ -e $1 ]]' _ "$HOSTS_DIR/inst/.cache/playbash-staging"
+check 'no host left an empty log' bash -c '! find "$1" -name "*.log" -empty | grep -q .' _ "$HOME/.cache/playbash/runs"
 
 printf '=== Ctrl-C ===\n'
 # A terminal's Ctrl-C reaches a process group whose SIGINT is at its default; a background

@@ -19,14 +19,14 @@ export const INVENTORY_PATH = join(homedir(), '.config', 'playbash', 'inventory.
 // A string (or {"address": ...}) gives a host's ssh address; an array is a group. A group
 // member names a group or a host, and `-name` removes one. A member that names no group
 // is a host whose address defaults to its name, so a host needs its own entry only when
-// the two differ. The required `all` group is the fleet: fan-outs reach it, and its hosts
-// carry the playbooks. Every group is expanded here, so a broken one fails every command.
+// the two differ. No group means anything to playbash (`all` included): each host says
+// whether it has the playbooks installed. Every group is expanded here, so a broken one
+// fails every command.
 export function loadInventory() {
   const empty = {
     hosts: new Map(),
     groups: new Map(),
     expanded: new Map(),
-    fleet: new Set(),
     path: INVENTORY_PATH,
     present: false
   };
@@ -74,12 +74,6 @@ export function loadInventory() {
       }
     }
   }
-  if (hosts.size > 0 && !groups.has('all')) {
-    die(
-      `inventory at ${INVENTORY_PATH} has no "all" group: list the fleet's hosts or groups in it`
-    );
-  }
-
   const expanded = new Map();
   const visiting = [];
   const expand = group => {
@@ -107,7 +101,6 @@ export function loadInventory() {
     hosts,
     groups,
     expanded,
-    fleet: new Set(expanded.get('all')),
     path: INVENTORY_PATH,
     present: true
   };
@@ -152,8 +145,7 @@ export function resolveTargets(arg, inventory) {
     .split(',')
     .map(t => t.trim())
     .filter(Boolean);
-  if (tokens.length === 0)
-    die('empty target list (pass a host name, a group name, or "all")');
+  if (tokens.length === 0) die('empty target list (pass a host or group name)');
   if (tokens.includes('-'))
     die('a "-" in a target list must be followed by a host or group name');
   const selfName = hostname();

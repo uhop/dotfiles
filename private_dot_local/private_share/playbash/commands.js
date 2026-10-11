@@ -313,9 +313,8 @@ export function cmdList() {
 
 // --- hosts ---
 
-// Three sections: the fleet (`all`, no header), the hosts outside it, and
-// the groups, each followed by its hosts when the definition names a
-// group or a removal.
+// Two sections: the hosts with their addresses, and the groups, each
+// followed by its hosts when the definition names a group or a removal.
 export async function cmdHosts() {
   const inv = loadInventory();
   if (!inv.present) {
@@ -343,14 +342,7 @@ export async function cmdHosts() {
       const tag = self.has(name) ? '  (self)' : '';
       return `${name.padEnd(width)}  ${addr.padEnd(addrWidth)}${tag}`;
     };
-    const fleet = hostNames.filter(name => inv.fleet.has(name));
-    const other = hostNames.filter(name => !inv.fleet.has(name));
-    for (const name of fleet) process.stdout.write(`${line(name)}\n`);
-    if (other.length > 0) {
-      const prefix = fleet.length > 0 ? '\n' : '';
-      process.stdout.write(`${prefix}${COLOR.dim}not in all:${COLOR.reset}\n`);
-      for (const name of other) process.stdout.write(`  ${line(name)}\n`);
-    }
+    for (const name of hostNames) process.stdout.write(`${line(name)}\n`);
   }
   if (inv.groups.size > 0) {
     const groupNames = [...inv.groups.keys()].sort();

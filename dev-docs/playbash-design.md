@@ -57,7 +57,7 @@ A value in the top-level object is one of:
 
 A name must be non-empty, hold no comma, and start with neither `-` nor `@`, so it survives the command line.
 
-**`all` is the fleet.** It is an ordinary group, required whenever the inventory names a host. A fan-out over `all` reaches it, its hosts have the playbooks chezmoi deploys (the managed-path check and `doctor` read it), and it skips every other host. A host outside `all` is reachable only when named, with the playbook pushed; groups of such hosts serve servers playbash does not maintain, for `put`, `get`, and `exec` fan-outs.
+**No group means anything to playbash, `all` included.** From 3.7.0 to 3.8.0, `all` was the fleet: required whenever the inventory named a host, with its hosts assumed to have the playbooks chezmoi installs. A missing `all` stopped every command, `put` and `get` of the inventory itself included. Since 3.9.0 each host answers whether it has the playbooks (§ Primary mode), so `all` is a name like any other, kept by convention for the hosts `playbash run all daily` maintains. A name the inventory does not list is still refused (§ Host argument resolution), so a server you work with but don't maintain stays out of every run until you add it.
 
 ```json
 {
@@ -69,7 +69,7 @@ A name must be non-empty, hold no comma, and start with neither `-` nor `@`, so 
 }
 ```
 
-Keep the fleet's hosts in OS groups and build `all` from them, so a host added without an OS group stays out of the fleet. The other shape, hosts in `all` and `"linux": ["all", "-mac"]`, puts a new Mac forgotten in `mac` into `linux`.
+Keep the fleet's hosts in OS groups and build `all` from them, so a host added without an OS group stays out of `all`. The other shape, hosts in `all` and `"linux": ["all", "-mac"]`, puts a new Mac forgotten in `mac` into `linux`.
 
 ### Group arithmetic
 
@@ -82,7 +82,7 @@ Keep the fleet's hosts in OS groups and build `all` from them, so a host added w
 
 The CLI takes one positional `<targets>` token. Resolution:
 
-- Tokens are split on `,`, trimmed, and combined by the group arithmetic: `all,-host2` is the fleet without `host2`. The first token cannot be a removal, since `parseArgs` would read it as an option.
+- Tokens are split on `,`, trimmed, and combined by the group arithmetic: `all,-host2` is the group `all` without `host2`. The first token cannot be a removal, since `parseArgs` would read it as an option.
 - A group expands to its hosts; a host expands to itself, with the entry's address for ssh and the inventory name for display; `@self` is this machine (§ Self host).
 - A name the inventory does not list is refused before anything connects. Until 3.7.0 an unknown name went to ssh verbatim, so any `~/.ssh/config` alias was a target, and a `"managed": false` entry refused one by hand; refusing by default means a new server needs no marking.
 - The result is deduped by name, preserving first-seen order.
@@ -119,7 +119,7 @@ Both are speculative until real use surfaces them. The cost of adding a file lat
 - **Schema:** array values in `inventory.json`.
 - **CLI:** comma-separated targets, mixing host and group names and removals: `playbash run db1,web,prod upd`. Resolution flattens to a unique ordered set of host names.
 - **Recursion:** a group may name groups, with removals (§ Group arithmetic). Until 3.7.0 groups were flat lists of host names; `"all": ["linux", "mac"]` needs more.
-- **`all`:** an ordinary group, required whenever the inventory names a host (§ Schema). Until 3.7.0 it was implicit: every host entry.
+- **`all`:** an ordinary group (§ Schema). Until 3.7.0 it was implicit, every host entry; from 3.7.0 to 3.8.0 it was required and marked the hosts with installed playbooks.
 - **Self exclusion:** any list, however constructed (group, ad-hoc list, `all`), drops the self host with a one-line dim notice unless it names `@self` (§ Self host). Naming self alone, under its inventory name, is refused with the same hint.
 - **Parallelism:** unlimited by default; cap with `-p N`. A single resolved target uses the live rectangle; multiple targets switch to the `StatusBoard` with a sticky most-recently-active focused-host rectangle. Per-host summaries print in input order at the end, followed by a cross-host aggregated section. Continue-on-failure; the runner exits with code 1 if any host failed.
 
@@ -182,14 +182,14 @@ Playbooks are expected to already live on the target host, distributed by `chezm
 - The playbook script is *directly runnable by hand* over plain `ssh` with no environment setup. Helpers are found via `${PLAYBASH_LIBS:-$HOME/.local/libs}/playbash.sh` (the default expands to the chezmoi-managed path). Sidecar reporting is opt-in: if `$PLAYBASH_REPORT` is unset, the helpers print human-readable output and skip the JSON-lines append.
 - Playbash does not need to copy anything for the common case. It only sets a few env vars and runs the script.
 
-A secondary **upload mode** for ad-hoc playbooks not yet in the chezmoi tree shipped in v3 (roadmap milestones 16 + custom playbook paths). See below.
+A secondary **upload mode** for ad-hoc playbooks not yet in the chezmoi tree shipped in v3 (roadmap milestones 16 + custom playbook paths). See below. Since 3.9.0 it also serves a host that lacks the installed copies.
 
 ### Primary mode
 
 For each `(playbook, host)`:
 
-1. **Resolve playbook path.** Look up `playbook` in the local registry → resolves to a path like `~/.local/bin/playbash-foo`. Playbash assumes the same path exists on the target (chezmoi guarantee).
-2. **Run playbook.** The runner spawns `ssh "$host" -- env LC_ALL=C PLAYBASH_REPORT=... PLAYBASH_HOST=... COLUMNS=... LINES=... exec python3 -u ~/.local/libs/playbash-wrap.py ~/.local/bin/playbash-foo`. The Python wrapper allocates the PTY on the target and execvps the playbook in the child. The leading `exec` ensures python becomes the direct child of sshd's session shell with no intermediate `bash -c` to absorb signals.
+1. **Ask the host.** The playbook is `~/.local/bin/playbash-foo` on the target, run by `~/.local/libs/playbash-wrap.py`, both installed by chezmoi. The command line checks that both exist before `exec python3`, and answers with the wrapper's own `__playbash_wrap_noexec` line when either is missing. On that line the runner pushes this machine's copies (upload mode) and runs again in the same slot, and the status line marks the host `(pushed)`. A host with the copies pays nothing extra; a host without them pays one extra ssh round trip before the push. `exec` does the same with the wrapper alone. Until 3.9.0, membership in `all` decided this, and a host in `all` without the playbook was skipped. An `@self` run uses this machine's own copy, so there a missing playbook is an error (`no script`), not a push.
+2. **Run playbook.** The runner spawns `ssh "$host" -- env LC_ALL=C PLAYBASH_REPORT=... PLAYBASH_HOST=... COLUMNS=... LINES=... exec python3 -u ~/.local/libs/playbash-wrap.py ~/.local/bin/playbash-foo`, after the check in step 1. The Python wrapper allocates the PTY on the target and execvps the playbook in the child. The leading `exec` ensures python becomes the direct child of sshd's session shell with no intermediate `bash -c` to absorb signals.
 3. **Capture output.** Runner reads ssh's stdout (which carries the PTY-multiplexed stream from the wrapper), keeps a rolling buffer of the last N lines (default 5), renders them as a fixed-height rectangle with ANSI cursor controls. The full uncut byte stream is also tee'd to `~/.cache/playbash/runs/<timestamp>-<host>-<playbook>.log` on the local side.
 4. **Watch for stdin waits.** See [Interactive input detection](#interactive-input-detection) below.
 5. **Collect sidecar.** When the playbook exits, fetch `$PLAYBASH_REPORT` via a follow-up `ssh "$host" -- cat $reportPath; rm -f $reportPath`. Parse it.
@@ -422,13 +422,13 @@ Two sections:
   - Effective `ControlMaster`, `ControlPersist`, `ControlPath` queried via `ssh -G nonexistent.example.invalid` — using a non-routable hostname makes the call fast (no network) while still letting `Host *` and `Match` blocks apply. The output is parsed into a `Map<lowercased option name, value>`. `ControlMaster auto` is `ok`; anything else (or unset) is `warn` with a hint.
   - At least one of `id_ed25519`, `id_rsa`, `id_ecdsa`, `id_dsa` exists in `~/.ssh`.
   - `ssh-add -L` exit 0 with output → `ok` (count of identities). Exit 1 (no identities) or 2 (no agent) → `warn` (best-effort: macOS keychain may bypass the agent).
-  - Inventory file present + parseable via the existing `loadInventory()`, reported as hosts in `all`, other hosts, and groups. Missing inventory is `warn`, with a hint to copy it from another machine with `playbash put`.
+  - Inventory file present + parseable via the existing `loadInventory()`, reported as hosts and groups. Missing inventory is `warn`, with a hint to copy it from another machine with `playbash put`.
   - `~/.local/bin/playbash-*` are present and executable. Non-executable entries → `fail` with a `chmod +x` hint.
-  - `~/.local/libs/playbash.sh` and `~/.local/libs/playbash-wrap.py` exist locally — operator side, needed for `@self` runs and for staging to hosts outside `all`.
+  - `~/.local/libs/playbash.sh` and `~/.local/libs/playbash-wrap.py` exist locally — operator side, needed for `@self` runs and for staging to a host without the installed copies.
   - Host-local additions in `~/.config/playbash/local/*.sh`, each run through `bash -n`: listed when they parse, `fail` naming any that does not.
   - `python3 --version` succeeds on PATH.
 
-- **Hosts** (parallel, per host in `all`; hosts outside it are not playbash's to keep healthy). Each host accumulates a list of items; the host's overall status is the worst of any item:
+- **Hosts** (parallel, per host the inventory lists; each is one playbash can reach, and since 3.9.0 no group marks a subset). Each host accumulates a list of items; the host's overall status is the worst of any item:
   - **Self skip.** `isSelfAddress` from `inventory.js`; self entries record a single `(self) — skipped` `ok` item and bypass the ssh probe.
   - **ssh-config alias presence.** Walk `~/.ssh/config` plus `Include` directives (relative paths resolved against `~/.ssh`, the common `dir/*` glob handled inline without a glob lib), collect literal `Host` patterns (skipping wildcards `*`/`?`). The check only fires when the inventory address looks like a *short* name (no `.` or `:`) — FQDNs and IPs resolve directly via DNS and don't benefit from a Host alias. A short name with no matching Host entry is a `warn` with a hint to add one so user/port/identity become explicit.
   - **Connectivity probe.** `ssh -o BatchMode=yes -o ConnectTimeout=5 <addr> true` with an 8-second outer timeout that SIGKILLs the subprocess (the `run()` helper in doctor.js handles this generically — never throws, always resolves with `{code, stdout, stderr, timedOut}`). Failures are routed through `classifySshError()` which buckets stderr into `auth`, `timeout`, `refused`, `no route`, `unknown host`, `host key`, `connection drop`, or a 60-char fallback, each with a tailored hint.
@@ -450,8 +450,8 @@ The whole module is one-shot: no shared state with the runner, no caching, no op
 
 **Bump policy:** every commit that changes playbash's behavior, CLI surface, or output should update `VERSION` in the same commit. Refactors that don't touch behavior (file splits, `die()` consolidation, etc.) also get a patch bump so `--version` reflects the actually-running code and bisection has a usable anchor. The version is the single source of truth for "what's installed" — the wiki and release notes trail it, not the other way around.
 
-**Current:** `3.8.0` — a single Ctrl+C interrupts the current section of the host on screen and the run goes on; a second within 2 seconds cancels the run (§ Interrupt one host's section). The wrapper turns SIGUSR1 into a SIGINT for its playbook and names the feature in its PID line when asked; `playbash_section` reports an exit of 130 as `section interrupted`.
+**Current:** `3.9.0` — no group means anything to playbash (§ Schema): `run`, `debug`, and `exec` try the copies chezmoi installed on each host and push this machine's copies where they are missing, marking the host `(pushed)` (§ Primary mode). The inventory needs no `all`; `hosts` lists every host in one list, and `doctor` checks every listed host. A playbook missing on a host is pushed and run where 3.8.0 skipped it.
 
-**Previous:** `3.7.0` — the inventory names everything playbash may reach (§ Inventory): `all` is an ordinary group and the fleet, groups take other groups and `-name` removals, and a name the inventory does not list is refused, which retired the `"managed": false` field. `--self` is gone in favor of `@self` (§ Self host). The bump also covers two earlier behavior changes that left `VERSION` at `3.6.0`: a missing playbook on a host is a skip (`3cf03dd`, 2026-07-20), and the `"managed": false` field itself (`9a1881e`, 2026-10-08).
+**Previous:** `3.8.0` — a single Ctrl+C interrupts the current section of the host on screen and the run goes on; a second within 2 seconds cancels the run (§ Interrupt one host's section). The wrapper turns SIGUSR1 into a SIGINT for its playbook and names the feature in its PID line when asked; `playbash_section` reports an exit of 130 as `section interrupted`.
 
 **Not tracked in `--version`:** the staging cache format, the sidecar protocol version, the PTY wrapper's own version. Those are separate concerns with their own evolution — the sidecar is a newline-delimited JSON stream where consumers ignore unknown event fields; the wrapper announces its PID and, when asked, its features in the `__playbash_wrap_pid` preamble (a missing preamble or feature means an older wrapper, and the runner falls back). Bundling all of that into the CLI version would conflate independent compat stories.

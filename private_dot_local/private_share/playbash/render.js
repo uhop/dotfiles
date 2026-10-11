@@ -223,6 +223,7 @@ export class HostSlot {
     this.current = '';
     this.pendingCR = false;
     this.statusWord = '';     // 'exit N', 'signal X', or offline reason
+    this.label = null;        // '(pushed)' when the host had no installed copy
     this.isOffline = false;   // true when skipped due to preflight probe
     this.events = [];
     this.logPath = '';
@@ -375,6 +376,7 @@ export class StatusBoard {
     slot.state = summary.ok ? 'ok' : 'failed';
     slot.finishedAt = Date.now();
     slot.statusWord = summary.statusWord;
+    slot.label = summary.label ?? null;
     if (summary.isOffline) slot.isOffline = true;
     slot.events = summary.events;
     slot.logPath = summary.logPath;

@@ -16,7 +16,7 @@
 //        - python3 on PATH (needed for the wrapper on the operator side
 //          when running @self)
 //
-//   2. Host checks (per host in `all`, in parallel):
+//   2. Host checks (per host the inventory lists, in parallel):
 //        - reachable: ssh -o BatchMode=yes -o ConnectTimeout=5 host true
 //          (failures are classified from stderr: timeout, refused, auth,
 //          unknown host, host key, other)
@@ -233,11 +233,9 @@ async function checkEnv() {
       'copy it here from a machine that has one, with `playbash put`',
     ));
   } else {
-    const nf = inv.fleet.size;
-    const no = inv.hosts.size - nf;
+    const nh = inv.hosts.size;
     const ng = inv.groups.size;
-    const other = no > 0 ? `, ${no} other host${no === 1 ? '' : 's'}` : '';
-    checks.push(result('inventory', 'ok', `${nf} host${nf === 1 ? '' : 's'} in all${other}, ${ng} group${ng === 1 ? '' : 's'}`));
+    checks.push(result('inventory', 'ok', `${nh} host${nh === 1 ? '' : 's'}, ${ng} group${ng === 1 ? '' : 's'}`));
   }
 
   // Local playbooks
@@ -490,12 +488,12 @@ export async function runDoctor() {
   const {checks: envChecks, inventory} = await checkEnv();
   renderEnv(envChecks);
 
-  // Per-host checks (parallel) over the fleet; hosts outside `all` are not
-  // playbash's to keep healthy. Skip when no inventory.
+  // Per-host checks (parallel) over every host the inventory lists: each
+  // is one playbash can reach. Skip when no inventory.
   let hostResults = [];
-  if (inventory.fleet.size > 0) {
+  if (inventory.hosts.size > 0) {
     const configHostNames = parseHostNames();
-    const hostNames = [...inventory.fleet].sort();
+    const hostNames = [...inventory.hosts.keys()].sort();
     hostResults = await Promise.all(
       hostNames.map(name => checkHost(name, inventory.hosts.get(name).address, configHostNames)),
     );

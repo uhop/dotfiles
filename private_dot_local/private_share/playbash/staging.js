@@ -12,10 +12,9 @@
 // directory tree (tar'd and extracted into STAGING_DIR/<dirname>/, with
 // main.sh as the entry point).
 //
-// The caller decides managed vs. upload based on membership in `all`:
-// hosts in the fleet are managed (wrapper + playbooks pre-deployed via
-// chezmoi); other inventory hosts are vanilla and get everything staged.
-// Wrapper staging is cached under ~/.cache/playbash/staging/<hostName>.json,
+// The runner tries the copies chezmoi installed first and stages only for
+// a host that lacks them (runner.js, runInstalledFirst), or for every host
+// under `push` and custom playbook paths. Wrapper staging is cached under ~/.cache/playbash/staging/<hostName>.json,
 // keyed by the local wrapper's SHA-256. For playbook files, a remote SHA-256
 // probe (one ssh round trip) replaces local caching — the remote is the
 // source of truth, so deleted or corrupted files are re-uploaded on next run.
@@ -137,7 +136,7 @@ async function stageWrapper(address, hostName) {
 // Takes plain filenames (not full paths) so this function owns the
 // STAGING_DIR-prefix construction and the shell-quoting of the untrusted
 // basename component. Library files (playbash-wrap.py, playbash.sh) and
-// managed playbook names are safe; single-file custom playbooks upstream
+// validated playbook names are safe; single-file custom playbooks upstream
 // come from pathBasename of operator input and may contain spaces or
 // metacharacters — shellQuote handles them.
 async function probeRemoteShas(address, fileNames) {
@@ -379,8 +378,8 @@ export function extractTarFromBuffer(data, localPath, decompress) {
 // --- public API ---
 
 // Ensure the Python PTY wrapper is staged at STAGING_DIR on the remote.
-// Used by `exec` on hosts outside `all` (no playbook to stage, just the
-// wrapper). For playbook runs, stagePlaybookFiles() handles the wrapper
+// Used by `exec` on a host without the installed wrapper (no playbook to
+// stage, just the wrapper). For playbook runs, stagePlaybookFiles() handles the wrapper
 // as part of its probe. Returns the remote wrapper path (always STAGED).
 // Cached by wrapper SHA-256 so repeat runs cost zero ssh calls.
 export async function ensureWrapper(address, hostName) {
