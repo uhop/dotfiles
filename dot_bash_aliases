@@ -513,9 +513,9 @@ ksshh() {
 # ones (video, 3D), which are better served by full-desktop RDP anyway.
 #
 # Usage: wp <host> <app> [args...]
-#   wp mini gnome-calculator
-#   wp mini nautilus
-#   wp mini -- bash -c 'cd ~/project && code .'
+#   wp box gnome-calculator
+#   wp box nautilus
+#   wp box -- bash -c 'cd ~/project && code .'
 #
 # Unavailable on macOS/Windows clients (no Wayland). Guard tells the user
 # which alternative to reach for instead of leaving them to interpret a

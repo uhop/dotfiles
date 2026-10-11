@@ -97,7 +97,7 @@ The inventory is shared across hosts, so on each managed machine one entry refer
 
 At startup, the runner enumerates IPs bound to local interfaces via `os.networkInterfaces()` and adds the loopback ranges (`127.0.0.0/8`, `::1`). When about to ssh to a host, the runner does a `dns.lookup` on the address; if the resolved IP is in the local-IP set, the target is **self**. If DNS resolution fails (e.g. an `~/.ssh/config` `Host` alias that resolves only at ssh time), the target is treated as **remote**: a conservative miss, which `@self` overrides, since its address is `localhost`.
 
-This treats "the same physical machine, however addressed" as one thing. On a host known as `think` (127.0.0.1) and `think.lan` (192.168.86.40), both names resolve to local IPs, so both are self. There is no scenario where you'd want a "remote" run to a LAN address that lands on the same `apt` lock and the same filesystem as a local run — they do the same thing, just with extra ssh plumbing.
+This treats "the same physical machine, however addressed" as one thing. On a host known as `host1` (127.0.0.1) and `host1.lan` (192.168.1.10), both names resolve to local IPs, so both are self. There is no scenario where you'd want a "remote" run to a LAN address that lands on the same `apt` lock and the same filesystem as a local run — they do the same thing, just with extra ssh plumbing.
 
 **Default behavior:** a target that resolves to self is dropped from the list with a one-line dim notice, and a list of nothing else is **refused**, with a hint to add `@self`.
 
@@ -385,7 +385,7 @@ Linux-only. The functions are no-ops on Mac (no apt, no `/var/log/apt`).
 
 ### Background: the docker-ce silent break
 
-Caught during milestone-5 dogfooding, confirmed twice. When `apt` upgrades `docker-ce`, the docker daemon stops working properly (`docker compose up` fails with container conflicts) but no `/run/reboot-required` is created. The user has to know to reboot. The first occurrence on `croc` was diagnosed by manually rebooting and re-running `dcm`; a second occurrence was caught by the same pattern. The pre-emptive `dpkg.log` scan in `maintenance::check_apt_since` (above) detects this automatically — and milestone 12's `--restart-services` flag offers an automatic recovery without a full reboot.
+Caught during milestone-5 dogfooding, confirmed twice. When `apt` upgrades `docker-ce`, the docker daemon stops working properly (`docker compose up` fails with container conflicts) but no `/run/reboot-required` is created. The user has to know to reboot. The first occurrence was diagnosed by manually rebooting and re-running `dcm`; a second occurrence was caught by the same pattern. The pre-emptive `dpkg.log` scan in `maintenance::check_apt_since` (above) detects this automatically — and milestone 12's `--restart-services` flag offers an automatic recovery without a full reboot.
 
 ## Doctor
 

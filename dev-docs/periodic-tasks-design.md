@@ -121,7 +121,7 @@ all subcommands (`run`, `push`, `debug`, `exec`, `put`, `get`).
 
 Behavior:
 - Resolves to the actual system hostname for display (reports and status
-  lines show "think", not "@self").
+  lines show the hostname, not "@self").
 - Runs locally, without ssh; no flag needed.
 - Works in mixed target lists: `playbash run @self,host2 daily` runs
   locally on `@self` and remotely on `host2`.

@@ -60,7 +60,7 @@ if ! command -v sendmail >/dev/null 2>&1; then
 fi
 
 # Build the subject line from the playbash arguments.
-# e.g., "run @self daily" → "[think] playbash: run @self daily"
+# e.g., "run @self daily" → "[host1] playbash: run @self daily"
 subject="[$host] playbash: $*"
 
 {

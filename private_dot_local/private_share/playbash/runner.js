@@ -324,7 +324,7 @@ function buildExecCommand({cols, rows, command, wrapperPath}) {
 
 // Patterns indicating the playbook is hung waiting for input it can't get.
 //   - `[sudo] password for X:` — generic Linux sudo
-//   - `[sudo: authenticate] Password:` — sudo on some hosts (e.g. think)
+//   - `[sudo: authenticate] Password:` — sudo on some hosts
 //   - `doas (user@host) password:` — opendoas
 //   - `Password:` alone — su, ssh, mosh
 //   - `Sorry, try again` — sudo's first-failure retry message

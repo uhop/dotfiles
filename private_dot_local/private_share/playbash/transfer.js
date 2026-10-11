@@ -30,7 +30,7 @@ import {hostHasZstd} from './capabilities.js';
 // argument, so `playbash put all foo ~/.config/bar` arrives as
 // `... /home/eugene/.config/bar`. That literal absolute path then fails on
 // any host where the operator's local home prefix doesn't exist (macOS uses
-// /Users/<name>; mini2 in our fleet was the trigger). Detect the operator's
+// /Users/<name>; a Mac in the fleet was the trigger). Detect the operator's
 // local home prefix and rewrite to a literal `~`, so the remote shell
 // expands it per-target. The remote path resolution belongs on the remote.
 //
