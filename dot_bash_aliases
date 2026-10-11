@@ -75,8 +75,28 @@ alias mkdir='command mkdir -pv'
 mkz() { mkdir "$@" && z "$@"; }
 alias mkcd="mkz"
 
+## the directory stack as a working set: a directory sits in it once, and going to one
+## moves it to the top, so popd always goes back to where you were
+
+## remove every copy of $1 below the top of the stack
+__zstack_drop() {
+  local entries i
+  mapfile -t entries < <(builtin dirs -l -p)
+  for ((i = ${#entries[@]} - 1; i > 0; --i)); do
+    [[ ${entries[i]} == "$1" ]] && builtin popd -n "+$i" >/dev/null
+  done
+  return 0
+}
+
+## move entry $1 (1 or more) to the top and go there
+__zstack_move() {
+  local dir
+  dir=$(builtin dirs -l "+$1") && builtin popd -n "+$1" >/dev/null && builtin pushd -- "$dir"
+}
+
 ## pushd that knows z: pushd's own arguments (-n, +N, -N, -) and existing directories go
-## to pushd as they are; anything else names a directory the way `z` does
+## to pushd as they are, anything else names a directory the way `z` does; a directory
+## already in the stack moves to the top instead of being pushed again
 zpush() {
   local flags=() names='' dir
   while (($#)); do
@@ -87,33 +107,69 @@ zpush() {
     esac
     shift
   done
-  if (($# == 0)) || [[ -z $names && $# -eq 1 && ($1 == - || $1 =~ ^[-+][0-9]+$) ]]; then
+  if (($# == 0)) || [[ -z $names && $# -eq 1 && $1 =~ ^[-+][0-9]+$ ]]; then
     builtin pushd "${flags[@]}" "$@"
-  elif [[ $# -eq 1 && -d $1 ]]; then
-    builtin pushd "${flags[@]}" -- "$1"
-  else
-    dir=$(command zoxide query --exclude "$PWD" -- "$@") && builtin pushd "${flags[@]}" -- "$dir"
+    return
   fi
+  if [[ -z $names && $# -eq 1 && $1 == - ]]; then
+    # unset, pushd says so itself
+    [[ -n ${OLDPWD-} ]] || { builtin pushd "${flags[@]}" -; return; }
+    dir=$OLDPWD
+  elif [[ $# -eq 1 && -d $1 ]]; then
+    dir=$(CDPATH='' builtin cd -- "$1" && builtin pwd) || return
+  else
+    dir=$(command zoxide query --exclude "$PWD" -- "$@") || return
+  fi
+  if [[ $dir == "$PWD" ]]; then
+    builtin dirs
+    return
+  fi
+  __zstack_drop "$dir"
+  builtin pushd "${flags[@]}" -- "$dir"
 }
 alias zp='zpush'
 alias zpop='popd'
 
-## dirs through fzf: Esc closes, Enter rotates the picked directory to the top
-## (pushd +N, nothing dropped); with arguments, plain dirs
+## the stack in fzf: Enter moves the picked directory to the top and goes there, Ctrl-R
+## rotates the stack to it, Del or Ctrl-D drops it (not the current one) and reopens, Esc
+## closes; typing filters the list; with arguments, plain dirs
 zdirs() {
   if (($#)); then
     builtin dirs "$@"
     return
   fi
-  local pick n
-  # fzf exits 130 on Esc and 1 on no match: a close, not a failure
-  pick=$(builtin dirs -v | command fzf --reverse --no-sort --height='~50%') || {
-    n=$?
-    ((n == 1 || n == 130)) && return 0
-    return "$n"
-  }
-  read -r n _ <<<"$pick"
-  builtin pushd "+$n"
+  local out key n pos=1 count
+  while :; do
+    out=$(builtin dirs -v | command fzf --reverse --no-sort --height='~50%' \
+      --expect=del,ctrl-d,ctrl-r --bind "start:pos($pos)" \
+      --header='enter: go   ctrl-r: rotate   del: drop   esc: close') || {
+      # fzf exits 130 on Esc and 1 on no match: a close, not a failure
+      n=$?
+      ((n == 1 || n == 130)) && return 0
+      return "$n"
+    }
+    key=${out%%$'\n'*}
+    read -r n _ <<<"${out#*$'\n'}"
+    case $key in
+      del | ctrl-d)
+        ((n > 0)) && builtin popd -n "+$n" >/dev/null
+        count=$(builtin dirs -p | wc -l)
+        pos=$(((n < count ? n : count - 1) + 1))
+        ;;
+      ctrl-r)
+        builtin pushd "+$n"
+        return
+        ;;
+      *)
+        if ((n > 0)); then
+          __zstack_move "$n"
+        else
+          builtin dirs
+        fi
+        return
+        ;;
+    esac
+  done
 }
 
 # file operations

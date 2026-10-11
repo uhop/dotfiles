@@ -512,9 +512,9 @@ Key aliases and functions:
 - `up N` → go up N directories
 - `zl [dir]` → `z dir && l`
 - `mkz dir` → `mkdir dir && z dir`
-- `zpush` / `zp` → `pushd` that matches a keyword the way `z` does (`zp proj` pushes the directory `z proj` would go to); `-n`, `+N`, `-N`, `-`, and existing directories go to `pushd` as they are
+- `zpush` / `zp` → `pushd` that matches a keyword the way `z` does (`zp proj` pushes the directory `z proj` would go to); `-n`, `+N`, `-N`, `-`, and existing directories go to `pushd` as they are; a directory already in the stack moves to the top instead of being pushed again
 - `zpop` → `popd`
-- `zdirs` → the directory stack in `fzf`: Esc closes, Enter rotates the picked directory to the top (`pushd +N`, nothing dropped); with arguments, plain `dirs`
+- `zdirs` → the directory stack in `fzf` with a one-line key legend: Enter moves the picked directory to the top and goes there, Ctrl-R rotates the stack to it (`pushd +N`), Del or Ctrl-D drops it (not the current one) and reopens, Esc closes, typing filters; with arguments, plain `dirs`
 
 ### File operations
 - `rm` → `rm -I --preserve-root`
