@@ -189,6 +189,8 @@ export class Rectangle {
       out += '\r\x1b[2K' + truncateToWidth(line, width) + '\n';
     }
     out += '\r\x1b[2K' + truncateToWidth(this.current, width) + '\n';
+    // The terminal echoes a Ctrl-C as ^C on the line under the rectangle.
+    out += '\r\x1b[2K';
     process.stdout.write(out);
   }
   finish() {
@@ -197,6 +199,8 @@ export class Rectangle {
     for (let i = 0; i < this.height; i++) out += '\r\x1b[2K\n';
     out += `\x1b[${this.height}A`;
     process.stdout.write(out);
+    // Output after a cancel, a dying child's last lines, prints plainly.
+    this.active = false;
   }
 }
 
@@ -268,6 +272,7 @@ export class HostSlot {
 //
 // Focus is the most-recently-active running host, sticky with a 500ms
 // idle threshold to avoid thrashing when two hosts produce simultaneously.
+// The blank row under the header carries a transient notice (Ctrl-C).
 export class StatusBoard {
   constructor(slots, {playbook, rectHeight}) {
     this.slots = slots;                                // input order, never reordered
@@ -278,6 +283,10 @@ export class StatusBoard {
     this.nameWidth = Math.max(...slots.map(s => s.name.length));
     this.headerLine = `running ${COLOR.bold}${playbook}${COLOR.reset} on ${slots.length} hosts`;
     this.focusName = null;
+    this.focusHistory = [];
+    this.pinUntil = 0;
+    this.notice = '';
+    this.noticeUntil = 0;
     // We reserve `slots.length + 1 (header) + 1 (blank) + rectHeight`
     // rows up front. Number stays fixed for the whole run; we just
     // re-render the same rows in place.
@@ -305,7 +314,7 @@ export class StatusBoard {
     slot.state = 'running';
     slot.startedAt = Date.now();
     slot.lastActivityAt = slot.startedAt;
-    if (this.focusName === null) this.focusName = name;
+    if (this.focusName === null) this.setFocus(name);
     if (this.active) this.draw();
   }
 
@@ -314,12 +323,50 @@ export class StatusBoard {
     slot.feed(chunk);
     // Sticky focus: shift only if the current focus host has been idle
     // for more than 500ms.
-    if (this.focusName !== name) {
+    if (this.focusName !== name && !this.focusPinned()) {
       const focus = this.byName.get(this.focusName);
       const focusIdle = !focus || focus.state !== 'running' ||
         (Date.now() - focus.lastActivityAt) > 500;
-      if (focusIdle) this.focusName = name;
+      if (focusIdle) this.setFocus(name);
     }
+    if (this.active) this.draw();
+  }
+
+  setFocus(name) {
+    if (name === this.focusName) return;
+    this.focusName = name;
+    this.focusHistory.push({at: Date.now(), name});
+    if (this.focusHistory.length > 64) this.focusHistory.shift();
+  }
+
+  // The host on screen at time `t`: a Ctrl-C targets the host shown a
+  // moment before the press, since focus can move just before it lands.
+  focusAt(t) {
+    let name =
+      this.focusHistory.length > 0 ? this.focusHistory[0].name : this.focusName;
+    for (const entry of this.focusHistory) {
+      if (entry.at > t) break;
+      name = entry.name;
+    }
+    return name;
+  }
+
+  focusPinned() {
+    return (
+      Date.now() < this.pinUntil &&
+      this.byName.get(this.focusName)?.state === 'running'
+    );
+  }
+
+  pinFocus(name, ms) {
+    this.setFocus(name);
+    this.pinUntil = Date.now() + ms;
+    if (this.active) this.draw();
+  }
+
+  note(text, ms) {
+    this.notice = text;
+    this.noticeUntil = Date.now() + ms;
     if (this.active) this.draw();
   }
 
@@ -340,9 +387,9 @@ export class StatusBoard {
       const running = this.slots.filter(s => s.state === 'running');
       if (running.length > 0) {
         running.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
-        this.focusName = running[0].name;
+        this.setFocus(running[0].name);
       } else {
-        this.focusName = null;
+        this.setFocus(null);
       }
     }
     if (this.active) this.draw();
@@ -398,8 +445,15 @@ export class StatusBoard {
     let out = `\x1b[${this.totalRows}A`; // up to top of reserved area
     // Header line.
     out += `\r\x1b[2K${this.headerLine}\n`;
-    // Blank separator.
-    out += '\r\x1b[2K\n';
+    // Blank separator, or the notice while it lasts.
+    const notice =
+      Date.now() < this.noticeUntil
+        ? truncateToWidth(
+            `${COLOR.magenta}${this.notice}${COLOR.reset}`,
+            process.stderr.columns || 80
+          )
+        : '';
+    out += '\r\x1b[2K' + notice + '\n';
     // Slot rows.
     for (const slot of sorted) {
       const isFocus = slot.name === this.focusName;
@@ -423,6 +477,8 @@ export class StatusBoard {
         out += '\r\x1b[2K  ' + truncateToWidth(line, width) + '\n';
       }
     }
+    // The terminal echoes a Ctrl-C as ^C on the line under the board.
+    out += '\r\x1b[2K';
     process.stderr.write(out);
   }
 
@@ -438,5 +494,7 @@ export class StatusBoard {
     for (let i = 0; i < this.totalRows; i++) out += '\r\x1b[2K\n';
     out += `\x1b[${this.totalRows}A`;
     process.stderr.write(out);
+    // A late notice must not draw over the summary that follows.
+    this.active = false;
   }
 }

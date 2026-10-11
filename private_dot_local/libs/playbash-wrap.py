@@ -29,6 +29,8 @@
 #      Darwin and costs one syscall per second of idle time.
 #   3. Installs SIGTERM/SIGHUP/SIGINT/SIGPIPE handlers that killpg the
 #      bash group, as a belt-and-braces second cleanup path.
+#   4. Turns SIGUSR1 into a SIGINT for the playbook's process group: the
+#      runner's single Ctrl-C, which ends only the running section.
 #
 # Deployed via chezmoi to ~/.local/libs/playbash-wrap.py on every managed
 # host. The runner invokes it via:
@@ -65,8 +67,24 @@ if "/" in target and not os.access(target, os.X_OK):
 # send a separate `ssh host kill -TERM <pid>` over a fresh channel,
 # which kills us directly. The runner strips this line from the
 # displayed and logged stream — see runHost in share/playbash/runner.js.
+#
+# Features follow the PID only when the runner asks for them in
+# PLAYBASH_WRAP_FEATURES: a runner that predates them matches the bare
+# line exactly. `int` is the SIGUSR1 handler below, installed before the
+# line goes out, since SIGUSR1's default action would end the wrapper.
+pid = 0
+def _interrupt(*_):
+    if pid:
+        try:
+            os.killpg(pid, signal.SIGINT)
+        except Exception:
+            pass
+
+signal.signal(signal.SIGUSR1, _interrupt)
+
+features = [f for f in os.environ.pop("PLAYBASH_WRAP_FEATURES", "").split() if f == "int"]
 try:
-    os.write(1, f"__playbash_wrap_pid {os.getpid()}\n".encode())
+    os.write(1, " ".join(["__playbash_wrap_pid", str(os.getpid())] + features).encode() + b"\n")
 except OSError:
     pass
 

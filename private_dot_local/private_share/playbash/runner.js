@@ -5,6 +5,8 @@
 //
 //   - ACTIVE_CHILDREN registry + SIGINT/SIGTERM/SIGHUP handlers (top-level
 //     side effect of importing this module — installs once per process).
+//     A lone Ctrl-C at a live display interrupts one host's current
+//     section; a second within 2 s, and SIGTERM/SIGHUP, cancel everything.
 //   - probeConnectivity: parallel preflight ssh ping for offline detection.
 //   - buildRemoteCommand / buildExecCommand: ssh command line builders.
 //   - The stuck-on-input detector (regex over recent output + idle watchdog).
@@ -91,7 +93,8 @@ import {run} from './subprocess.js';
 // wrapper. The wrapper's signal handler then killpgs its bash subtree
 // the way it was always supposed to.
 const ACTIVE_CHILDREN = new Set();
-const REMOTE_KILLABLE = new Map(); // local ssh pid → {address, remotePid}
+const REMOTE_KILLABLE = new Map(); // local ssh pid → {address, remotePid, features}
+const HOST_INTERRUPTERS = new Map(); // host name → () => interrupt outcome
 
 export function registerChild(child) {
   if (!child || !child.pid) return;
@@ -108,81 +111,148 @@ export function registerChild(child) {
 // preamble line lands in the chunk handler.
 function trackRemoteWrapper(child, address) {
   if (!child || !child.pid) return;
-  REMOTE_KILLABLE.set(child.pid, {address, remotePid: null});
+  REMOTE_KILLABLE.set(child.pid, {
+    address,
+    remotePid: null,
+    features: new Set()
+  });
 }
 
 // Called from runHost's chunk handler once the `__playbash_wrap_pid N`
 // line has been parsed out of the head of the stream.
-function recordRemoteWrapperPid(localPid, remotePid) {
+function recordRemoteWrapperPid(localPid, remotePid, features) {
   const entry = REMOTE_KILLABLE.get(localPid);
-  if (entry) entry.remotePid = remotePid;
-}
-
-function killAllChildren(sig) {
-  for (const child of ACTIVE_CHILDREN) {
-    try {
-      process.kill(-child.pid, sig);
-    } catch {
-      try {
-        child.kill(sig);
-      } catch {}
-    }
+  if (entry) {
+    entry.remotePid = remotePid;
+    entry.features = features;
   }
 }
 
-// Send a kill to the remote wrapper via a fresh ssh channel. Returns a
-// promise that resolves when the kill completes or after a 4-second
-// timeout (whichever comes first). Never throws — best-effort cleanup.
-function killRemoteWrapper(address, remotePid) {
+function signalGroup(child, sig) {
+  try {
+    process.kill(-child.pid, sig);
+  } catch {
+    try {
+      child.kill(sig);
+    } catch {}
+  }
+}
+
+function killAllChildren(sig) {
+  for (const child of ACTIVE_CHILDREN) signalGroup(child, sig);
+}
+
+// Run `script` on a host over a fresh ssh channel. Resolves true when it
+// exits 0, false on a failure or after a 4-second timeout. Never throws.
+// Detached, so a later Ctrl-C at the terminal cannot cut it short.
+function remoteSignal(address, script) {
   return new Promise(resolve => {
     let done = false;
-    const finish = () => { if (!done) { done = true; resolve(); } };
+    const finish = ok => { if (!done) { done = true; resolve(ok); } };
     let proc;
     try {
       proc = spawn('ssh', [
         '-o', 'BatchMode=yes',
         '-o', 'ConnectTimeout=3',
-        address, '--',
-        // SIGTERM, give the wrapper half a second to killpg its subtree
-        // and exit, then SIGKILL whatever's left.
-        `kill -TERM ${remotePid} 2>/dev/null; sleep 0.5; kill -KILL ${remotePid} 2>/dev/null; true`,
-      ], {stdio: ['ignore', 'ignore', 'ignore']});
+        address, '--', script,
+      ], {stdio: ['ignore', 'ignore', 'ignore'], detached: true});
     } catch {
-      finish();
+      finish(false);
       return;
     }
-    proc.on('error', finish);
-    proc.on('close', finish);
+    proc.on('error', () => finish(false));
+    proc.on('close', code => finish(code === 0));
     setTimeout(() => {
       try { proc.kill('SIGKILL'); } catch {}
-      finish();
+      finish(false);
     }, 4000).unref();
   });
 }
 
+// SIGTERM, give the wrapper half a second to killpg its subtree and exit,
+// then SIGKILL whatever's left.
+function killRemoteWrapper(address, remotePid) {
+  return remoteSignal(
+    address,
+    `kill -TERM ${remotePid} 2>/dev/null; sleep 0.5; kill -KILL ${remotePid} 2>/dev/null; true`
+  );
+}
+
+// --- Ctrl-C: interrupt one host, or cancel everything ---
+//
+// runHostSingle and runFanout register their live display: `finish` clears
+// it, and `interrupt`, set when the display is on a terminal, picks the
+// host on screen and interrupts its current section. `interrupt` returns
+// false when it has nothing to act on, and the press then cancels
+// everything, as does every SIGINT without one (no terminal, put/get), a
+// second SIGINT within INTERRUPT_REPEAT_MS, SIGTERM, and SIGHUP.
+const INTERRUPT_REPEAT_MS = 2000;
+const INTERRUPT_LOOKBACK_MS = 1000;
+const INTERRUPT_NOTICE_MS = 3000;
+const INTERRUPT_HINT = `again within ${INTERRUPT_REPEAT_MS / 1000} s cancels the run`;
+let liveDisplay = null;
+let lastInterruptAt = -Infinity;
+
+function setLiveDisplay(display) {
+  liveDisplay = display;
+}
+
+// Interrupt one running host. Returns null when the host is not running,
+// else {kind, delivered}: `section` (a SIGINT for its playbook is on the
+// way; `delivered` resolves to whether it landed), `host` (its wrapper
+// predates the SIGUSR1 handler, so the host was stopped as a whole), or
+// `starting` (its wrapper PID has not arrived yet; nothing was sent).
+function interruptHost(hostName) {
+  const interrupter = HOST_INTERRUPTERS.get(hostName);
+  return interrupter ? interrupter() : null;
+}
+
+function describeInterrupt(hostName, outcome) {
+  if (!outcome)
+    return `Ctrl-C: ${hostName} had finished; nothing sent · ${INTERRUPT_HINT}`;
+  if (outcome.kind === 'section')
+    return `Ctrl-C: sent an interrupt to ${hostName}'s current section · ${INTERRUPT_HINT}`;
+  if (outcome.kind === 'host')
+    return `Ctrl-C: stopped ${hostName}; its wrapper predates section interrupts · ${INTERRUPT_HINT}`;
+  return `Ctrl-C: ${hostName} is still starting; nothing sent · ${INTERRUPT_HINT}`;
+}
+
+const undelivered = hostName =>
+  `Ctrl-C: the interrupt did not reach ${hostName}`;
+
 let cleaningUp = false;
-for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  process.on(sig, () => {
-    if (cleaningUp) return;
-    cleaningUp = true;
-    const localCount = ACTIVE_CHILDREN.size;
-    const remoteEntries = [...REMOTE_KILLABLE.values()].filter(e => e.remotePid);
-    if (localCount > 0 || remoteEntries.length > 0) {
-      const parts = [];
-      if (localCount > 0) parts.push(`${localCount} local`);
-      if (remoteEntries.length > 0) parts.push(`${remoteEntries.length} remote`);
-      process.stderr.write(
-        `\nplaybash: ${sig} received, terminating ${parts.join(' + ')} child(ren)\n`
-      );
-    }
-    // Local SIGTERM is synchronous and immediate.
-    killAllChildren('SIGTERM');
-    // Remote kills run in parallel over fresh ssh channels. We give them
-    // up to 2 seconds to land before exiting; the per-host kill itself
-    // has a 4-second ceiling but we don't want to sit on Ctrl+C waiting
-    // for slow networks.
-    cleanupAndExit(remoteEntries);
-  });
+process.on('SIGINT', () => {
+  if (cleaningUp) return;
+  const now = Date.now();
+  const repeat = now - lastInterruptAt <= INTERRUPT_REPEAT_MS;
+  lastInterruptAt = now;
+  if (!repeat && liveDisplay?.interrupt?.(now)) return;
+  cancelAll('SIGINT');
+});
+for (const sig of ['SIGTERM', 'SIGHUP']) process.on(sig, () => cancelAll(sig));
+
+function cancelAll(sig) {
+  if (cleaningUp) return;
+  cleaningUp = true;
+  // A message written into a live display shifts the rows it redraws.
+  liveDisplay?.finish();
+  const localCount = ACTIVE_CHILDREN.size;
+  const remoteEntries = [...REMOTE_KILLABLE.values()].filter(e => e.remotePid);
+  if (localCount > 0 || remoteEntries.length > 0) {
+    const parts = [];
+    if (localCount > 0) parts.push(`${localCount} local`);
+    if (remoteEntries.length > 0) parts.push(`${remoteEntries.length} remote`);
+    process.stderr.write(
+      `\nplaybash: ${sig} received, terminating ${parts.join(' + ')} child(ren)\n`
+    );
+  }
+  // Local SIGTERM is synchronous and immediate.
+  killAllChildren('SIGTERM');
+  // Remote kills run in parallel over fresh ssh channels. We give them
+  // up to 2 seconds to land before exiting; the per-host kill itself
+  // has a 4-second ceiling but we don't want to sit on Ctrl+C waiting
+  // for slow networks.
+  cleanupAndExit(remoteEntries);
 }
 
 async function cleanupAndExit(remoteEntries) {
@@ -279,6 +349,7 @@ function buildRemoteCommand({
     `PLAYBASH_REPORT=${reportPath} ` +
     `PLAYBASH_HOST=${hostName} ` +
     (libs ? `PLAYBASH_LIBS=${libs} ` : '') +
+    `PLAYBASH_WRAP_FEATURES=int ` +
     `COLUMNS=${cols} LINES=${rows} ` +
     `exec python3 -u ${wrapperPath} ${shellQuotePath(playbookPath)}`
   );
@@ -290,6 +361,7 @@ function buildExecCommand({cols, rows, command, wrapperPath}) {
   const escaped = command.replace(/'/g, "'\\''");
   return (
     `LC_ALL=C ` +
+    `PLAYBASH_WRAP_FEATURES=int ` +
     `COLUMNS=${cols} LINES=${rows} ` +
     `exec python3 -u ${wrapperPath} bash -c '${escaped}'`
   );
@@ -379,7 +451,8 @@ async function runHost({
   const start = Date.now();
 
   // Stuck-on-input detector state. `stuckReason` is null until a signal
-  // fires; after that it's 'sudo' or 'idle'.
+  // fires; after that it's 'sudo', 'wrong password', 'idle', or
+  // 'interrupted' (Ctrl-C stopped a host whose wrapper predates SIGUSR1).
   let stuckReason = null;
   let recentBuf = '';
   let lastChunkAt = Date.now();
@@ -432,16 +505,7 @@ async function runHost({
         // Killing the group hits the shell AND its descendants.
         // The spawn must use `detached: true` for this to work — see the
         // makeChild call sites.
-        const groupKill = sig => {
-          try {
-            process.kill(-child.pid, sig);
-          } catch {
-            try {
-              child.kill(sig);
-            } catch {}
-          }
-        };
-        groupKill('SIGTERM');
+        signalGroup(child, 'SIGTERM');
         // Remote cleanup on every stuck cancel (decision 2026-07-11): a hung
         // host otherwise needs a manual `pkill -f playbash` on the target.
         // Playbook steps are idempotent by contract — after the kill, re-running
@@ -454,8 +518,32 @@ async function runHost({
         try { child.stdout.destroy(); } catch {}
         try { child.stderr.destroy(); } catch {}
         if (child.stdin) try { child.stdin.destroy(); } catch {}
-        killTimer = setTimeout(() => groupKill('SIGKILL'), STDIN_KILL_GRACE_MS);
+        killTimer = setTimeout(() => signalGroup(child, 'SIGKILL'), STDIN_KILL_GRACE_MS);
       };
+
+      // See interruptHost. A local child is its playbook's process group,
+      // so SIGINT goes straight to it; a remote one goes through the
+      // wrapper's SIGUSR1, unless the wrapper predates it, where SIGUSR1
+      // would end the wrapper without cleanup.
+      HOST_INTERRUPTERS.set(hostName, () => {
+        const entry = REMOTE_KILLABLE.get(child.pid);
+        if (!entry) {
+          signalGroup(child, 'SIGINT');
+          return {kind: 'section', delivered: Promise.resolve(true)};
+        }
+        if (!entry.remotePid) return {kind: 'starting'};
+        if (entry.features.has('int')) {
+          return {
+            kind: 'section',
+            delivered: remoteSignal(
+              entry.address,
+              `kill -USR1 ${entry.remotePid}`
+            )
+          };
+        }
+        killChild('interrupted');
+        return {kind: 'host'};
+      });
 
       // Idle watchdog. Only armed when the user hasn't disabled it via
       // PLAYBASH_STDIN_WATCH_TIMEOUT=0. Polls at half the threshold,
@@ -520,7 +608,7 @@ async function runHost({
       // with hosts running the pre-fix wrapper.
       let preambleParsed = false;
       let preambleBuf = Buffer.alloc(0);
-      const PREAMBLE_RE = /^__playbash_wrap_pid (\d+)\r?\n/;
+      const PREAMBLE_RE = /^__playbash_wrap_pid (\d+)((?: [a-z]+)*)\r?\n/;
       const NOEXEC_RE = /^__playbash_wrap_noexec\r?\n/;
       const stripPreamble = chunk => {
         if (preambleParsed) return chunk;
@@ -531,7 +619,11 @@ async function runHost({
         const m = head.match(PREAMBLE_RE);
         let rest;
         if (m && nl >= 0) {
-          recordRemoteWrapperPid(child.pid, parseInt(m[1], 10));
+          recordRemoteWrapperPid(
+            child.pid,
+            parseInt(m[1], 10),
+            new Set(m[2].split(' ').filter(Boolean))
+          );
           rest = preambleBuf.subarray(nl + 1);
         } else if (nl >= 0 && NOEXEC_RE.test(head)) {
           noExec = true;
@@ -572,12 +664,14 @@ async function runHost({
       });
       child.on('error', reject);
       child.on('close', (code, signal) => {
+        HOST_INTERRUPTERS.delete(hostName);
         if (idleTimer) clearInterval(idleTimer);
         if (killTimer) clearTimeout(killTimer);
         resolve({code, signal});
       });
     });
   } catch (err) {
+    HOST_INTERRUPTERS.delete(hostName);
     if (idleTimer) clearInterval(idleTimer);
     if (killTimer) clearTimeout(killTimer);
     await new Promise(resolve => log.end(resolve));
@@ -608,7 +702,8 @@ async function runHost({
   // summary (--report) has a single source of truth for all actionable
   // events. The sidecar file on the remote host won't contain this (the
   // process was killed), so we inject it into the parsed events array.
-  if (stuckReason) {
+  // A host stopped by Ctrl-C is the operator's own act, not a finding.
+  if (stuckReason && stuckReason !== 'interrupted') {
     const stuckEvent = {
       ts: new Date().toISOString(),
       level: 'action',
@@ -642,7 +737,9 @@ async function runHost({
       ? 'needs sudo'
       : stuckReason === 'wrong password'
         ? 'wrong password'
-        : 'stuck (idle)'
+        : stuckReason === 'interrupted'
+          ? 'interrupted'
+          : 'stuck (idle)'
     : result.signal
       ? `signal ${result.signal}`
       : `exit ${result.code}`;
@@ -676,6 +773,29 @@ async function runHostSingle({
   const rect = new Rectangle(rectHeight);
   rect.start();
 
+  let live = true;
+  const note = text => {
+    if (!live) return;
+    if (rect.active) rect.feed(`\n${COLOR.magenta}${text}${COLOR.reset}\n`);
+    else process.stderr.write(`${text}\n`);
+  };
+  setLiveDisplay({
+    finish: () => {
+      live = false;
+      rect.finish();
+    },
+    interrupt:
+      rect.active || process.stderr.isTTY
+        ? () => {
+            const outcome = interruptHost(hostName);
+            if (!outcome) return false;
+            note(describeInterrupt(hostName, outcome));
+            outcome.delivered?.then(ok => ok || note(undelivered(hostName)));
+            return true;
+          }
+        : null
+  });
+
   let summary;
   try {
     summary = await runHost({
@@ -690,10 +810,14 @@ async function runHostSingle({
       }
     });
   } catch (err) {
+    live = false;
+    setLiveDisplay(null);
     rect.finish();
     die(err.message, 1);
   }
 
+  live = false;
+  setLiveDisplay(null);
   rect.finish();
 
   const elapsed = (summary.elapsedMs / 1000).toFixed(1);
@@ -1095,6 +1219,25 @@ export async function runFanout({
   const board = new StatusBoard(slots, {playbook: logLabel, rectHeight: effectiveRect});
   board.start();
 
+  setLiveDisplay({
+    finish: () => board.finish(),
+    interrupt:
+      !transfer && board.active
+        ? at => {
+            const name = board.focusAt(at - INTERRUPT_LOOKBACK_MS);
+            if (!name) return false;
+            const outcome = interruptHost(name);
+            if (outcome?.kind === 'section')
+              board.pinFocus(name, INTERRUPT_NOTICE_MS);
+            board.note(describeInterrupt(name, outcome), INTERRUPT_NOTICE_MS);
+            outcome?.delivered?.then(
+              ok => ok || board.note(undelivered(name), INTERRUPT_NOTICE_MS)
+            );
+            return true;
+          }
+        : null
+  });
+
   const launchOne = async slot => {
     if (offlineNames.has(slot.name)) {
       const reason = offlineReasons?.get(slot.name) || 'offline';
@@ -1218,6 +1361,7 @@ export async function runFanout({
     await Promise.race(inFlight);
   }
 
+  setLiveDisplay(null);
   board.finish();
 
   const {failCount} = renderFanoutSummary(slots, {

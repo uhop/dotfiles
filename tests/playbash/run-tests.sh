@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # run-tests.sh — playbash's inventory (the `all` group, group arithmetic, and the refusal
-# of every name the inventory does not list), put and get on @self, and host-local
-# additions (playbash_local and doctor's check).
+# of every name the inventory does not list), put and get on @self, host-local
+# additions (playbash_local and doctor's check), and Ctrl-C (the section trap, the
+# wrapper's SIGUSR1, the board's choice of host, and the run without a terminal).
 #
 # Installs the source copies of playbash into an isolated HOME with its own inventory and
 # ssh config, and puts a stub ssh first on PATH that logs every call, so a refused host is
@@ -65,6 +66,8 @@ said() { grep -qF -- "$1" "$work/stderr"; }
 not_said() { ! grep -qF -- "$1" "$work/stderr"; }
 no_ssh() { [[ ! -e $work/ssh.log ]]; }
 section() { awk -v head="$2" '$0 == head { on = 1; next } /^[^ ]/ { on = 0 } on' <<<"$1"; }
+# GNU timeout is missing on a Mac without coreutils; there the run goes unguarded.
+time_limit() { if command -v timeout >/dev/null; then timeout 60 "$@"; else "$@"; fi; }
 
 printf '=== the all group ===\n'
 inventory '{"linux": ["a", "b"], "mac": ["m"], "all": ["linux", "mac"], "proj": ["p1", "p2"], "a": "a.example"}'
@@ -243,8 +246,107 @@ playbash run p1 daily -N >/dev/null || true
 check 'a host outside all gets the playbook pushed' said 'p1 not in all — pushing playbook'
 playbash run a daily -N >/dev/null || true
 check 'a fleet host does not' not_said 'pushing playbook'
-timeout 60 "$HOME/.local/bin/playbash" run a,p1 daily -N >/dev/null 2>|"$work/stderr" || true
+time_limit "$HOME/.local/bin/playbash" run a,p1 daily -N >/dev/null 2>|"$work/stderr" || true
 check 'a fan-out names only the hosts outside all' said 'pushing playbook to p1 (not in all)'
+
+printf '=== Ctrl-C ===\n'
+# A terminal's Ctrl-C reaches a process group whose SIGINT is at its default; a background
+# job of this script would start with SIGINT ignored, which bash cannot trap. So each run
+# gets its own group with SIGINT restored, and a press is a SIGINT to that group. The
+# wrapper starts the same way, as sshd starts it: an ignored SIGINT would reach its playbook.
+own_group='import os, signal, sys; os.setpgid(0, 0); signal.signal(signal.SIGINT, signal.SIG_DFL); os.execvp(sys.argv[1], sys.argv[1:])'
+wait_step() {
+  local i
+  for ((i = 0; i < 100; ++i)); do
+    grep -qxF -- "$1" "$work/steps.log" 2>/dev/null && return 0
+    sleep 0.1
+  done
+  return 1
+}
+printf '%s\n' '#!/usr/bin/env bash' 'set -euCo pipefail' \
+  'source "$PLAYBASH_LIBS/playbash.sh"' \
+  'step() { echo "$1" >>"$STEPS"; sleep "$2"; }' \
+  'playbash_section one step one 30' \
+  'playbash_section two step two "${SLOW_TWO:-0}"' \
+  'playbash_section three step three 0' \
+  'playbash_section_report' >|"$work/pb/playbash-ctrlc"
+chmod +x "$work/pb/playbash-ctrlc"
+# Runs the playbook in its own group, presses Ctrl-C once per step named, each time that
+# step has started, and prints the playbook's exit code.
+press_at() {
+  command rm -f "$work/steps.log" "$work/report.jsonl"
+  PLAYBASH_LIBS="$source_dir/private_dot_local/libs" STEPS="$work/steps.log" \
+    PLAYBASH_REPORT="$work/report.jsonl" python3 -c "$own_group" "$work/pb/playbash-ctrlc" 2>/dev/null &
+  local pid=$! step rc=0
+  for step; do wait_step "$step" && kill -INT -- "-$pid"; done
+  wait "$pid" || rc=$?
+  echo "$rc"
+}
+check 'one press fails only the running section' test "$(press_at one)" = 1
+check 'and the rest of the playbook runs' test "$(steps)" = one,two,three
+check 'the section is reported as interrupted' event '"msg":"section interrupted","target":"one"'
+check 'and counts as a failure' event 'section failures: one'
+check 'a second press within 2 s ends a direct run' test "$(SLOW_TWO=30 press_at one two)" = 143
+check 'before the next section' test "$(steps)" = one,two
+check 'under the runner each press interrupts one section' \
+  test "$(PLAYBASH_HOST=h SLOW_TWO=30 press_at one two)" = 1
+check 'and the playbook goes on' test "$(steps)" = one,two,three
+check 'both are counted' event 'section failures: one two'
+
+wrapper="$source_dir/private_dot_local/libs/playbash-wrap.py"
+check 'without a request the wrapper announces only its pid' \
+  matches "$(python3 -u "$wrapper" true 2>&1 | head -1)" '^__playbash_wrap_pid [0-9]+$'
+check 'asked for int it names the feature' \
+  matches "$(PLAYBASH_WRAP_FEATURES='int other' python3 -u "$wrapper" true 2>&1 | head -1)" '^__playbash_wrap_pid [0-9]+ int$'
+check 'and the playbook does not see the request' \
+  matches "$(PLAYBASH_WRAP_FEATURES=int python3 -u "$wrapper" sh -c 'echo "[${PLAYBASH_WRAP_FEATURES-unset}]"' 2>&1)" '\[unset\]'
+command rm -f "$work/steps.log" "$work/report.jsonl"
+PLAYBASH_LIBS="$source_dir/private_dot_local/libs" STEPS="$work/steps.log" PLAYBASH_HOST=h \
+  PLAYBASH_REPORT="$work/report.jsonl" PLAYBASH_WRAP_FEATURES=int \
+  python3 -c "$own_group" python3 -u "$wrapper" "$work/pb/playbash-ctrlc" >|"$work/wrap.out" 2>&1 &
+wrap_pid=$!
+rc=0
+wait_step one && kill -USR1 "$wrap_pid"
+wait "$wrap_pid" || rc=$?
+check 'SIGUSR1 to the wrapper interrupts the running section' test "$rc" = 1
+check 'the playbook reports it' event '"msg":"section interrupted","target":"one"'
+check 'and goes on' test "$(steps)" = one,two,three
+check 'the pid line came first' test "$(head -1 "$work/wrap.out")" = "__playbash_wrap_pid $wrap_pid int"
+
+focus() {
+  node --input-type=module -e "
+    import {HostSlot, StatusBoard} from '$HOME/.local/share/playbash/render.js';
+    let now = 1000;
+    Date.now = () => now;
+    const board = new StatusBoard(['a', 'b'].map(n => new HostSlot(n, n, 5)), {playbook: 'p', rectHeight: 5});
+    board.hostStarted('a');
+    board.hostStarted('b');
+    now = 2000;
+    board.hostChunk('b', 'x\n');
+    $1
+  " 2>|"$work/stderr"
+}
+check 'focus moves to a host that prints while the focused one is quiet' \
+  test "$(focus 'console.log(board.focusName)')" = b
+check 'a press targets the host on screen a second before it' \
+  test "$(focus 'console.log(board.focusAt(1500), board.focusAt(2500))')" = 'a b'
+check 'a pinned host keeps the screen while another prints' \
+  test "$(focus "board.pinFocus('a', 3000); now = 2700; board.hostChunk('b', 'y\n'); console.log(board.focusName)")" = a
+check 'until the pin runs out' \
+  test "$(focus "board.pinFocus('a', 3000); now = 5100; board.hostChunk('b', 'y\n'); console.log(board.focusName)")" = b
+
+inventory '{"all": ["a"]}'
+cp "$work/pb/playbash-ctrlc" "$HOME/.local/bin/playbash-ctrlc"
+command rm -f "$work/steps.log"
+PLAYBASH_LIBS="$source_dir/private_dot_local/libs" STEPS="$work/steps.log" \
+  python3 -c "$own_group" "$HOME/.local/bin/playbash" run @self ctrlc >/dev/null 2>|"$work/stderr" &
+runner_pid=$!
+rc=0
+wait_step one && kill -INT -- "-$runner_pid"
+wait "$runner_pid" || rc=$?
+check 'without a terminal one press cancels the run' test "$rc" = 130
+check 'and says so' said 'SIGINT received, terminating 1 local child(ren)'
+check 'no later section ran' test "$(steps)" = one
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

@@ -29,6 +29,22 @@
 
 _playbash_report_broken=
 
+# Ctrl-C ends only the running section: a section's subshell resets the trap
+# and dies, and this shell runs the trap once the subshell exits, then goes on.
+# Run directly, a second press within 2 s ends the whole playbook; signals that
+# arrive together run the trap once, so it ends the group with SIGTERM rather
+# than re-raising SIGINT. Under the runner (PLAYBASH_HOST set) every SIGINT is
+# one press the runner forwarded, and the runner itself cancels on a second.
+_playbash_int_at=-100
+_playbash_on_int() {
+  if [ -z "${PLAYBASH_HOST:-}" ] && (( SECONDS - _playbash_int_at <= 2 )); then
+    trap - INT TERM
+    kill -TERM 0
+  fi
+  _playbash_int_at=$SECONDS
+}
+trap _playbash_on_int INT
+
 if [ -t 2 ]; then
   _playbash_c_reset=$'\033[0m'
   _playbash_c_dim=$'\033[2m'
@@ -176,7 +192,10 @@ playbash_section() {
   rc=$?
   [ -n "$prev_e" ] && set -e
 
-  if [ $rc -ne 0 ]; then
+  if [ $rc -eq 130 ]; then
+    _PLAYBASH_FAILED_SECTIONS+=("$name")
+    playbash_warn "section interrupted" --target "$name"
+  elif [ $rc -ne 0 ]; then
     _PLAYBASH_FAILED_SECTIONS+=("$name")
     playbash_warn "section failed (exit $rc)" --target "$name"
   fi
