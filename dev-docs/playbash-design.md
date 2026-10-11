@@ -266,8 +266,21 @@ playbash_warn  "disk usage above 80%" --target /var
 playbash_action reboot "kernel updated to 6.17.2"
 playbash_error "could not restart nginx, continuing"
 playbash_step  "package-upgrade"          # sets $PLAYBASH_STEP for subsequent events
-playbash_data  '{"packages": 12}'         # attached to the next event
+playbash_section services dcms daily      # runs a step in a subshell; a failure is recorded, the rest runs
+playbash_local                            # this host's additions, if it has any (below)
+playbash_section_report                   # last line: a summary, and exit 1 if a section failed
 ```
+
+### Host-local additions
+
+A host can add steps to a fleet playbook without the repository naming it. `playbash_local [NAME]` sources `~/.config/playbash/local/NAME.sh` when that file exists and does nothing otherwise. NAME defaults to the playbook's short name, the one `playbash run` takes: its file name without the `playbash-` prefix and a `.sh` extension, so `playbash-daily` reads `daily.sh` and a pushed `check-disk.sh` reads `check-disk.sh`. A directory playbook, whose entry is `main.sh`, passes NAME.
+
+- **Off `PATH`, off the repository.** The directory sits beside the inventory, which chezmoi does not manage, and a file there is copied by hand: `playbash put host1 ./daily.sh ~/.config/playbash/local/daily.sh`. A fragment makes no sense on its own, so it is not executable and is not on `PATH`.
+- **Sourced, at a point the playbook picks.** Its `playbash_section` calls join the run's summary and failure count, which a child script could not update. The fleet playbooks call `playbash_local` right after `chezmoi update` and `claude-config-update`, so what an addition calls is current.
+- **Never stops the playbook.** A file that does not parse (`bash -n`) is skipped with an error event; a non-zero exit from the file itself counts as a failed section named `local`. Either way the rest of the playbook runs and `playbash_section_report` fails the run. An info event names the file whenever one is used.
+- **Checked by `playbash doctor`**, on this machine and on every reachable host (below).
+
+The first use: the daily fleet-status collection runs on one host only, so it lives in that host's `daily.sh` instead of a hostname test in the `playbash-daily` template.
 
 **`~/.local/libs/maintenance.sh`** — used by `upd` and `cln` so they remain runnable by hand outside playbash:
 
@@ -401,12 +414,14 @@ Two sections:
   - Inventory file present + parseable via the existing `loadInventory()`, reported as hosts in `all`, other hosts, and groups. Missing inventory is `warn`, with a hint to copy it from another machine with `playbash put`.
   - `~/.local/bin/playbash-*` are present and executable. Non-executable entries → `fail` with a `chmod +x` hint.
   - `~/.local/libs/playbash.sh` and `~/.local/libs/playbash-wrap.py` exist locally — operator side, needed for `@self` runs and for staging to hosts outside `all`.
+  - Host-local additions in `~/.config/playbash/local/*.sh`, each run through `bash -n`: listed when they parse, `fail` naming any that does not.
   - `python3 --version` succeeds on PATH.
 
 - **Hosts** (parallel, per host in `all`; hosts outside it are not playbash's to keep healthy). Each host accumulates a list of items; the host's overall status is the worst of any item:
   - **Self skip.** `isSelfAddress` from `inventory.js`; self entries record a single `(self) — skipped` `ok` item and bypass the ssh probe.
   - **ssh-config alias presence.** Walk `~/.ssh/config` plus `Include` directives (relative paths resolved against `~/.ssh`, the common `dir/*` glob handled inline without a glob lib), collect literal `Host` patterns (skipping wildcards `*`/`?`). The check only fires when the inventory address looks like a *short* name (no `.` or `:`) — FQDNs and IPs resolve directly via DNS and don't benefit from a Host alias. A short name with no matching Host entry is a `warn` with a hint to add one so user/port/identity become explicit.
   - **Connectivity probe.** `ssh -o BatchMode=yes -o ConnectTimeout=5 <addr> true` with an 8-second outer timeout that SIGKILLs the subprocess (the `run()` helper in doctor.js handles this generically — never throws, always resolves with `{code, stdout, stderr, timedOut}`). Failures are routed through `classifySshError()` which buckets stderr into `auth`, `timeout`, `refused`, `no route`, `unknown host`, `host key`, `connection drop`, or a 60-char fallback, each with a tailored hint.
+  - **Local additions.** On a reachable host, the same listing over ssh, through `sh -c` so a zsh login shell's no-match error never decides it: an `ok` item naming the files, a `fail` item for one that does not parse, nothing when the host has none.
 
 The renderer aligns the env section with two padded columns (`name` and `message`) and the host section with three (`name`, `address`, item label), reusing `COLOR` from `render.js` for the `✓ / ⚠ / ✗` glyphs and dim hint arrows. Single-item hosts inline; multi-item hosts stack their items under the host row. The summary line `N ok · N warn · N fail` is computed across the union of env and host items. Exit code is 1 if any `fail` is present (warns are non-fatal), 0 otherwise.
 

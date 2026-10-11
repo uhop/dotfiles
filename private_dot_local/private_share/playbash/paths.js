@@ -17,6 +17,12 @@ export const LIBS_DIR        = join(homedir(), '.local', 'libs');
 export const HELPER_LIB      = join(LIBS_DIR, 'playbash.sh');
 export const PTY_WRAPPER     = join(LIBS_DIR, 'playbash-wrap.py');
 
+// Host-local playbook additions (`playbash_local` in playbash.sh): on each
+// machine only, never in chezmoi, like the inventory. The second form is
+// the literal `~` path for a remote shell.
+export const LOCAL_DIR        = join(homedir(), '.config', 'playbash', 'local');
+export const LOCAL_DIR_REMOTE = '~/.config/playbash/local';
+
 // Per-run logs (one file per host/command/timestamp).
 export const LOG_DIR         = join(homedir(), '.cache', 'playbash', 'runs');
 

@@ -185,6 +185,49 @@ playbash_section() {
   return 0
 }
 
+# Host-local additions.
+#
+# `playbash_local [NAME]` sources ~/.config/playbash/local/NAME.sh when this
+# host has one, so a machine can add sections to a fleet playbook without
+# the repository naming it; the file stays on the host, like the inventory.
+# NAME defaults to the playbook's own name: its file name without the
+# `playbash-` prefix and a `.sh` extension (`playbash-daily` → daily.sh).
+# A directory playbook, whose entry is main.sh, passes NAME.
+#
+# Sourced, so the file's playbash_section calls join this run's summary and
+# failure count. A file that does not parse is skipped, and a non-zero exit
+# from the file itself counts as a failed section named `local`; either way
+# the rest of the playbook runs. Same set -e handling as playbash_section.
+playbash_local() {
+  local name=${1:-${0##*/}}
+  name=${name#playbash-}
+  name=${name%.sh}
+  local file="$HOME/.config/playbash/local/$name.sh"
+  [ -f "$file" ] || return 0
+
+  if ! bash -n "$file" 2>/dev/null; then
+    _PLAYBASH_FAILED_SECTIONS+=(local)
+    playbash_error "local additions skipped: syntax error" --target "$file"
+    return 0
+  fi
+  playbash_info "local additions" --target "$file"
+
+  local rc=0
+  local prev_e=
+  case $- in *e*) prev_e=1 ;; esac
+  set +e
+  # shellcheck source=/dev/null
+  source "$file"
+  rc=$?
+  [ -n "$prev_e" ] && set -e
+
+  if [ $rc -ne 0 ]; then
+    _PLAYBASH_FAILED_SECTIONS+=(local)
+    playbash_warn "local additions failed (exit $rc)" --target "$file"
+  fi
+  return 0
+}
+
 # Print final section summary. Returns 0 if no failures, 1 otherwise.
 # Suitable as the last line of a playbook — the non-zero exit signals
 # upstream that at least one section failed, while letting all other

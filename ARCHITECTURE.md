@@ -170,7 +170,7 @@ private_share/playbash/completion.bash ← bash completion (sourced via --bash-c
 
 playbash-{daily,weekly,clean,sample,hello}  ← playbook scripts deployed to every host
     ↓
-playbash.sh (sourced)                 ← playbash_info/warn/error/action/reboot/step helpers
+playbash.sh (sourced)                 ← playbash_info/warn/error/action/reboot/step/section/local helpers
                                        (writes to $PLAYBASH_REPORT or pretty-prints to stderr)
 
 upd, cln (deployed to every host)

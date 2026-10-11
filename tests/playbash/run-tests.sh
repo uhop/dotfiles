@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# run-tests.sh — playbash's inventory: the `all` group, group arithmetic, and the refusal
-# of every name the inventory does not list.
+# run-tests.sh — playbash's inventory (the `all` group, group arithmetic, and the refusal
+# of every name the inventory does not list), put and get on @self, and host-local
+# additions (playbash_local and doctor's check).
 #
 # Installs the source copies of playbash into an isolated HOME with its own inventory and
 # ssh config, and puts a stub ssh first on PATH that logs every call, so a refused host is
@@ -171,6 +172,70 @@ check 'put --sudo to @self writes the file intact' cmp -s "$work/src/f.txt" "$wo
 transfer "await cmdGet(validated, '$work/src/f.txt', '$work/out/sudo-got.txt', 'pw');" || true
 check 'get --sudo from @self reads it intact' cmp -s "$work/src/f.txt" "$work/out/sudo-got.txt"
 check 'sudo took the password each time' test "$(command paste -sd, "$work/sudo.log" 2>/dev/null)" = pw,pw,pw
+
+printf '=== host-local additions ===\n'
+# A playbook in the fleet's shape, run directly against the source playbash.sh; each step
+# appends its name to steps.log, and the run's events go to report.jsonl.
+local_dir="$HOME/.config/playbash/local"
+mkdir -p "$work/pb" "$local_dir"
+make_playbook() {
+  printf '%s\n' '#!/usr/bin/env bash' 'set -euCo pipefail' \
+    'source "$PLAYBASH_LIBS/playbash.sh"' \
+    'playbash_section first sh -c "echo first >>\"$STEPS\""' \
+    "playbash_local ${2-}" \
+    'playbash_section last sh -c "echo last >>\"$STEPS\""' \
+    'playbash_section_report' >|"$work/pb/$1"
+  chmod +x "$work/pb/$1"
+}
+run_playbook() {
+  command rm -f "$work/steps.log" "$work/report.jsonl"
+  local rc=0
+  PLAYBASH_LIBS="$source_dir/private_dot_local/libs" STEPS="$work/steps.log" \
+    PLAYBASH_REPORT="$work/report.jsonl" "$work/pb/$1" 2>/dev/null || rc=$?
+  echo "$rc"
+}
+steps() { command paste -sd, "$work/steps.log" 2>/dev/null; }
+event() { grep -qF -- "$1" "$work/report.jsonl" 2>/dev/null; }
+make_playbook playbash-daily
+check 'without a local file the playbook runs as is' test "$(run_playbook playbash-daily)" = 0
+check 'first and last only' test "$(steps)" = first,last
+check 'and no local event' bash -c '! grep -q "local additions" "$1" 2>/dev/null' _ "$work/report.jsonl"
+printf '%s\n' 'playbash_section extra sh -c "echo extra >>\"$STEPS\""' >|"$local_dir/daily.sh"
+check 'daily.sh joins playbash-daily' test "$(run_playbook playbash-daily)" = 0
+check 'at the point the playbook calls it' test "$(steps)" = first,extra,last
+check 'and the run names the file' event "\"target\":\"$local_dir/daily.sh\""
+printf '%s\n' 'playbash_section extra false' >|"$local_dir/daily.sh"
+check 'a failed section in it fails the run' test "$(run_playbook playbash-daily)" = 1
+check 'after the rest ran' test "$(steps)" = first,last
+check 'under its own section name' event 'section failures: extra'
+printf '%s\n' 'if then fi (' >|"$local_dir/daily.sh"
+check 'a file that does not parse fails the run' test "$(run_playbook playbash-daily)" = 1
+check 'without stopping it' test "$(steps)" = first,last
+check 'and says why' event 'local additions skipped: syntax error'
+printf '%s\n' 'false' 'echo after >>"$STEPS"' 'false' >|"$local_dir/daily.sh"
+check 'a bare failing command does not stop the playbook' test "$(run_playbook playbash-daily)" = 1
+check 'nor the file' test "$(steps)" = first,after,last
+check 'and counts as the section local' event 'section failures: local'
+printf '%s\n' 'playbash_section extra sh -c "echo extra >>\"$STEPS\""' >|"$local_dir/check-disk.sh"
+make_playbook check-disk.sh
+run_playbook check-disk.sh >/dev/null
+check 'a pushed check-disk.sh finds check-disk.sh' test "$(steps)" = first,extra,last
+make_playbook main.sh weekly
+command mv "$local_dir/check-disk.sh" "$local_dir/weekly.sh"
+run_playbook main.sh >/dev/null
+check 'a directory playbook passes its name' test "$(steps)" = first,extra,last
+inventory '{"all": ["a"]}'
+command rm -f "$local_dir"/*.sh
+printf '%s\n' 'true' >|"$local_dir/daily.sh"
+printf '%s\n' 'true' >|"$local_dir/weekly.sh"
+out=$(playbash doctor || true)
+check 'doctor lists the local additions' matches "$out" '✓ local additions +daily\.sh, weekly\.sh$'
+printf '%s\n' 'if then fi (' >|"$local_dir/broken.sh"
+out=$(playbash doctor || true)
+check 'and fails one that does not parse' matches "$out" '✗ local additions +does not parse: broken\.sh$'
+command rm -f "$local_dir"/*.sh
+out=$(playbash doctor || true)
+check 'with none it says so' matches "$out" '✓ local additions +none \('
 
 printf '=== playbooks outside all ===\n'
 inventory '{"linux": ["a"], "all": ["linux"], "proj": ["p1"]}'

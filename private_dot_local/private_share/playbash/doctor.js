@@ -36,10 +36,29 @@ import {join} from 'node:path';
 
 import {COLOR} from './render.js';
 import {INVENTORY_PATH, isSelfAddress, loadInventory} from './inventory.js';
-import {HELPER_LIB, LOG_DIR, PLAYBOOK_DIR, PLAYBOOK_PREFIX, PTY_WRAPPER} from './paths.js';
+import {
+  HELPER_LIB, LOCAL_DIR, LOCAL_DIR_REMOTE, LOG_DIR, PLAYBOOK_DIR, PLAYBOOK_PREFIX, PTY_WRAPPER,
+} from './paths.js';
+import {shellQuote} from './shell-escape.js';
 import {parseHostNames} from './ssh-config.js';
 import {run} from './subprocess.js';
 import {localHasZstd, refreshHostZstd} from './capabilities.js';
+
+// Lists a host's local additions as `ok NAME` or `bad NAME` (does not parse).
+// Through sh, so a zsh login shell's no-match error never decides it.
+const LIST_LOCAL = `sh -c ${shellQuote(
+  `cd ${LOCAL_DIR_REMOTE} 2>/dev/null || exit 0; for f in *.sh; do [ -f "$f" ] || continue; ` +
+  `if bash -n "$f" 2>/dev/null; then echo "ok $f"; else echo "bad $f"; fi; done`,
+)}`;
+
+function parseLocal(stdout) {
+  const ok = [], bad = [];
+  for (const line of stdout.split('\n')) {
+    const m = /^(ok|bad) (.+)$/.exec(line);
+    if (m) (m[1] === 'ok' ? ok : bad).push(m[2]);
+  }
+  return {ok, bad};
+}
 
 const SSH_DIR      = join(homedir(), '.ssh');
 const SSH_CONFIG   = join(SSH_DIR, 'config');
@@ -259,6 +278,17 @@ async function checkEnv() {
     ));
   }
 
+  // Host-local additions; one that does not parse is skipped by its playbook
+  const local = parseLocal((await run('sh', ['-c', LIST_LOCAL], {timeoutMs: 5000})).stdout);
+  if (local.bad.length > 0) {
+    checks.push(result(
+      'local additions', 'fail', `does not parse: ${local.bad.join(', ')}`,
+      `check with \`bash -n ${LOCAL_DIR}/<name>.sh\`; its playbook skips it until it parses`,
+    ));
+  } else {
+    checks.push(result('local additions', 'ok', local.ok.join(', ') || `none (${LOCAL_DIR})`));
+  }
+
   // PTY wrapper
   if (existsSync(PTY_WRAPPER)) {
     checks.push(result('PTY wrapper', 'ok', PTY_WRAPPER));
@@ -358,6 +388,22 @@ async function checkHost(name, address, configHostNames) {
       } catch {
         // Probe failure is non-fatal; the capability cache is best-effort.
       }
+    }
+
+    const la = await run('ssh', [
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=5',
+      address, '--', LIST_LOCAL,
+    ], {timeoutMs: 8000});
+    const local = parseLocal(la.code === 0 ? la.stdout : '');
+    if (local.bad.length > 0) {
+      out.items.push({
+        status: 'fail',
+        label: `local additions do not parse: ${local.bad.join(', ')}`,
+        hint: `check with \`bash -n ${LOCAL_DIR_REMOTE}/<name>.sh\` on ${name}; its playbook skips it until it parses`,
+      });
+    } else if (local.ok.length > 0) {
+      out.items.push({status: 'ok', label: `local additions: ${local.ok.join(', ')}`});
     }
   } else {
     const {category, hint} = classifySshError(r.stderr, r.timedOut);
