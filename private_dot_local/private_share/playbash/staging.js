@@ -51,16 +51,25 @@ const RESERVED_DIR_NAMES = new Set(['playbash-wrap.py', 'playbash.sh']);
 // Returns {code, stdout, stderr}. Options:
 //   input — Buffer/string piped to stdin (default: no stdin)
 //   raw   — return stdout as a Buffer instead of a string (for binary data)
-export function sshRun(address, remoteCmd, {input, raw} = {}) {
+export function sshRun(address, remoteCmd, options) {
+  return runChild('ssh', ['-o', 'BatchMode=yes', address, '--', remoteCmd], options);
+}
+
+// sshRun's counterpart for this machine: the same command through a local sh.
+export function localRun(cmd, options) {
+  return runChild('sh', ['-c', cmd], options);
+}
+
+function runChild(command, args, {input, raw} = {}) {
   return new Promise((resolve, reject) => {
-    const proc = spawn('ssh', ['-o', 'BatchMode=yes', address, '--', remoteCmd], {
+    const proc = spawn(command, args, {
       stdio: [input != null ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
     // Register with the runner's child registry so a SIGINT during
-    // staging work kills in-flight ssh children instead of leaving them
+    // staging work kills in-flight children instead of leaving them
     // orphaned. The children are not detached, so killAllChildren's
     // process-group kill falls through to the per-child `child.kill()`
-    // fallback — which is what we want for short-lived non-PTY ssh.
+    // fallback — which is what we want for short-lived non-PTY children.
     registerChild(proc);
     const chunks = [];
     let stderr = '';

@@ -133,6 +133,45 @@ check 'completion leaves ssh aliases out' lacks_line "$out" other
 check 'tab after a comma completes an addition' test "$(complete_targets linux,pr)" = linux,proj
 check 'tab after a - completes a removal' test "$(complete_targets all,-li)" = all,-linux
 
+printf '=== put and get on @self ===\n'
+inventory '{"all": ["a"]}'
+command rm -f "$work/ssh.log"
+mkdir -p "$work/src/sub"
+printf 'one\n' >"$work/src/f.txt"
+chmod 640 "$work/src/f.txt"
+printf 'two\n' >"$work/src/sub/g.txt"
+mode_of() { command ls -ln "$1" 2>/dev/null | cut -c1-10; }
+playbash put @self "$work/src/f.txt" "$work/out/put/f.txt" >/dev/null || true
+check 'put to @self writes the file' cmp -s "$work/src/f.txt" "$work/out/put/f.txt"
+check 'with its mode' test "$(mode_of "$work/out/put/f.txt")" = -rw-r-----
+playbash put @self "$work/src" "$work/out/put-dir" >/dev/null || true
+check 'and a directory' cmp -s "$work/src/sub/g.txt" "$work/out/put-dir/sub/g.txt"
+playbash get @self "$work/src/f.txt" "$work/out/got.txt" >/dev/null || true
+check 'get from @self reads the file' cmp -s "$work/src/f.txt" "$work/out/got.txt"
+playbash get @self "$work/src" "$work/out/got-dir" >/dev/null || true
+check 'and a directory' cmp -s "$work/src/sub/g.txt" "$work/out/got-dir/sub/g.txt"
+check 'none of it went over ssh' no_ssh
+playbash put a,@self "$work/src/f.txt" "$work/out/fan.txt" >/dev/null || true
+check 'in a fan-out @self is written too' cmp -s "$work/src/f.txt" "$work/out/fan.txt"
+check 'and only the other host goes over ssh' bash -c 'grep -q " a " "$1" && ! grep -q localhost "$1"' _ "$work/ssh.log"
+# --sudo reads its password from /dev/tty, so drive the transfer module directly; the stub
+# sudo wants -k (no cached ticket skipping the read) and takes the password line itself.
+printf '#!/bin/sh\n[ "$1" = -k ] && [ "$2" = -S ] || { echo "stub sudo: $*" >&2; exit 2; }\nshift 2\nIFS= read -r pw\necho "$pw" >>"%s/sudo.log"\nexec "$@"\n' "$work" >"$work/bin/sudo"
+chmod +x "$work/bin/sudo"
+transfer() {
+  node --input-type=module -e "
+    import {cmdGet, cmdPut} from '$HOME/.local/share/playbash/transfer.js';
+    const validated = {targets: [{name: 'me', address: 'localhost', isSelf: true}],
+      offlineNames: new Set(), offlineReasons: new Map(), parallelLimit: 1};
+    $1
+  " 2>|"$work/stderr"
+}
+transfer "await cmdPut(validated, '$work/src/f.txt', '$work/out/sudo/f.txt', 'pw');" || true
+check 'put --sudo to @self writes the file intact' cmp -s "$work/src/f.txt" "$work/out/sudo/f.txt"
+transfer "await cmdGet(validated, '$work/src/f.txt', '$work/out/sudo-got.txt', 'pw');" || true
+check 'get --sudo from @self reads it intact' cmp -s "$work/src/f.txt" "$work/out/sudo-got.txt"
+check 'sudo took the password each time' test "$(command paste -sd, "$work/sudo.log" 2>/dev/null)" = pw,pw,pw
+
 printf '=== playbooks outside all ===\n'
 inventory '{"linux": ["a"], "all": ["linux"], "proj": ["p1"]}'
 playbash run p1 daily -N >/dev/null || true

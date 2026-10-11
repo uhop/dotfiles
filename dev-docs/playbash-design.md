@@ -101,7 +101,7 @@ This treats "the same physical machine, however addressed" as one thing. On a ho
 
 **Default behavior:** a target that resolves to self is dropped from the list with a one-line dim notice, and a list of nothing else is **refused**, with a hint to add `@self`.
 
-**`@self`:** names this machine under its hostname and runs the playbook **locally as a child process**, no ssh — same pipeline (Rectangle, sidecar, summary) as a remote run, with the sidecar at a local `mktemp` path. Same UX as a remote run; that's the whole point of using the runner on the self host. Its address is `localhost` even when the inventory lists the same name, so it runs locally whatever DNS says, and other names for this machine in the same list are dropped without the notice. `-@self` removes it again. Inside a group it is an error: in a shared inventory it would mean whichever machine reads the file.
+**`@self`:** names this machine under its hostname and runs the playbook **locally as a child process**, no ssh — same pipeline (Rectangle, sidecar, summary) as a remote run, with the sidecar at a local `mktemp` path. Same UX as a remote run; that's the whole point of using the runner on the self host. `put` and `get` with it copy through a local `sh` as well. Its address is `localhost` even when the inventory lists the same name, so it runs locally whatever DNS says, and other names for this machine in the same list are dropped without the notice. `-@self` removes it again. Inside a group it is an error: in a shared inventory it would mean whichever machine reads the file.
 
 **No `--self` flag since 3.7.0.** The flag only switched off the drop for the whole invocation; dispatch then decided local or remote from each address again, so a DNS miss still went over ssh, and two names for this machine both ran. `@self` does its job without either flaw, and `--self` now fails with a pointer to it.
 
@@ -340,7 +340,7 @@ private_dot_local/
       sidecar.js                        # JSON-lines parser, per-host + cross-host aggregation
       staging.js                        # wrapper staging for vanilla hosts, BatchMode ssh
       runner.js                         # execution pipeline: spawn, tee, sidecar, fan-out
-      transfer.js                       # put/get file transfer over ssh
+      transfer.js                       # put/get file transfer (ssh; a local sh for @self)
       commands.js                       # list, hosts, log, __complete-targets, --bash-completion
       doctor.js                         # `playbash doctor` env + per-host diagnostic
       errors.js                         # die() — exit with a user-facing error message
