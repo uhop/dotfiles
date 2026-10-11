@@ -47,7 +47,7 @@
   {
     "cmd": "zdirs",
     "desc": "Pick a dir from the stack (fzf)",
-    "doc": "zdirs                  — Enter: go (moves it to the top)\n                         Ctrl-R: rotate there, Del: drop, Esc: close\nzdirs -v               — plain dirs\nzpop                   — popd"
+    "doc": "zdirs                  — Enter: go (moves it to the top)\n                         Ctrl-R: rotate there, Esc: close\n                         Ctrl-D or Backspace: drop\nzdirs -v               — plain dirs\nzpop                   — popd"
   },
   {
     "cmd": "up",

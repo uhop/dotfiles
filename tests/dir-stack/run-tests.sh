@@ -3,8 +3,8 @@
 #
 # Sources the aliases file into this shell with stub zoxide and fzf first on PATH. The
 # zoxide stub logs its arguments and knows one keyword, `Dat`. The fzf stub plays one step
-# of $FZF_PLAN per call ("enter:N", "del:N", "ctrl-r:N", ..., or "esc") and records what it
-# was shown and the options it got.
+# of $FZF_PLAN per call, "KEY:N" or "esc", and records what it was shown and the options it
+# got; KEY:N presses KEY on entry N, printing what --bind binds KEY to and the entry.
 #
 # Exit 0 on all-green, 1 on any failure.
 
@@ -29,13 +29,14 @@ command cat >"$work/bin/fzf" <<EOF
 calls=\$((\$(cat "$work/fzf.calls" 2>/dev/null || echo 0) + 1))
 echo "\$calls" >"$work/fzf.calls"
 cat >"$work/fzf.in.\$calls"
-echo "\$*" >"$work/fzf.args.\$calls"
+printf '%s\n' "\$@" >"$work/fzf.args.\$calls"
 [ -n "\${FZF_RC:-}" ] && exit "\$FZF_RC"
 step=\$(echo "\${FZF_PLAN:-esc}" | cut -d' ' -f"\$calls")
 { [ -z "\$step" ] || [ "\$step" = esc ]; } && exit 130
 key=\${step%%:*}
-[ "\$key" = enter ] && key=
-echo "\$key"
+action=\$(tr , '\n' <"$work/fzf.args.\$calls" | sed -n "s/^\$key:print(\(.*\))+accept\\\$/\\1/p")
+[ -n "\$action" ] || { echo "fzf stub: \$key is not bound" >&2; exit 2; }
+echo "\$action"
 awk -v n="\${step#*:}" '\$1 == n' "$work/fzf.in.\$calls"
 EOF
 command chmod +x "$work/bin/zoxide" "$work/bin/fzf"
@@ -160,12 +161,15 @@ check 'Esc closes it without an error' zdirs
 check 'and changes nothing' stack_is "$work/a $work/b $work/c $work/d"
 check 'fzf was shown the stack as dirs -v prints it' \
   bash -c '[[ $(<"$1") == "$2" ]]' _ "$work/fzf.in.1" "$(builtin dirs -v)"
-check 'with the keys in a one-line legend' fzf_got 1 'enter: go   ctrl-r: rotate   del: drop   esc: close'
+check 'with the keys in a one-line legend' fzf_got 1 'enter: go   ctrl-r: rotate   ctrl-d, del: drop   esc: close'
 check 'and search left on' bash -c '! grep -q -- --no-input "$1"' _ "$work/fzf.args.1"
 four
 FZF_PLAN=enter:2 zdirs >/dev/null
 check 'Enter moves the picked directory to the top' stack_is "$work/c $work/a $work/b $work/d"
 check 'and goes there' at "$work/c"
+four
+FZF_PLAN=double-click:3 zdirs >/dev/null
+check 'so does a double click' stack_is "$work/d $work/a $work/b $work/c"
 four
 FZF_PLAN=enter:0 zdirs >/dev/null
 check 'Enter on the current directory changes nothing' stack_is "$work/a $work/b $work/c $work/d"
@@ -182,6 +186,11 @@ FZF_PLAN='ctrl-d:3 esc' zdirs >/dev/null
 check 'Ctrl-D drops the last one' stack_is "$work/a $work/b $work/c"
 check 'with the cursor on the new last' fzf_got 2 'start:pos(3)'
 four
+FZF_PLAN='backward-eof:1 esc' zdirs >/dev/null
+check 'Backspace on an empty filter drops it' stack_is "$work/a $work/c $work/d"
+check 'while Backspace itself still edits the filter' \
+  bash -c '! tr , "\n" <"$1" | grep -qE "^(bspace|bs|backspace):"' _ "$work/fzf.args.1"
+four
 FZF_PLAN='del:0 esc' zdirs >/dev/null
 check 'the current directory cannot be dropped' stack_is "$work/a $work/b $work/c $work/d"
 four
@@ -191,6 +200,7 @@ four
 command rm -f "$work"/fzf.*
 check 'with arguments it is dirs' bash -c '[[ $1 == "$2" ]]' _ "$(zdirs -v -l)" "$(builtin dirs -v -l)"
 check 'and fzf stays closed' fzf_calls 0
+FZF_RC=1 check 'no match closes it too' zdirs
 check 'an fzf failure is reported' \
   bash -c 'FZF_RC=2; export FZF_RC; source "$1"; zdirs; (($? == 2))' _ "$source_dir/dot_bash_aliases"
 

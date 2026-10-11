@@ -131,8 +131,8 @@ alias zp='zpush'
 alias zpop='popd'
 
 ## the stack in fzf: Enter moves the picked directory to the top and goes there, Ctrl-R
-## rotates the stack to it, Del or Ctrl-D drops it (not the current one) and reopens, Esc
-## closes; typing filters the list; with arguments, plain dirs
+## rotates the stack to it, Ctrl-D, Del, or Backspace on an empty filter drops it (not the
+## current one) and reopens, Esc closes; typing filters the list; with arguments, plain dirs
 zdirs() {
   if (($#)); then
     builtin dirs "$@"
@@ -140,9 +140,12 @@ zdirs() {
   fi
   local out key n pos=1 count
   while :; do
+    # backward-eof: Backspace (a Mac's Delete) on an empty filter, so it still edits one
     out=$(builtin dirs -v | command fzf --reverse --no-sort --height='~50%' \
-      --expect=del,ctrl-d,ctrl-r --bind "start:pos($pos)" \
-      --header='enter: go   ctrl-r: rotate   del: drop   esc: close') || {
+      --bind "start:pos($pos)" \
+      --bind 'enter:print(go)+accept,double-click:print(go)+accept,ctrl-r:print(rotate)+accept' \
+      --bind 'ctrl-d:print(drop)+accept,del:print(drop)+accept,backward-eof:print(drop)+accept' \
+      --header='enter: go   ctrl-r: rotate   ctrl-d, del: drop   esc: close') || {
       # fzf exits 130 on Esc and 1 on no match: a close, not a failure
       n=$?
       ((n == 1 || n == 130)) && return 0
@@ -151,12 +154,12 @@ zdirs() {
     key=${out%%$'\n'*}
     read -r n _ <<<"${out#*$'\n'}"
     case $key in
-      del | ctrl-d)
+      drop)
         ((n > 0)) && builtin popd -n "+$n" >/dev/null
         count=$(builtin dirs -p | wc -l)
         pos=$(((n < count ? n : count - 1) + 1))
         ;;
-      ctrl-r)
+      rotate)
         builtin pushd "+$n"
         return
         ;;
