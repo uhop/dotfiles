@@ -4,7 +4,6 @@ brew "bat"
 brew "brotli"
 brew "dialog"
 brew "duf"
-brew "gh"
 brew "git"
 {{ if .hasGui -}}brew "git-gui"{{- end }}
 brew "git-lfs"
