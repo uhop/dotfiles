@@ -31,7 +31,6 @@ dotfiles/                              # chezmoi source directory
 ├── dot_inputrc                        # → ~/.inputrc
 ├── dot_ackrc                          # → ~/.ackrc
 ├── dot_config/                        # → ~/.config/ (app configs)
-│   ├── alacritty/
 │   ├── bat/                           # syntax theme shared with delta
 │   ├── cheat/
 │   ├── fastfetch/

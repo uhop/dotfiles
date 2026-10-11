@@ -85,7 +85,6 @@ The following tools are installed and aliased:
 - `brotli` &mdash; better than `gzip`, used by HTTP.
 - `mc` &mdash; Midnight Commander for file manipulations.
 - `yazi` &mdash; yet another terminal file manager.
-- `alacritty` &mdash; no-nonsense terminal.
 - `kitty` &mdash; no-nonsense terminal.
 - `duf` &mdash; a disk utility.
 - `hyperfine` &mdash; benchmarking better than `time`.

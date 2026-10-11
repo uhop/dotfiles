@@ -26,7 +26,7 @@ fi
 {{ if .hasGui -}}
 if [ "$hasSudo" -eq 0 ]; then
   echo "${PROMPT}Installing GUI apps: sudo apt install...${RESET}"
-  sudo env DEBIAN_FRONTEND=noninteractive apt install -y meld alacritty flatpak gnome-software-plugin-flatpak ttf-mscorefonts-installer firetools
+  sudo env DEBIAN_FRONTEND=noninteractive apt install -y meld flatpak gnome-software-plugin-flatpak ttf-mscorefonts-installer firetools
   # Remote-GUI client. Ubuntu 24.04+ / Debian 13+ ship freerdp3-x11; older releases
   # have freerdp2-x11 (binary is `xfreerdp` instead of `xfreerdp3`).
   sudo env DEBIAN_FRONTEND=noninteractive apt install -y freerdp3-x11 2>/dev/null \

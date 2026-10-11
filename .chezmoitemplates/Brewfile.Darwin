@@ -35,7 +35,6 @@ brew "util-linux"
 brew "wget"
 brew "zoxide"
 {{ if .hasGui -}}brew "freerdp"{{- end }}
-{{ if .hasGui -}}cask "alacritty"{{- end }}
 {{ if .hasGui -}}cask "font-fira-code-nerd-font"{{- end }}
 {{ if .hasGui -}}cask "font-hack-nerd-font"{{- end }}
 {{ if .hasGui -}}cask "meld"{{- end }}

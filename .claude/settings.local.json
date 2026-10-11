@@ -43,7 +43,8 @@
       "Bash(git --no-pager diff --stat)",
       "Read(//home/eugene/.local/share/libs/**)",
       "Read(//home/eugene/.local/share/libs/scripts/**)",
-      "Bash(command -v vault-curl)"
+      "Bash(command -v vault-curl)",
+      "Bash(~/.claude/skills/vault-check-drift/check-drift.sh *)"
     ]
   }
 }
