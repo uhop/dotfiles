@@ -15,7 +15,7 @@ work=$(command mktemp -d)
 trap 'builtin cd / && command rm -rf "$work"' EXIT
 
 export HOME="$work/home"
-vault="$work/media/raid/Vault-Data"
+vault="$work/mnt/store/Shared-Data"
 command mkdir -p "$HOME" "$work/bin" "$work/a" "$work/b" "$work/c" "$work/d" "$vault"
 command cat >"$work/bin/zoxide" <<EOF
 #!/bin/sh
