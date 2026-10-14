@@ -15,7 +15,7 @@
 #   vault-curl /vault/topics/foo.md -X PUT -H 'Content-Type: text/markdown' --data-binary @foo.md
 #   vault-curl /search/simple/ -X POST -H 'Content-Type: application/json' -d '{"query":"docker"}'
 #
-# Environment (D141; the old VAULT_API_URL and VAULT_API_TOKEN are read when these are unset):
+# Environment (the old VAULT_API_URL and VAULT_API_TOKEN are read when these are unset):
 #   PROGRAM_CLERK_URL — base URL of the server
 #   PROGRAM_CLERK_KEY — bearer token
 
@@ -51,9 +51,8 @@ shift
 base=${url%/}
 [[ $path == /* ]] || path=/$path
 
-# Fail fast instead of hanging forever when the server is wedged (e.g. a stuck
-# vault-storage container behind a degraded ZFS pool). Defaults sit before "$@"
-# so any caller can override per-call (--max-time 600 for a big reindex) or via
-# VAULT_CURL_MAX_TIME. See topics/zfs-failing-disk-wedges-the-host.
+# Fail fast instead of hanging when the server stops answering. Defaults sit
+# before "$@" so any caller can override per-call (--max-time 600 for a big
+# reindex) or via VAULT_CURL_MAX_TIME.
 exec curl --connect-timeout 5 --max-time "${VAULT_CURL_MAX_TIME:-120}" \
   -H "Authorization: Bearer $key" "$@" "$base$path"

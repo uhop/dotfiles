@@ -1,4 +1,9 @@
-
+{{- /* The gist id stays out of the repository: PET_GIST_ID from ~/.env, else this host's current value. */ -}}
+{{- $gistId := env "PET_GIST_ID" -}}
+{{- $current := joinPath .chezmoi.homeDir ".config/pet/config.toml" -}}
+{{- if and (not $gistId) (stat $current) -}}
+{{-   $gistId = include $current | regexFind "\\[Gist\\][^\\[]*gist_id = \"[0-9a-f]+\"" | regexFind "[0-9a-f]{20,}" -}}
+{{- end }}
 [GHEGist]
   Public = false
   access_token = ""
@@ -23,9 +28,9 @@
 [Gist]
   Public = false
   access_token = ""
-  auto_sync = true
+  auto_sync = {{ if $gistId }}true{{ else }}false{{ end }}
   file_name = "pet-snippet.toml"
-  gist_id = "755f1cf7c9d94414bd54573fcfa61e82"
+  gist_id = {{ $gistId | quote }}
 
 [GitLab]
   ID = ""

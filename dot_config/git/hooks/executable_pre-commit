@@ -42,7 +42,7 @@ added=$(
 hits=$(
   {
     printf '%s\n' "$added" | { grep -E -e "$regex" || true; }
-    # The vault's operator key is free-form, so only its exact value can be matched.
+    # Some keys have no fixed format, so only their exact values can be matched.
     for name in VAULT_API_TOKEN PROGRAM_CLERK_KEY; do
       value=${!name:-}
       # Shorter, it would match ordinary text; empty, every line.
