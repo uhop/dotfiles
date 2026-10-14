@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# vault-curl — curl wrapper for the Obsidian Local REST API vault.
+# vault-curl — curl wrapper for the vault-storage REST API (Obsidian-compatible).
 #
 # Prepends the Authorization header and the vault base URL to the given path,
 # then passes the remaining options through to curl. All flags are curl's.
@@ -7,7 +7,7 @@
 # Usage:
 #   vault-curl <path> [curl-options...]
 #
-# The path is appended to $VAULT_API_URL. A leading "/" is optional.
+# The path is appended to $PROGRAM_CLERK_URL. A leading "/" is optional.
 #
 # Examples:
 #   vault-curl /vault/_index.md
@@ -15,9 +15,9 @@
 #   vault-curl /vault/topics/foo.md -X PUT -H 'Content-Type: text/markdown' --data-binary @foo.md
 #   vault-curl /search/simple/ -X POST -H 'Content-Type: application/json' -d '{"query":"docker"}'
 #
-# Environment:
-#   VAULT_API_URL   — base URL of the Obsidian Local REST API
-#   VAULT_API_TOKEN — bearer token
+# Environment (D141; the old VAULT_API_URL and VAULT_API_TOKEN are read when these are unset):
+#   PROGRAM_CLERK_URL — base URL of the server
+#   PROGRAM_CLERK_KEY — bearer token
 
 set -uCo pipefail
 
@@ -28,8 +28,14 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ -z "${VAULT_API_URL:-}" || -z "${VAULT_API_TOKEN:-}" ]]; then
-  echo "vault-curl: VAULT_API_URL and VAULT_API_TOKEN must be set" >&2
+url=${PROGRAM_CLERK_URL:-${VAULT_API_URL:-}}
+key=${PROGRAM_CLERK_KEY:-${VAULT_API_TOKEN:-}}
+missing=()
+[[ -n $url ]] || missing+=(PROGRAM_CLERK_URL)
+[[ -n $key ]] || missing+=(PROGRAM_CLERK_KEY)
+if ((${#missing[@]})); then
+  names=${missing[*]}
+  echo "vault-curl: set ${names// / and } (or the old VAULT_API_URL and VAULT_API_TOKEN)" >&2
   exit 1
 fi
 
@@ -42,7 +48,7 @@ path=$1
 shift
 
 # Normalize: strip trailing slash from base, ensure leading slash on path.
-base=${VAULT_API_URL%/}
+base=${url%/}
 [[ $path == /* ]] || path=/$path
 
 # Fail fast instead of hanging forever when the server is wedged (e.g. a stuck
@@ -50,4 +56,4 @@ base=${VAULT_API_URL%/}
 # so any caller can override per-call (--max-time 600 for a big reindex) or via
 # VAULT_CURL_MAX_TIME. See topics/zfs-failing-disk-wedges-the-host.
 exec curl --connect-timeout 5 --max-time "${VAULT_CURL_MAX_TIME:-120}" \
-  -H "Authorization: Bearer $VAULT_API_TOKEN" "$@" "$base$path"
+  -H "Authorization: Bearer $key" "$@" "$base$path"
