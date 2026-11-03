@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run-tests.sh — the global secret scan (dot_config/git/hooks/executable_pre-commit), as
 # pre-commit and through its symlinks as pre-applypatch (git am) and pre-merge-commit
-# (git merge).
+# (git merge), and the global pre-push (executable_pre-push).
 #
 # Runs git with an isolated HOME whose global config carries dot_gitconfig.tmpl's own
 # hooksPath line, so the tilde expansion is tested with the hook. Fake secrets are built
@@ -15,13 +15,15 @@ source_dir="$(readlink -f "$(dirname "$(readlink -f "$0")")/../..")"
 work=$(mktemp -d)
 trap 'cd / && command rm -rf "$work"' EXIT
 
-unset VAULT_API_TOKEN PROGRAM_CLERK_KEY
+unset VAULT_API_TOKEN PROGRAM_CLERK_KEY CLAUDECODE
 export HOME="$work/home"
 export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
 export GIT_CONFIG_NOSYSTEM=1
 mkdir -p "$HOME/.config/git/hooks"
-cp "$source_dir/dot_config/git/hooks/executable_pre-commit" "$HOME/.config/git/hooks/pre-commit"
-chmod +x "$HOME/.config/git/hooks/pre-commit"
+for name in pre-commit pre-push; do
+  cp "$source_dir/dot_config/git/hooks/executable_$name" "$HOME/.config/git/hooks/$name"
+  chmod +x "$HOME/.config/git/hooks/$name"
+done
 for link in "$source_dir"/dot_config/git/hooks/symlink_*; do
   [[ -e $link ]] || continue
   ln -s "$(<"$link")" "$HOME/.config/git/hooks/${link##*/symlink_}"
@@ -242,6 +244,56 @@ git reset -q --hard "$before"
 printf '#!/bin/sh\nexit 1\n' >.git/hooks/pre-merge-commit
 chmod +x .git/hooks/pre-merge-commit
 check 'the repository'"'"'s own pre-merge-commit still runs and can stop it' merge_stopped clean
+
+echo '=== pre-push ==='
+pre_push="$HOME/.config/git/hooks/pre-push"
+fresh_repo
+commit --allow-empty
+agent_stops() { ! CLAUDECODE=1 "$pre_push" origin "$1" </dev/null 2>|"$work/stderr"; }
+agent_passes() { CLAUDECODE=1 "$pre_push" origin "$1" </dev/null 2>|"$work/stderr"; }
+check 'an agent is stopped at an https remote' agent_stops https://github.com/owner/repo.git
+check 'and an ssh:// remote' agent_stops ssh://git@github.com/owner/repo.git
+check 'and a host:path remote' agent_stops git@github.com:owner/repo.git
+check 'and a host:path remote with no user' agent_stops github.com:owner/repo.git
+check 'and a name that only starts like a loopback host' agent_stops https://localhost.example.com/repo.git
+check 'the report says why' said 'pre-push: stopped'
+agent_stops 'https://user:secret-value@github.com/owner/repo.git'
+check 'and leaves out a URL that can carry a token' kept_quiet 'secret-value'
+check 'an agent passes to an absolute path' agent_passes /tmp/fixture/bare.git
+check 'and a relative path' agent_passes ../bare.git
+check 'and a bare name' agent_passes bare.git
+check 'and a path with a colon after a slash' agent_passes ./a:b.git
+check 'and file://' agent_passes file:///tmp/fixture/bare.git
+check 'and a loopback host' agent_passes http://127.0.0.1:3000/owner/repo.git
+check 'and a loopback host with a token' agent_passes http://x:y@localhost:3000/owner/repo.git
+check 'and git@localhost' agent_passes git@localhost:owner/repo.git
+check 'a person passes to a network remote' "$pre_push" origin https://github.com/owner/repo.git
+
+# A real push: git connects first and runs the hook after, so a network-shaped URL goes
+# through a fake ssh that serves a local bare repository.
+bare="$work/bare.git"
+git init -q --bare "$bare"
+printf '#!/bin/sh\nfor last; do :; done\nexec sh -c "$last"\n' >"$work/fake-ssh"
+chmod +x "$work/fake-ssh"
+export GIT_SSH_COMMAND="$work/fake-ssh" GIT_SSH_VARIANT=simple
+push() { git push -q "$@" 2>|"$work/stderr"; }
+pushed() { [[ $(git --git-dir="$bare" rev-parse -q --verify refs/heads/"$1" 2>/dev/null) == $(git rev-parse HEAD) ]]; }
+agent_push_stops() { ! CLAUDECODE=1 push "ssh://github.example.com$bare" HEAD:refs/heads/"$1"; }
+check 'git runs it: an agent'"'"'s real push to a network URL is stopped' agent_push_stops by-agent
+check 'with the hook'"'"'s report' said 'pre-push: stopped'
+check 'and nothing reached the remote' bash -c '! git --git-dir="$1" rev-parse -q --verify refs/heads/by-agent >/dev/null' _ "$bare"
+agent_script_stops() { ! CLAUDECODE=1 bash -c 'git push -q "$1" HEAD:refs/heads/by-script' _ "ssh://github.example.com$bare" 2>|"$work/stderr"; }
+check 'a script an agent runs is stopped too' agent_script_stops
+agent_local() { CLAUDECODE=1 push "$bare" HEAD:refs/heads/by-fixture; }
+check 'an agent'"'"'s real push to a local path lands' agent_local
+check 'on the remote' pushed by-fixture
+check 'a person'"'"'s real push to the same network URL lands' push "ssh://github.example.com$bare" HEAD:refs/heads/by-person
+check 'on the remote' pushed by-person
+printf '#!/bin/sh\nexit 1\n' >.git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+person_stopped() { ! push "$bare" HEAD:refs/heads/by-own-hook; }
+check 'the repository'"'"'s own pre-push still runs and can stop it' person_stopped
+unset GIT_SSH_COMMAND GIT_SSH_VARIANT
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

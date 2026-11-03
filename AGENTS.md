@@ -38,7 +38,8 @@ dotfiles/                              # chezmoi source directory
 │   ├── ghostty/
 │   ├── git/
 │   │   ├── hooks/pre-commit           # global secret scan (core.hooksPath), then the repo's own hook of the same name
-│   │   └── hooks/pre-applypatch, pre-merge-commit  # symlinks to pre-commit: git am and merge commits are scanned too
+│   │   ├── hooks/pre-applypatch, pre-merge-commit  # symlinks to pre-commit: git am and merge commits are scanned too
+│   │   └── hooks/pre-push             # stops an agent session's push to a network remote, then the repo's own hook of the same name
 │   ├── kitty/
 │   ├── micro/
 │   ├── nano/
@@ -100,7 +101,7 @@ dotfiles/                              # chezmoi source directory
 │   └── detect-packages.sh             # candidate tables (logical-cap → mgr:pkg tuples) for the resolver
 ├── tests/detect/                      # unit tests for the detection library
 ├── tests/dir-stack/                   # tests for zpush, zp, zpop, and zdirs from dot_bash_aliases (bash tests/dir-stack/run-tests.sh)
-├── tests/git-hooks/                   # tests for the secret scan on commit, git am, and merge (bash tests/git-hooks/run-tests.sh)
+├── tests/git-hooks/                   # tests for the secret scan on commit, git am, and merge, and for pre-push (bash tests/git-hooks/run-tests.sh)
 ├── tests/playbash/                    # tests for playbash's inventory and targets (bash tests/playbash/run-tests.sh)
 ├── private_dot_ssh/                   # → ~/.ssh/ (SSH config)
 ├── run_onchange_before_install-packages.sh.tmpl  # Package installation script

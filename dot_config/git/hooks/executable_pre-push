@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Global pre-push (core.hooksPath in ~/.gitconfig): stops a push to a network remote from an
+# agent's session, however the push starts (a typed command, a script, inline code), then
+# runs the repository's own hook of the same name, which a global core.hooksPath would
+# otherwise skip. A local path and a loopback host pass, since test suites push to fixtures.
+# It guards against accidents and is no sandbox: --no-verify or a cleared variable passes it.
+
+set -euCo pipefail
+
+hook=${0##*/}
+
+network() {
+  case $1 in
+    file://* | *://localhost[:/]* | *://127.0.0.1[:/]* | *@localhost[:/]* | *@127.0.0.1[:/]*) return 1 ;;
+  esac
+  # scheme://host or host:path; git reads a path when a slash comes before the first colon.
+  [[ $1 == *:* && ${1%%:*} != */* ]]
+}
+
+if [[ -n ${CLAUDECODE:-} ]] && network "${2:-}"; then
+  # The URL is left out: it can carry a token.
+  printf '%s: stopped, an agent session does not push to a network remote.\n' "$hook" >&2
+  exit 1
+fi
+
+own="$(git rev-parse --git-common-dir)/hooks/$hook"
+if [[ -x $own ]]; then
+  exec "$own" "$@"
+fi
