@@ -64,6 +64,7 @@ private_key="$begin OPENSSH PRIVATE KEY-----"
 aws_id="AKIA$(printf 'Q%.0s' {1..16})"
 github_token="ghp_$(printf 'a%.0s' {1..36})"
 named_key="vsk_$(printf 'A%.0s' {1..43})"
+pull_key="pcg_$(printf 'P%.0s' {1..43})"
 account_key="pck_$(printf 'a%.0s' {1..8})_$(printf 'b%.0s' {1..30})"
 operator_token=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
 
@@ -106,6 +107,10 @@ fresh_repo
 printf 'key: %s\n' "$named_key" >named.txt
 git add named.txt
 check 'a Program Clerk named key stops it' stopped
+fresh_repo
+printf 'key: %s\n' "$pull_key" >pull.txt
+git add pull.txt
+check 'a Program Clerk pull key stops it' stopped
 fresh_repo
 printf 'key: %s\n' "$account_key" >account.txt
 git add account.txt

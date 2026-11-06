@@ -19,6 +19,7 @@ patterns=(
   'sk-ant-[A-Za-z0-9_-]{20,}'
   'sk-or-v1-[0-9a-f]{64}'
   'vsk_[A-Za-z0-9_-]{43}'
+  'pcg_[A-Za-z0-9_-]{43}'
   '[a-z]{3,5}_[1-9A-HJ-NP-Za-km-z]{8}_[1-9A-HJ-NP-Za-km-z]{30}'
 )
 regex=$(
