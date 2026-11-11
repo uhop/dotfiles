@@ -9,6 +9,11 @@
 #
 # The path is appended to $PROGRAM_CLERK_URL. A leading "/" is optional.
 #
+# A 429 that names its Retry-After (the pool's limit on an account's rate,
+# vault-storage 7z) applied nothing, so the request is sent again after that
+# wait, for five minutes in all; each try's output is held until it is the
+# last. A request that reads stdin, or names its own -D, goes once.
+#
 # Examples:
 #   vault-curl /vault/_index.md
 #   vault-curl /vault/logs/ -s
@@ -54,5 +59,45 @@ base=${url%/}
 # Fail fast instead of hanging when the server stops answering. Defaults sit
 # before "$@" so any caller can override per-call (--max-time 600 for a big
 # reindex) or via VAULT_CURL_MAX_TIME.
-exec curl --connect-timeout 5 --max-time "${VAULT_CURL_MAX_TIME:-120}" \
-  -H "Authorization: Bearer $key" "$@" "$base$path"
+send=(curl --connect-timeout 5 --max-time "${VAULT_CURL_MAX_TIME:-120}"
+  -H "Authorization: Bearer $key")
+
+# Stdin is read once, so a request that reads it is never sent again.
+prev=
+for arg in "$@"; do
+  case $arg in
+    *@- | *@/dev/stdin | -T- | -K-) exec "${send[@]}" "$@" "$base$path" ;;
+  esac
+  if [[ $arg =~ ^(-|/dev/stdin)$ && $prev =~ ^(-T|--upload-file|-K|--config)$ ]]; then
+    exec "${send[@]}" "$@" "$base$path"
+  fi
+  prev=$arg
+done
+
+work=$(mktemp -d) || exit 1
+trap 'rm -rf -- "$work"' EXIT
+waited=0
+while :; do
+  # A try that fails before any answer writes no headers, so none of the last try's are read.
+  rm -f -- "${work:?}/head"
+  # Our -D sits before "$@": a caller's own wins, and with no headers to read its request goes once.
+  "${send[@]}" -D "$work/head" "$@" "$base$path" >|"$work/out" 2>|"$work/err"
+  code=$?
+  status=
+  after=
+  if [[ -s $work/head ]]; then
+    # The last block's: a 100 Continue or a redirect comes before the final answer.
+    read -r status after < <(awk '/^HTTP\//{s=$2; a=""} tolower($1)=="retry-after:"{a=$2}
+      END{sub(/\r$/, "", a); print s, a}' "$work/head")
+  fi
+  left=$((300 - waited))
+  if [[ $status == 429 && $after =~ ^[1-9][0-9]*$ ]] && ((left > 0)); then
+    ((after < left)) || after=$left
+    sleep "$after"
+    ((waited += after))
+    continue
+  fi
+  cat -- "$work/out"
+  cat -- "$work/err" >&2
+  exit "$code"
+done
