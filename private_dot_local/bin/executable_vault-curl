@@ -11,8 +11,16 @@
 #
 # A 429 that names its Retry-After (the pool's limit on an account's rate,
 # vault-storage 7z) applied nothing, so the request is sent again after that
-# wait, for five minutes in all; each try's output is held until it is the
-# last. A request that reads stdin, or names its own -D, goes once.
+# wait, for five minutes in all. An outage is waited out too (vault-storage
+# 7as-2, D751): a connection never made, or a 503 that applied nothing (one
+# naming tenant_unavailable, verification_unavailable, or writes_paused, or
+# the balancer's own, which is not JSON), is sent again whatever the method; a
+# read also after a 502, a 503, a 504, a timeout, or a dropped connection. The
+# waits grow from 250 ms to 16 s, each at least the answer's Retry-After, for
+# two minutes from the first failure (VAULT_CURL_OUTAGE_S); once a call has
+# waited that out, later calls try once until one gets another answer. Each
+# try's output is held until it is the last. A request that reads stdin, or
+# names its own -D, goes once.
 #
 # Examples:
 #   vault-curl /vault/_index.md
@@ -23,6 +31,7 @@
 # Environment (the old VAULT_API_URL and VAULT_API_TOKEN are read when these are unset):
 #   PROGRAM_CLERK_URL — base URL of the server
 #   PROGRAM_CLERK_KEY — bearer token
+#   VAULT_CURL_OUTAGE_S — how long an outage is waited out, in seconds (120)
 
 set -uCo pipefail
 
@@ -62,21 +71,30 @@ base=${url%/}
 send=(curl --connect-timeout 5 --max-time "${VAULT_CURL_MAX_TIME:-120}"
   -H "Authorization: Bearer $key")
 
-# Stdin is read once, so a request that reads it is never sent again.
+# Stdin is read once, so a request that reads it is never sent again. A request
+# that sends no body and names no method but GET or HEAD only reads.
+read_only=1
 prev=
 for arg in "$@"; do
   case $arg in
     *@- | *@/dev/stdin | -T- | -K-) exec "${send[@]}" "$@" "$base$path" ;;
+    -d | --data | --data-* | -F | --form | -T | --upload-file) read_only=0 ;;
   esac
   if [[ $arg =~ ^(-|/dev/stdin)$ && $prev =~ ^(-T|--upload-file|-K|--config)$ ]]; then
     exec "${send[@]}" "$@" "$base$path"
   fi
+  if [[ ($prev == -X || $prev == --request) && ! $arg =~ ^(GET|HEAD)$ ]]; then read_only=0; fi
   prev=$arg
 done
 
 work=$(mktemp -d) || exit 1
 trap 'rm -rf -- "$work"' EXIT
+outage=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/vault-curl-outage-$UID
+outage_s=${VAULT_CURL_OUTAGE_S:-120}
+steps=(250 500 1000 2000 4000 8000 16000)
 waited=0
+first=
+step=0
 while :; do
   # A try that fails before any answer writes no headers, so none of the last try's are read.
   rm -f -- "${work:?}/head"
@@ -85,10 +103,13 @@ while :; do
   code=$?
   status=
   after=
+  type=
   if [[ -s $work/head ]]; then
     # The last block's: a 100 Continue or a redirect comes before the final answer.
-    read -r status after < <(awk '/^HTTP\//{s=$2; a=""} tolower($1)=="retry-after:"{a=$2}
-      END{sub(/\r$/, "", a); print s, a}' "$work/head")
+    read -r status after type < <(awk '/^HTTP\//{s=$2; a="-"; t="-"}
+      tolower($1)=="retry-after:"{a=$2} tolower($1)=="content-type:"{t=$2}
+      END{sub(/\r$/, "", a); sub(/\r$/, "", t); sub(/;$/, "", t); print s, a, t}' "$work/head")
+    [[ $after != - ]] || after=
   fi
   left=$((300 - waited))
   if [[ $status == 429 && $after =~ ^[1-9][0-9]*$ ]] && ((left > 0)); then
@@ -96,6 +117,30 @@ while :; do
     sleep "$after"
     ((waited += after))
     continue
+  fi
+  repeat=0
+  if ((code == 7)); then
+    repeat=1
+  elif [[ $status == 503 ]] && { [[ $type != application/*json ]] ||
+    grep -Eq '"code" *: *"(tenant_unavailable|verification_unavailable|writes_paused)"' "$work/out"; }; then
+    repeat=1
+  elif ((read_only)) && [[ $code =~ ^(28|52|55|56)$ || $status =~ ^50[234]$ ]]; then
+    repeat=1
+  fi
+  if ((repeat)) && [[ -n $first || ! -e $outage ]]; then
+    [[ -n $first ]] || first=$SECONDS
+    left=$((outage_s - (SECONDS - first)))
+    if ((left > 0)); then
+      ms=${steps[step < ${#steps[@]} ? step : ${#steps[@]} - 1]}
+      [[ ! $after =~ ^[1-9][0-9]*$ ]] || ((after * 1000 <= ms)) || ms=$((after * 1000))
+      ((ms <= left * 1000)) || ms=$((left * 1000))
+      sleep "$((ms / 1000)).$(printf '%03d' $((ms % 1000)))"
+      ((++step))
+      continue
+    fi
+    : >|"$outage"
+  elif ((!repeat)) && [[ -n $status ]]; then
+    rm -f -- "$outage"
   fi
   cat -- "$work/out"
   cat -- "$work/err" >&2

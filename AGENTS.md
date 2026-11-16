@@ -103,6 +103,7 @@ dotfiles/                              # chezmoi source directory
 ├── tests/dir-stack/                   # tests for zpush, zp, zpop, and zdirs from dot_bash_aliases (bash tests/dir-stack/run-tests.sh)
 ├── tests/git-hooks/                   # tests for the secret scan on commit, git am, and merge, and for pre-push (bash tests/git-hooks/run-tests.sh)
 ├── tests/playbash/                    # tests for playbash's inventory and targets (bash tests/playbash/run-tests.sh)
+├── tests/vault-curl/                  # tests for vault-curl's waits on a 429 and an outage (bash tests/vault-curl/run-tests.sh)
 ├── private_dot_ssh/                   # → ~/.ssh/ (SSH config)
 ├── run_onchange_before_install-packages.sh.tmpl  # Package installation script
 └── run_once_after_install-vim.sh      # Vim setup
