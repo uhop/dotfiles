@@ -17,8 +17,10 @@
 # the balancer's own, which is not JSON), is sent again whatever the method; a
 # read also after a 502, a 503, a 504, a timeout, or a dropped connection. The
 # waits grow from 250 ms to 16 s, each at least the answer's Retry-After, for
-# two minutes from the first failure (VAULT_CURL_OUTAGE_S); once a call has
-# waited that out, later calls try once until one gets another answer. Each
+# 90 s from the first failure (VAULT_CURL_OUTAGE_S), under an agent's 120 s
+# command limit (question 430). The first failure marks the outage in a file,
+# so a call that starts while it is marked tries once until one gets another
+# answer, and only an outage's first call waits. Each
 # try's output is held until it is the last. A request that reads stdin, or
 # names its own -D, goes once.
 #
@@ -31,7 +33,7 @@
 # Environment (the old VAULT_API_URL and VAULT_API_TOKEN are read when these are unset):
 #   PROGRAM_CLERK_URL — base URL of the server
 #   PROGRAM_CLERK_KEY — bearer token
-#   VAULT_CURL_OUTAGE_S — how long an outage is waited out, in seconds (120)
+#   VAULT_CURL_OUTAGE_S — how long an outage is waited out, in seconds (90)
 
 set -uCo pipefail
 
@@ -90,7 +92,7 @@ done
 work=$(mktemp -d) || exit 1
 trap 'rm -rf -- "$work"' EXIT
 outage=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/vault-curl-outage-$UID
-outage_s=${VAULT_CURL_OUTAGE_S:-120}
+outage_s=${VAULT_CURL_OUTAGE_S:-90}
 steps=(250 500 1000 2000 4000 8000 16000)
 waited=0
 first=
@@ -128,7 +130,10 @@ while :; do
     repeat=1
   fi
   if ((repeat)) && [[ -n $first || ! -e $outage ]]; then
-    [[ -n $first ]] || first=$SECONDS
+    if [[ -z $first ]]; then
+      first=$SECONDS
+      : >|"$outage"
+    fi
     left=$((outage_s - (SECONDS - first)))
     if ((left > 0)); then
       ms=${steps[step < ${#steps[@]} ? step : ${#steps[@]} - 1]}
@@ -138,7 +143,6 @@ while :; do
       ((++step))
       continue
     fi
-    : >|"$outage"
   elif ((!repeat)) && [[ -n $status ]]; then
     rm -f -- "$outage"
   fi

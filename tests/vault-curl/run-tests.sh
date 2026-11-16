@@ -102,6 +102,13 @@ start=$SECONDS
 vc /rate -s >/dev/null
 [[ $(count /rate) -eq 2 && $((SECONDS - start)) -ge 1 ]] && ok || bad "a 429 still waits its Retry-After (sent=$(count /rate))"
 
+VAULT_CURL_OUTAGE_S=2 PROGRAM_CLERK_URL=http://127.0.0.1:9 vc /x -s >/dev/null &
+waiting=$!
+sleep 0.5
+[[ -e $marker ]] && ok || bad "the outage is marked at its first failure, while the first call still waits"
+wait "$waiting"
+rm -f -- "$marker"
+
 # SECONDS counts whole seconds, so a window of N runs between N - 1 and N.
 start=$(date +%s%N)
 VAULT_CURL_OUTAGE_S=2 PROGRAM_CLERK_URL=http://127.0.0.1:9 vc /x -s -X POST -d '{}' >/dev/null
