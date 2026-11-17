@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Refresh ~/.claude/ from ~/Open/claude-config (git pull --ff-only +
-# install.mjs --apply). Skips silently if the repo isn't checked out —
+# install.mjs --apply), then the Program Clerk plugin that its settings.json
+# enables (vault-storage D762). Skips silently if the repo isn't checked out —
 # bootstrap is a one-time per-host operation.
 #
 # --ff-only fails fast if local commits diverge from origin: clear
@@ -18,3 +19,15 @@ fi
 
 git -C "$REPO" pull --ff-only
 node "$REPO/install.mjs" --apply
+
+# The marketplace known, refreshed, and the plugin installed and at its version. Each command
+# leaves settings.json, a file of the checkout, as it is; a plugin moves only when its manifest's
+# version does.
+if command -v claude >/dev/null 2>&1; then
+  claude plugin marketplace add apodictum/program-clerk >/dev/null
+  claude plugin marketplace update program-clerk
+  claude plugin install program-clerk@program-clerk >/dev/null
+  claude plugin update program-clerk@program-clerk
+else
+  echo "claude-config: no claude command — the Program Clerk plugin is not installed here"
+fi
