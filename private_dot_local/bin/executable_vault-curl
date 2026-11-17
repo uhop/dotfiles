@@ -17,12 +17,13 @@
 # the balancer's own, which is not JSON), is sent again whatever the method; a
 # read also after a 502, a 503, a 504, a timeout, or a dropped connection. The
 # waits grow from 250 ms to 16 s, each at least the answer's Retry-After, for
-# 90 s from the first failure (VAULT_CURL_OUTAGE_S), under an agent's 120 s
-# command limit (question 430). The first failure marks the outage in a file,
-# so a call that starts while it is marked tries once until one gets another
-# answer, and only an outage's first call waits. Each
-# try's output is held until it is the last. A request that reads stdin, or
-# names its own -D, goes once.
+# 90 s from the outage's first failure (VAULT_CURL_OUTAGE_S), under an agent's
+# 120 s command limit (question 430). The first failure writes its time to a
+# file, and every call that meets the outage waits until that time plus the
+# window, so the calls in a short restart all recover; past it, a call tries
+# once until one gets another answer (question 431). Each try's output is held
+# until it is the last. A request that reads stdin, or names its own -D, goes
+# once.
 #
 # Examples:
 #   vault-curl /vault/_index.md
@@ -95,7 +96,7 @@ outage=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/vault-curl-outage-$UID
 outage_s=${VAULT_CURL_OUTAGE_S:-90}
 steps=(250 500 1000 2000 4000 8000 16000)
 waited=0
-first=
+deadline=
 step=0
 while :; do
   # A try that fails before any answer writes no headers, so none of the last try's are read.
@@ -129,12 +130,17 @@ while :; do
   elif ((read_only)) && [[ $code =~ ^(28|52|55|56)$ || $status =~ ^50[234]$ ]]; then
     repeat=1
   fi
-  if ((repeat)) && [[ -n $first || ! -e $outage ]]; then
-    if [[ -z $first ]]; then
-      first=$SECONDS
-      : >|"$outage"
+  if ((repeat)); then
+    if [[ -z $deadline ]]; then
+      since=$(date +%s)
+      # noclobber (set -C): only the outage's first failure writes its time.
+      if ! { printf '%s\n' "$since" >"$outage"; } 2>/dev/null; then
+        read -r mark <"$outage" 2>/dev/null || mark=
+        [[ ! $mark =~ ^[0-9]+$ ]] || since=$mark
+      fi
+      deadline=$((since + outage_s))
     fi
-    left=$((outage_s - (SECONDS - first)))
+    left=$((deadline - $(date +%s)))
     if ((left > 0)); then
       ms=${steps[step < ${#steps[@]} ? step : ${#steps[@]} - 1]}
       [[ ! $after =~ ^[1-9][0-9]*$ ]] || ((after * 1000 <= ms)) || ms=$((after * 1000))
@@ -143,7 +149,7 @@ while :; do
       ((++step))
       continue
     fi
-  elif ((!repeat)) && [[ -n $status ]]; then
+  elif [[ -n $status ]]; then
     rm -f -- "$outage"
   fi
   cat -- "$work/out"

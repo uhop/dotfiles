@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run-tests.sh — vault-curl's waits: a 429's, and an outage's (vault-storage 7as-2, D751).
+# run-tests.sh — vault-curl's waits: a 429's, and an outage's (vault-storage 7as-2, D751, D755).
 #
 # A local server answers each path from a script of answers, the last one repeated, and logs every
 # request; "503:tenant_unavailable" is a 503 whose JSON body names that code, "503:html" the
@@ -59,7 +59,8 @@ scripts='{
   "/w-hidden": ["503:tenant_unavailable", "200"],
   "/r-maybe": ["503:database_unavailable", "200"],
   "/r-gateway": ["502", "200"],
-  "/rate": ["429:too_many_requests:1", "200"]
+  "/rate": ["429:too_many_requests:1", "200"],
+  "/c-joins": ["503:tenant_unavailable", "200"]
 }'
 node "$work/server.mjs" "$work/requests" "$scripts" >"$work/port" 2>/dev/null &
 server=$!
@@ -106,20 +107,26 @@ VAULT_CURL_OUTAGE_S=2 PROGRAM_CLERK_URL=http://127.0.0.1:9 vc /x -s >/dev/null &
 waiting=$!
 sleep 0.5
 [[ -e $marker ]] && ok || bad "the outage is marked at its first failure, while the first call still waits"
+read -r since <"$marker"
+[[ $since =~ ^[0-9]+$ ]] && ok || bad "the mark holds the first failure's time (since=$since)"
+out=$(vc /c-joins -s -X POST -d '{}')
+[[ $out == '{"ok":true}' && $(count /c-joins) -eq 2 ]] && ok ||
+  bad "a call that meets the marked outage waits it out too (out=$out sent=$(count /c-joins))"
 wait "$waiting"
 rm -f -- "$marker"
 
-# SECONDS counts whole seconds, so a window of N runs between N - 1 and N.
+# The deadline is in whole seconds, so a window of N runs between N - 1 and N.
 start=$(date +%s%N)
 VAULT_CURL_OUTAGE_S=2 PROGRAM_CLERK_URL=http://127.0.0.1:9 vc /x -s -X POST -d '{}' >/dev/null
 rc=$?
 took=$((($(date +%s%N) - start) / 1000000))
 [[ $rc -eq 7 && -e $marker && $took -ge 1000 ]] && ok ||
   bad "a refused write waits out the window, then fails and is remembered (rc=$rc took=${took}ms)"
+printf '%s\n' "$(($(date +%s) - 90))" >"$marker"
 start=$(date +%s%N)
 PROGRAM_CLERK_URL=http://127.0.0.1:9 vc /x -s >/dev/null
 took=$((($(date +%s%N) - start) / 1000000))
-[[ $took -lt 500 ]] && ok || bad "while remembered, a call tries once (took=${took}ms)"
+[[ $took -lt 500 ]] && ok || bad "past the outage's deadline, a call tries once (took=${took}ms)"
 vc /r-gateway -s >/dev/null
 [[ ! -e $marker ]] && ok || bad "an answer ends the outage"
 
