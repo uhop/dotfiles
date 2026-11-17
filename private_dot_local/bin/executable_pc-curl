@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# vault-curl — curl wrapper for the vault-storage REST API (Obsidian-compatible).
+# pc-curl — curl wrapper for Program Clerk's REST API (vault-storage D757; the
+# old name, vault-curl, is a link to it).
 #
-# Prepends the Authorization header and the vault base URL to the given path,
+# Prepends the Authorization header and the server's base URL to the given path,
 # then passes the remaining options through to curl. All flags are curl's.
 #
 # Usage:
-#   vault-curl <path> [curl-options...]
+#   pc-curl <path> [curl-options...]
 #
 # The path is appended to $PROGRAM_CLERK_URL. A leading "/" is optional.
 #
@@ -17,7 +18,7 @@
 # the balancer's own, which is not JSON), is sent again whatever the method; a
 # read also after a 502, a 503, a 504, a timeout, or a dropped connection. The
 # waits grow from 250 ms to 16 s, each at least the answer's Retry-After, for
-# 90 s from the outage's first failure (VAULT_CURL_OUTAGE_S), under an agent's
+# 90 s from the outage's first failure (PC_CURL_OUTAGE_S), under an agent's
 # 120 s command limit (question 430). The first failure writes its time to a
 # file, and every call that meets the outage waits until that time plus the
 # window, so the calls in a short restart all recover; past it, a call tries
@@ -26,22 +27,22 @@
 # once.
 #
 # Examples:
-#   vault-curl /vault/_index.md
-#   vault-curl /vault/logs/ -s
-#   vault-curl /vault/topics/foo.md -X PUT -H 'Content-Type: text/markdown' --data-binary @foo.md
-#   vault-curl /search/simple/ -X POST -H 'Content-Type: application/json' -d '{"query":"docker"}'
+#   pc-curl /vault/_index.md
+#   pc-curl /vault/logs/ -s
+#   pc-curl /vault/topics/foo.md -X PUT -H 'Content-Type: text/markdown' --data-binary @foo.md
+#   pc-curl /search/simple/ -X POST -H 'Content-Type: application/json' -d '{"query":"docker"}'
 #
 # Environment (the old VAULT_API_URL and VAULT_API_TOKEN are read when these are unset):
 #   PROGRAM_CLERK_URL — base URL of the server
 #   PROGRAM_CLERK_KEY — bearer token
-#   VAULT_CURL_OUTAGE_S — how long an outage is waited out, in seconds (90)
+#   PC_CURL_OUTAGE_S — how long an outage is waited out, in seconds (90)
 
 set -uCo pipefail
 
-# Hard dependency. Inline (no bootstrap.sh source — vault-curl stays slim
+# Hard dependency. Inline (no bootstrap.sh source — pc-curl stays slim
 # so it's cheap to invoke from scripts, hooks, or one-liners).
 if ! command -v curl >/dev/null 2>&1; then
-  echo "vault-curl: curl is required but is not installed" >&2
+  echo "pc-curl: curl is required but is not installed" >&2
   exit 1
 fi
 
@@ -52,12 +53,12 @@ missing=()
 [[ -n $key ]] || missing+=(PROGRAM_CLERK_KEY)
 if ((${#missing[@]})); then
   names=${missing[*]}
-  echo "vault-curl: set ${names// / and } (or the old VAULT_API_URL and VAULT_API_TOKEN)" >&2
+  echo "pc-curl: set ${names// / and } (or the old VAULT_API_URL and VAULT_API_TOKEN)" >&2
   exit 1
 fi
 
 if [ $# -lt 1 ]; then
-  echo "usage: vault-curl <path> [curl-options...]" >&2
+  echo "usage: pc-curl <path> [curl-options...]" >&2
   exit 1
 fi
 
@@ -70,8 +71,8 @@ base=${url%/}
 
 # Fail fast instead of hanging when the server stops answering. Defaults sit
 # before "$@" so any caller can override per-call (--max-time 600 for a big
-# reindex) or via VAULT_CURL_MAX_TIME.
-send=(curl --connect-timeout 5 --max-time "${VAULT_CURL_MAX_TIME:-120}"
+# reindex) or via PC_CURL_MAX_TIME.
+send=(curl --connect-timeout 5 --max-time "${PC_CURL_MAX_TIME:-120}"
   -H "Authorization: Bearer $key")
 
 # Stdin is read once, so a request that reads it is never sent again. A request
@@ -92,8 +93,8 @@ done
 
 work=$(mktemp -d) || exit 1
 trap 'rm -rf -- "$work"' EXIT
-outage=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/vault-curl-outage-$UID
-outage_s=${VAULT_CURL_OUTAGE_S:-90}
+outage=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/pc-curl-outage-$UID
+outage_s=${PC_CURL_OUTAGE_S:-90}
 steps=(250 500 1000 2000 4000 8000 16000)
 waited=0
 deadline=

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run-tests.sh — vault-curl's waits: a 429's, and an outage's (vault-storage 7as-2, D751, D755).
+# run-tests.sh — pc-curl's waits: a 429's, and an outage's (vault-storage 7as-2, D751, D755).
 #
 # A local server answers each path from a script of answers, the last one repeated, and logs every
 # request; "503:tenant_unavailable" is a 503 whose JSON body names that code, "503:html" the
@@ -10,7 +10,7 @@
 set -uo pipefail
 
 source_dir="$(readlink -f "$(dirname "$(readlink -f "$0")")/../..")"
-vault_curl="$source_dir/private_dot_local/bin/executable_vault-curl"
+pc_curl="$source_dir/private_dot_local/bin/executable_pc-curl"
 command -v node >/dev/null || {
   echo "node required" >&2
   exit 1
@@ -72,9 +72,9 @@ done
 export PROGRAM_CLERK_URL="http://127.0.0.1:$(cat "$work/port")" PROGRAM_CLERK_KEY=test-key
 export XDG_RUNTIME_DIR="$work/run"
 command mkdir -p "$XDG_RUNTIME_DIR"
-marker="$XDG_RUNTIME_DIR/vault-curl-outage-$UID"
+marker="$XDG_RUNTIME_DIR/pc-curl-outage-$UID"
 count() { grep -c " $1\$" "$work/requests" 2>/dev/null || echo 0; }
-vc() { bash "$vault_curl" "$@"; }
+vc() { bash "$pc_curl" "$@"; }
 
 out=$(vc /w-unreached -s -X POST -d '{}')
 rc=$?
@@ -103,7 +103,7 @@ start=$SECONDS
 vc /rate -s >/dev/null
 [[ $(count /rate) -eq 2 && $((SECONDS - start)) -ge 1 ]] && ok || bad "a 429 still waits its Retry-After (sent=$(count /rate))"
 
-VAULT_CURL_OUTAGE_S=2 PROGRAM_CLERK_URL=http://127.0.0.1:9 vc /x -s >/dev/null &
+PC_CURL_OUTAGE_S=2 PROGRAM_CLERK_URL=http://127.0.0.1:9 vc /x -s >/dev/null &
 waiting=$!
 sleep 0.5
 [[ -e $marker ]] && ok || bad "the outage is marked at its first failure, while the first call still waits"
@@ -117,7 +117,7 @@ rm -f -- "$marker"
 
 # The deadline is in whole seconds, so a window of N runs between N - 1 and N.
 start=$(date +%s%N)
-VAULT_CURL_OUTAGE_S=2 PROGRAM_CLERK_URL=http://127.0.0.1:9 vc /x -s -X POST -d '{}' >/dev/null
+PC_CURL_OUTAGE_S=2 PROGRAM_CLERK_URL=http://127.0.0.1:9 vc /x -s -X POST -d '{}' >/dev/null
 rc=$?
 took=$((($(date +%s%N) - start) / 1000000))
 [[ $rc -eq 7 && -e $marker && $took -ge 1000 ]] && ok ||
