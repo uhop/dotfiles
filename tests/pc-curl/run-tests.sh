@@ -52,6 +52,9 @@ server.listen(0, '127.0.0.1', () => process.stdout.write(`${server.address().por
 EOF
 scripts='{
   "/w-unreached": ["503:tenant_unavailable", "200"],
+  "/w-unverified": ["503:verification_unavailable", "200"],
+  "/w-paused": ["503:writes_paused", "200"],
+  "/w-busy": ["503:data_busy", "200"],
   "/w-maybe": ["503:database_unavailable", "200"],
   "/w-balancer": ["503:html", "200"],
   "/w-gateway": ["502", "200"],
@@ -80,6 +83,10 @@ out=$(vc /w-unreached -s -X POST -d '{}')
 rc=$?
 [[ $rc -eq 0 && $out == '{"ok":true}' && $(count /w-unreached) -eq 2 ]] && ok ||
   bad "a write refused with a code that applied nothing goes again (rc=$rc out=$out sent=$(count /w-unreached))"
+for path in /w-unverified /w-paused /w-busy; do
+  vc "$path" -s -X POST -d '{}' >/dev/null
+  [[ $(count "$path") -eq 2 ]] && ok || bad "$path: it applied nothing, so a write goes again (sent=$(count "$path"))"
+done
 out=$(vc /w-maybe -s -X POST -d '{}')
 [[ $(count /w-maybe) -eq 1 && $out == *database_unavailable* ]] && ok ||
   bad "a write that may have applied is answered at once (sent=$(count /w-maybe))"

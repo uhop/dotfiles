@@ -14,8 +14,8 @@
 # vault-storage 7z) applied nothing, so the request is sent again after that
 # wait, for five minutes in all. An outage is waited out too (vault-storage
 # 7as-2, D751): a connection never made, or a 503 that applied nothing (one
-# naming tenant_unavailable, verification_unavailable, or writes_paused, or
-# the balancer's own, which is not JSON), is sent again whatever the method; a
+# naming tenant_unavailable, verification_unavailable, writes_paused, or
+# data_busy, or the balancer's own, which is not JSON), is sent again whatever the method; a
 # read also after a 502, a 503, a 504, a timeout, or a dropped connection. The
 # waits grow from 250 ms to 16 s, each at least the answer's Retry-After, for
 # 90 s from the outage's first failure (PC_CURL_OUTAGE_S), under an agent's
@@ -126,7 +126,7 @@ while :; do
   if ((code == 7)); then
     repeat=1
   elif [[ $status == 503 ]] && { [[ $type != application/*json ]] ||
-    grep -Eq '"code" *: *"(tenant_unavailable|verification_unavailable|writes_paused)"' "$work/out"; }; then
+    grep -Eq '"code" *: *"(tenant_unavailable|verification_unavailable|writes_paused|data_busy)"' "$work/out"; }; then
     repeat=1
   elif ((read_only)) && [[ $code =~ ^(28|52|55|56)$ || $status =~ ^50[234]$ ]]; then
     repeat=1
